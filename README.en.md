@@ -11,7 +11,7 @@ A local-first macOS inventory with a 3D apartment and nested storage.
 ![macOS](https://img.shields.io/badge/macOS-13%2B-222b3e)
 [![MIT](https://img.shields.io/badge/license-MIT-75aa8b)](LICENSE)
 
-[Download for Mac](https://github.com/provalny/my-home/releases/latest) · [Русский](README.md) · [Feedback](https://github.com/provalny/my-home/issues)
+[Download for Mac](https://github.com/provalny/my-home/releases/latest/download/MyHome.dmg) · [Русский](README.md) · [Feedback](https://github.com/provalny/my-home/issues)
 
 ![Apartment and storage](docs/images/apartment.png)
 
@@ -21,7 +21,7 @@ Keep track of what you own, where it belongs and what it is worth. Follow an add
 
 ## Install
 
-1. Open the [latest release](https://github.com/provalny/my-home/releases/latest) and download **MyHome-….dmg**.
+1. Download [**MyHome.dmg**](https://github.com/provalny/my-home/releases/latest/download/MyHome.dmg).
 2. Open the DMG and drag **Мой дом** into **Applications**.
 3. Launch the app and explore the sample apartment. Use the setup wizard to start your own home.
 

@@ -11,7 +11,7 @@
 ![macOS](https://img.shields.io/badge/macOS-13%2B-222b3e)
 [![MIT](https://img.shields.io/badge/license-MIT-75aa8b)](LICENSE)
 
-[Скачать для Mac](https://github.com/provalny/my-home/releases/latest) · [English](README.en.md) · [Предложить улучшение](https://github.com/provalny/my-home/issues)
+[Скачать для Mac](https://github.com/provalny/my-home/releases/latest/download/MyHome.dmg) · [English](README.en.md) · [Предложить улучшение](https://github.com/provalny/my-home/issues)
 
 ![Квартира и хранение в «Мой дом»](docs/images/apartment.png)
 
@@ -21,7 +21,7 @@
 
 ## Установка
 
-1. Откройте [последний релиз](https://github.com/provalny/my-home/releases/latest) и скачайте **MyHome-….dmg**.
+1. Скачайте [**MyHome.dmg**](https://github.com/provalny/my-home/releases/latest/download/MyHome.dmg).
 2. Откройте DMG и перетащите **«Мой дом»** в **Applications / «Программы»**.
 3. Запустите приложение. При первом запуске доступна демонстрационная квартира; мастер «Настроить свою квартиру» поможет начать свою.
 
