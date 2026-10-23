@@ -90,6 +90,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     acs.set(cfg.id, unit);
     scene.add(unit.group);
   }
+  // Inventory keeps lamps and ACs as scenery; only rooms and furniture are interactive.
   const hitTargets = config.inventoryPicking ? [...furnitureHits, ...house.floors]
     : [...[...lights.values()].map((u) => u.hit), ...[...acs.values()].map((u) => u.hit), ...house.floors];
 

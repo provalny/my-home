@@ -24,6 +24,8 @@ const KEYS = { room: 'rooms', light: 'lights', ac: 'acs', furniture: 'furniture'
 const TITLES = { room: 'Комнаты', light: 'Свет', ac: 'Кондиционеры', furniture: 'Мебель', opening: 'Двери и окна', scene: 'Сцены' };
 const FLOOR_FILL = { oak: '#4a3d2e', walnut: '#3c2f28', tile: '#39424b', stone: '#30353c' };
 const WALLS = ['north', 'east', 'south', 'west'];
+const WALL_NAMES = { north: 'Северная', east: 'Восточная', south: 'Южная', west: 'Западная' };
+const LIGHT_NAMES = { ceiling: 'Потолочный', pendant: 'Подвесной', spots: 'Споты', floor: 'Торшер', table: 'Настольный', strip: 'Светодиодная лента' };
 const SCENE_ICONS = ['sun', 'sofa', 'film', 'moon', 'door', 'table', 'bed', 'tv', 'sparkles'];
 const REGIONS = [
   ['eu', 'Central Europe'], ['eu-w', 'Western Europe'], ['us', 'Western America'], ['us-e', 'Eastern America'],
@@ -171,7 +173,7 @@ export async function bootEditor(root, options = {}) {
   function previewStore(cfg) {
     const state = { lights: {}, acs: {} };
     for (const l of cfg.lights) state.lights[l.id] = { on: previewLights, brightness: 0.85, temp: 3200, color: l.color || null };
-    for (const a of cfg.acs) state.acs[a.id] = { on: previewLights, mode: 'cool', fan: 'auto', swing: 'swing', sleep: false, target: 23 };
+    for (const a of cfg.acs) state.acs[a.id] = { on: inventory ? false : previewLights, mode: 'cool', fan: 'auto', swing: 'swing', sleep: false, target: 23 };
     return { state, on: () => () => {} };
   }
 
@@ -211,8 +213,8 @@ export async function bootEditor(root, options = {}) {
 
   function rowLabel(kind, item) {
     if (kind === 'room') return [item.name || item.id, `${fix(item.rect[2])} × ${fix(item.rect[3])} m`];
-    if (kind === 'light') return [item.name || item.id, `${roomName(item.room)} · ${item.type}`];
-    if (kind === 'ac') return [item.name || item.id, `${roomName(item.room)} · ${item.wall} wall`];
+    if (kind === 'light') return [item.name || item.id, `${roomName(item.room)} · ${LIGHT_NAMES[item.type] || item.type}`];
+    if (kind === 'ac') return [item.name || item.id, `${roomName(item.room)} · ${WALL_NAMES[item.wall] || item.wall}`];
     if (kind === 'furniture') return [FURNITURE_NAMES[item.type] || item.type, roomName(roomAt(item.pos)?.id) || '—'];
     if (kind === 'opening') return [item.type || 'door', `${fix(Math.hypot(item.to[0] - item.from[0], item.to[1] - item.from[1]))} m`];
     return [item.name || item.id, `${Object.keys(item.lights || {}).length} rules`];
@@ -226,17 +228,17 @@ export async function bootEditor(root, options = {}) {
       icon('home', 15), h('span.row-name', 'Настройки квартиры')),
     inventory ? null : links.sidebarRow(sel.kind === 'connections' || sel.kind === 'service', () => select({ kind: 'connections' }))];
     for (const kind of Object.keys(KEYS)) {
-      if (inventory && ['light', 'ac', 'scene'].includes(kind)) continue;
+      if (inventory && kind === 'scene') continue;
       const items = doc[KEYS[kind]];
       nodes.push(h('div.group',
         h('span', `${TITLES[kind]}`), h('span.n', items.length),
-        h('button.add', { title: `Add to ${TITLES[kind].toLowerCase()}`, 'aria-label': `Add ${kind}`, onclick: () => add(kind) }, icon('plus', 14, 2.4))));
+        h('button.add', { title: `Добавить: ${TITLES[kind].toLowerCase()}`, 'aria-label': `Добавить: ${TITLES[kind].toLowerCase()}`, onclick: () => add(kind) }, icon('plus', 14, 2.4))));
       items.forEach((item, index) => {
         const [name, sub] = rowLabel(kind, item);
         const active = sel.kind === kind && sel.index === index;
         nodes.push(h(`div.row${active ? '.active' : ''}`, { role: 'button', tabindex: 0, onclick: () => select({ kind, index }) },
           h('span.row-name', name),
-          isLinked(item) ? h('span.linked', { title: 'Linked to a real device' }, icon('link', 12, 2.2)) : null,
+          !inventory && isLinked(item) ? h('span.linked', { title: 'Linked to a real device' }, icon('link', 12, 2.2)) : null,
           h('span.row-sub', sub),
           h('button.del', { title: 'Убрать с плана', 'aria-label': `Remove ${name}`, onclick: (e) => { e.stopPropagation(); remove(kind, index); } }, icon('close', 13, 2.4))));
       });
@@ -263,10 +265,10 @@ export async function bootEditor(root, options = {}) {
       list.push({ id: uniqueId('room'), name: 'Новая комната', rect: [fix(maxX), fix(doc.rooms.length ? minZ : 0), 3, 3], floor: 'oak' });
     } else if (kind === 'light') {
       if (!room) return toast('Add a room first', true);
-      list.push({ id: uniqueId(`${room.id}.light`), name: 'New light', room: room.id, type: 'ceiling', pos: freeSpot(room, center), capabilities: [] });
+      list.push({ id: uniqueId(`${room.id}.light`), name: 'Новый светильник', room: room.id, type: 'ceiling', pos: freeSpot(room, center), capabilities: [] });
     } else if (kind === 'ac') {
       if (!room) return toast('Add a room first', true);
-      list.push({ id: uniqueId(`${room.id}.ac`), name: `${room.name} AC`, room: room.id, wall: 'north', pos: [center[0], room.rect[1]], y: 2.2 });
+      list.push({ id: uniqueId(`${room.id}.ac`), name: `${room.name} — кондиционер`, room: room.id, wall: 'north', pos: [center[0], room.rect[1]], y: 2.2 });
     } else if (kind === 'furniture') {
       list.push({ id: crypto.randomUUID(), type: 'sofa', pos: center, rot: 0 });
     } else if (kind === 'opening') {
@@ -598,39 +600,42 @@ export async function bootEditor(root, options = {}) {
         get: () => item.capabilities.includes(name),
         set: (on) => { item.capabilities = item.capabilities.filter((c) => c !== name); if (on) item.capabilities.push(name); },
       });
-      nodes.push(section('Light',
+      nodes.push(section('Светильник',
         bind('Название', text(), prop(item, 'name', '')),
         row(bind('Комната', choice(doc.rooms.map((r) => [r.id, r.name || r.id])), { ...prop(item, 'room'), event: 'change' }),
-          bind('Fixture', choice(LIGHT_KINDS), { ...prop(item, 'type'), event: 'change' }))),
-      section('Position, m',
+          bind('Тип светильника', choice(LIGHT_KINDS.map(type => [type, LIGHT_NAMES[type]])), { ...prop(item, 'type'), event: 'change' }))),
+      section('Положение, м',
         row(bind('X', number(), { ...at(item, 'pos', 0), parse: parseNum }), bind('Z', number(), { ...at(item, 'pos', 1), parse: parseNum })),
-        row(bind('Height (auto if empty)', number(), { ...optional(item, 'y'), parse: optNum }),
+        row(bind('Высота, м (пусто — автоматически)', number(), { ...optional(item, 'y'), parse: optNum }),
           bind('Поворот, °', number(15), { ...prop(item, 'rot', 0), parse: parseNum })),
-        item.type === 'strip' ? bind('Strip length, m', number(0.1), { ...prop(item, 'length', 1), parse: parseNum }) : null),
-      section('What it can do',
+        item.type === 'strip' ? bind('Длина ленты, м', number(0.1), { ...prop(item, 'length', 1), parse: parseNum }) : null),
+      inventory ? section('Оформление',
+        bind('Цвет света (hex, необязательно)', text(), optional(item, 'color')),
+        h('p.note', 'Декоративный светильник. На основном плане он не открывает управление.')) : section('What it can do',
         h('div.checks',
           bind('Dimming', h('input', { type: 'checkbox' }), { ...cap('brightness'), event: 'change' }),
           bind('White temperature', h('input', { type: 'checkbox' }), { ...cap('temp'), event: 'change' }),
           bind('Colour', h('input', { type: 'checkbox' }), { ...cap('color'), event: 'change' })),
         h('p.note', 'Leave all three off for a lamp on a plain smart plug: it is then a simple on/off switch.')),
-      links.deviceSection(item, 'light', linkHooks));
+      inventory ? null : links.deviceSection(item, 'light', linkHooks));
     } else if (kind === 'ac') {
       head(item.name || item.id, `id: ${item.id}`);
-      nodes.push(section('Air conditioner',
+      nodes.push(section('Кондиционер',
         bind('Название', text(), prop(item, 'name', '')),
         row(bind('Комната', choice(doc.rooms.map((r) => [r.id, r.name || r.id])), { ...prop(item, 'room'), event: 'change' }),
-          bind('Mounted on wall', choice(WALLS), { ...prop(item, 'wall', 'north'), event: 'change' }))),
-      section('Position, m',
+          bind('Стена крепления', choice(WALLS.map(wall => [wall, WALL_NAMES[wall]])), { ...prop(item, 'wall', 'north'), event: 'change' }))),
+      section('Положение, м',
         row(bind('X', number(), { ...at(item, 'pos', 0), parse: parseNum }), bind('Z', number(), { ...at(item, 'pos', 1), parse: parseNum })),
-        row(bind('Height', number(), { ...prop(item, 'y', 2.2), parse: parseNum }),
-          bind('Min / max °C', text(), {
+        row(bind('Высота, м', number(), { ...prop(item, 'y', 2.2), parse: parseNum }),
+          inventory ? null : bind('Min / max °C', text(), {
             get: () => `${item.min ?? 16}-${item.max ?? 30}`,
             set: ([a, b]) => { item.min = a; item.max = b; },
             parse: (v) => { const m = /^(\d+)\s*-\s*(\d+)$/.exec(v.trim()); return m && +m[1] < +m[2] ? [+m[1], +m[2]] : undefined; },
           })),
-        h('p.note', 'Dragging the unit on the plan snaps it to the nearest wall of its room.')),
-      links.deviceSection(item, 'ac', linkHooks),
-      links.sensorSection(item, linkHooks));
+        h('p.note', 'При перетаскивании кондиционер привязывается к ближайшей стене комнаты.'),
+        inventory ? h('p.note', 'Декоративный объект. На основном плане он не открывает управление.') : null),
+      inventory ? null : links.deviceSection(item, 'ac', linkHooks),
+      inventory ? null : links.sensorSection(item, linkHooks));
     } else if (kind === 'furniture') {
       head(FURNITURE_NAMES[item.type] || item.type, 'Мебель и место хранения');
       nodes.push(section('Мебель',
