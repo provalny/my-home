@@ -4,8 +4,36 @@ import { readFileSync } from 'node:fs';
 import * as M from './model.js';
 import { calculateAwards, syncAwards } from './awards.js';
 import { categoryAppearance, nodeAppearance } from './appearance.js';
+import { ROOM_ICONS, setRoomIcon } from './room-icons.js';
+import { roomPreviewPlan } from '../three/room-previews.js';
 const seed=()=>M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8')));
 const find=(d,name)=>d.nodes.find(n=>n.name===name);
+
+test('room icon follows the same room across plan saves, old plans and JSON backups',()=>{
+  const d=seed(),room=d.nodes.find(n=>n.kind==='room'&&!n.virtual);
+  assert.equal(ROOM_ICONS.length,20);assert.equal(new Set(ROOM_ICONS.map(([id])=>id)).size,20);
+  setRoomIcon(d,room.id,'bath');assert.equal(nodeAppearance(d,room).glyph,'bath');
+  const plan=structuredClone(d.plan);delete plan.rooms.find(r=>r.id===room.roomId).icon;
+  M.syncPlan(d,plan);assert.equal(d.plan.rooms.find(r=>r.id===room.roomId).icon,'bath');
+  const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.validate(copy);
+  assert.equal(nodeAppearance(copy,M.getNode(copy,room.id)).glyph,'bath');
+  assert.throws(()=>setRoomIcon(copy,room.id,'untrusted-custom-icon'));
+  assert.equal(nodeAppearance(copy,{kind:'room',icon:'unknown'}).glyph,'home');
+});
+test('specific model icons survive removing geometry and keep category and photo semantics',()=>{
+  const d=seed(),room=d.plan.rooms[0],pos=[room.rect[0]+1,room.rect[1]+1];
+  const plan=structuredClone(d.plan);plan.furniture.push({id:'stove-icon',type:'stove',pos},{id:'rack-icon',type:'metalRack',pos});M.syncPlan(d,plan);
+  const stove=d.nodes.find(n=>n.furnitureId==='stove-icon'),rack=d.nodes.find(n=>n.furnitureId==='rack-icon');
+  assert.equal(nodeAppearance(d,stove).glyph,'stove');assert.equal(nodeAppearance(d,rack).glyph,'rack');
+  assert.equal(stove.categoryId,'electronics');stove.photo='data:image/png;base64,AA';
+  M.detachFurniture(d,stove.id);assert.equal(nodeAppearance(d,stove).glyph,'stove');assert.ok(stove.photo);
+  const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);assert.equal(nodeAppearance(copy,M.getNode(copy,stove.id)).glyph,'stove');
+});
+test('room preview contains only the target room and its visible furniture without changing the plan',()=>{
+  const plan={rooms:[{id:'a',rect:[10,20,4,3]},{id:'b',rect:[14,20,4,3]}],furniture:[{id:'one',pos:[11,21]},{id:'two',pos:[16,21]},{id:'archived',pos:[12,21]}],lights:[],acs:[]};
+  const before=JSON.stringify(plan),preview=roomPreviewPlan(plan,'a',['archived']);
+  assert.deepEqual(preview.rooms.map(r=>r.id),['a']);assert.deepEqual(preview.furniture.map(f=>f.id),['one']);assert.equal(roomPreviewPlan(plan,'missing'),null);assert.equal(JSON.stringify(plan),before);
+});
 
 test('money parses decimal strings without losing kopecks; rejects invalid inputs',()=>{
   assert.equal(M.parseMoney(' 1 299,99 '),129999);assert.equal(M.parseMoney('0.01'),1);assert.equal(M.parseMoney(''),null);
@@ -84,7 +112,7 @@ test('search includes nested address, category and preset characteristics',()=>{
   M.archive(d,find(d,'Футболка Nike').id,{reason:'Продано',date:M.today()});assert.equal(M.search(d,'Nike').length,0);assert.equal(M.search(d,'Nike',true).length,1);
 });
 test('manual sibling ordering persists and cannot cross parents',()=>{
-  const d=seed();const shelf=find(d,'Полка 1'),drawer=find(d,'Выдвижной ящик');M.reorder(d,drawer.id,shelf.id);
+  const d=seed();const shelf=M.getNode(d,find(d,'Футболка Nike').parentId),drawer=d.nodes.find(n=>n.parentId===shelf.parentId&&n.kind==='drawer');M.reorder(d,drawer.id,shelf.id);
   assert.equal(M.children(d,shelf.parentId)[0].id,drawer.id);assert.throws(()=>M.reorder(d,find(d,'Коробка с аксессуарами').id,shelf.id));
 });
 test('dates use whole calendar days; only active expiring entries are listed',()=>{
@@ -289,7 +317,8 @@ test('new-home preparation is pure, keeps categories/settings and clears all old
   assert.equal(plan.settings.apartmentFill,null);
   empty.categories[0].name='Изменено';assert.notEqual(empty.categories[0].name,d.categories[0].name);
   assert.equal(plan.plan.furniture.length,d.plan.furniture.length);
-  assert.equal(plan.nodes.filter(n=>n.kind!=='room').length,d.plan.furniture.length);
+  assert.equal(plan.nodes.filter(n=>n.kind==='furniture').length,d.plan.furniture.length);
+  assert.ok(plan.nodes.some(n=>n.autoSection));
   assert.ok(plan.nodes.filter(n=>n.kind==='furniture').every(n=>n.purchaseCents===null&&n.photo===null&&!n.notes&&n.fill===null));
   assert.ok(plan.nodes.filter(n=>n.kind==='furniture').every(n=>!d.nodes.some(old=>old.id===n.id)));
   assert.equal(plan.events.filter(e=>e.type==='purchase').length,0);
@@ -324,7 +353,8 @@ test('category icons are inherited everywhere, survive renaming, and respond to 
   const n=M.newNode(d,{name:'Новая вещь',parentId:d.nodes.find(n=>n.kind==='room').id,categoryId:custom.id});
   assert.equal(nodeAppearance(d,n).glyph,'clothes');n.categoryId='medicine';assert.equal(nodeAppearance(d,n).glyph,'medicine');
   n.categoryId='missing';assert.equal(nodeAppearance(d,n).glyph,'box');
-  assert.equal(nodeAppearance(d,d.nodes.find(n=>n.kind==='room')).glyph,'home');
+  assert.equal(nodeAppearance(d,d.nodes.find(n=>n.kind==='room')).glyph,'sofa');
+  assert.equal(nodeAppearance(d,{kind:'room',name:'Неизвестная комната'}).glyph,'home');
 });
 test('fresh demo never grants item milestones; new user objects do, without counting structural shelves',()=>{
   const d=seed(),room=d.nodes.find(n=>n.kind==='room');

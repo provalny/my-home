@@ -2,6 +2,10 @@
 // centred on its footprint and facing +z; the plan's "rot" turns it from there.
 import * as THREE from 'three';
 import { box, cyl, mat, at, rng } from './kit.js';
+import { EXTRA_BUILDERS } from './furniture-extra.js';
+import { extraDimensions } from './furniture-info.js';
+import { buildKitchen } from './kitchen.js';
+import { IKEA_STORAGE } from '../inventory/ikea-storage.js';
 
 const WOOD = '#a98459';
 const DARK_WOOD = '#5a4334';
@@ -63,6 +67,7 @@ function doorLines(width, height, y, z, count, material) {
 }
 
 const builders = {
+  ...EXTRA_BUILDERS,
   rug({ size = [2, 1.4], color = '#3b4a66' }) {
     const g = group(
       at(box(size[0], 0.016, size[1], mat(color, { rough: 1 }), { r: 0.006 }), 0, 0, 0),
@@ -159,27 +164,7 @@ const builders = {
     return g;
   },
 
-  kitchen({ width = 3, upper = true }) {
-    const front = mat('#e4e1da', { rough: 0.6 });
-    const seam = mat('#b9b6ae');
-    const n = Math.max(2, Math.round(width / 0.6));
-    const g = group(
-      at(box(width, 0.86, 0.6, front, { r: 0.008 }), 0, 0, 0),
-      ...doorLines(width, 0.78, 0.06, 0.3, n, seam),
-      at(box(width + 0.02, 0.04, 0.63, mat('#33363d', { rough: 0.35 }), { r: 0.008 }), 0, 0.86, 0.005),
-      at(box(0.58, 0.012, 0.5, mat('#0c0d10', { rough: 0.15 }), { r: 0 }), -width / 4, 0.9, 0),
-      at(box(0.5, 0.012, 0.38, mat(METAL, { rough: 0.3, metal: 0.9 }), { r: 0 }), width / 4, 0.9, 0.02),
-      at(cyl(0.015, 0.015, 0.24, mat(METAL, { rough: 0.25, metal: 0.9 }), 10), width / 4, 0.9, -0.22),
-    );
-    if (upper) {
-      g.add(
-        at(box(width, 0.72, 0.35, front, { r: 0.008 }), 0, 1.48, -0.125),
-        ...doorLines(width, 0.66, 1.51, 0.05, n, seam),
-        at(box(0.7, 0.1, 0.42, mat('#2f3239', { rough: 0.4, metal: 0.4 }), { r: 0.008 }), -width / 4, 1.42, -0.09),
-      );
-    }
-    return g;
-  },
+  kitchen(shape) { return buildKitchen(shape).root; },
 
   fridge() {
     const body = mat('#c5c9d0', { rough: 0.35, metal: 0.5 });
@@ -326,6 +311,8 @@ export const FURNITURE_TYPES = Object.keys(builders);
 
 // Approximate [width, depth] of each piece, for the 2D plan editor.
 export function footprint(item) {
+  const extra=extraDimensions(item);if(extra)return [extra[0],extra[2]];
+  const ref=IKEA_STORAGE[item.type];if(ref)return [item.width||ref.size[0],item.depth||ref.size[2]];
   const w = item.width;
   switch (item.type) {
     case 'rug': return item.size || [2, 1.4];
@@ -361,6 +348,8 @@ export function buildFurniture(items) {
       continue;
     }
     const g = make(item);
+    const ref=IKEA_STORAGE[item.type];
+    if(ref&&item.type!=='kitchen'&&!extraDimensions(item)){const bounds=new THREE.Box3().setFromObject(g),size=bounds.getSize(new THREE.Vector3());g.scale.set((item.width||ref.size[0])/size.x,(item.height||ref.size[1])/size.y,(item.depth||ref.size[2])/size.z);}
     g.position.set(item.pos[0], item.y || 0, item.pos[1]);
     g.rotation.y = THREE.MathUtils.degToRad(item.rot || 0);
     const flat = g.userData.flat;

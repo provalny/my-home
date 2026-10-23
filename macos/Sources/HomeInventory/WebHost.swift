@@ -120,7 +120,7 @@ final class WebHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any] else { return }
         if body["type"] as? String == "log" {
-            NSLog("Мой дом web (%@): %@", mode, body["text"] as? String ?? "")
+            NSLog("Life Assistant web (%@): %@", mode, body["text"] as? String ?? "")
             return
         }
         if body["type"] as? String == "ready" { isReady = true }

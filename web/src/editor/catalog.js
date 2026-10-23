@@ -1,6 +1,7 @@
 import { h } from '../ui/dom.js';
 import { FURNITURE_NAMES } from '../inventory/model.js';
 import { FURNITURE_TYPES } from '../three/furniture.js';
+import { EXTRA_MODEL_INFO } from '../three/furniture-info.js';
 
 const svgNS = 'http://www.w3.org/2000/svg';
 const shape = (tag, attrs) => {
@@ -15,7 +16,24 @@ export function objectThumbnail(kind, type) {
   const rect = (x,y,width,height,fill='#9cabc8',rx=3) => svg.append(shape('rect',{x,y,width,height,fill,rx}));
   const line = (x1,y1,x2,y2,stroke='#d9e3f5') => svg.append(shape('line',{x1,y1,x2,y2,stroke,'stroke-width':2}));
   const circle = (cx,cy,r,fill) => svg.append(shape('circle',{cx,cy,r,fill}));
-  if (kind === 'ac') { rect(17,20,66,22,'#dce9f5',5); rect(23,34,54,3,'#688fae',1); line(28,47,24,55,'#77b9ec'); line(50,47,50,57,'#77b9ec'); line(72,47,76,55,'#77b9ec'); }
+  if (kind === 'furniture' && EXTRA_MODEL_INFO[type]) {
+    if(type==='metalRack'){[25,75].forEach(x=>rect(x,6,3,52,'#9ca9b6',0));[12,23,34,45,55].forEach(y=>rect(25,y,53,3,'#b2a58c',0));line(28,14,73,53,'#758594');line(73,14,28,53,'#758594');}
+    else if(type==='tireStack'){[13,24,35,46].forEach(y=>{rect(29,y,43,12,'#313740',5);svg.append(shape('ellipse',{cx:50,cy:y+3,rx:18,ry:3,fill:'#69717a'}));svg.append(shape('ellipse',{cx:50,cy:y+3,rx:10,ry:2,fill:'#172033'}));});}
+    else if(type==='washingMachine'){rect(27,8,46,49,'#e0e3e9');rect(31,12,38,7,'#b4bbc5');circle(50,37,15,'#6b798b');circle(50,37,11,'#253849');}
+    else if(type==='dishwasher'){rect(26,9,48,48,'#bec8d0');rect(29,12,42,8,'#394555');rect(32,24,36,3,'#f0eee8');}
+    else if(type==='stove'){rect(29,9,42,48,'#d8dcdf');rect(34,29,32,21,'#263746');[37,46,55,64].forEach(x=>circle(x,20,2,'#718093'));}
+    else if(type==='microwave'){rect(15,19,70,30,'#c4cbd1');rect(20,23,46,22,'#273a4a');circle(75,37,4,'#74818f');}
+    else if(type==='shoeCabinet'){rect(29,7,42,50,'#ac8e6c');[12,28,44].forEach(y=>{rect(32,y,36,13,'#dfd9cb',1);line(44,y+3,56,y+3,'#84909b');});}
+    else if(type==='hallUnit'){rect(18,7,29,50,'#bfa684');rect(22,11,21,39,'#9eb7c6');rect(48,42,35,15,'#bfa684');rect(50,8,31,30,'#c5ad8f');[57,66,75].forEach(x=>line(x,20,x,27,'#58677a'));}
+    else if(type==='cornerSofa'){rect(13,18,73,27,'#7e968b',5);rect(63,33,23,24,'#a6b8ac',5);rect(16,30,48,15,'#a6b8ac',4);rect(11,27,7,21,'#657d73');rect(81,27,7,30,'#657d73');}
+    else if(type==='slidingWardrobe'){rect(18,5,64,53,'#bca98b');rect(22,9,18,45,'#e0d8ca',1);rect(42,9,17,45,'#98b0c1',1);rect(61,9,17,45,'#e0d8ca',1);}
+    else if(type==='wallUnit'){rect(10,43,80,14,'#bca17c');rect(10,7,18,36,'#e0d8c8');rect(33,6,51,5,'#bca17c');rect(73,14,17,25,'#ddd7c8');rect(33,21,33,19,'#344b61');}
+    else if(type==='wallShelf'){[21,44].forEach(y=>rect(15,y,70,4,'#b38d67'));[25,75].forEach(x=>line(x,15,x,49,'#7e8fa7'));}
+    else if(type==='laundryBasket'){rect(30,10,40,46,'#ac9e85',5);for(let y=17;y<51;y+=6)line(34,y,66,y,'#d5c7ab');[38,50,62].forEach(x=>line(x,16,x,52,'#776e60'));}
+    else if(type==='showerCabin'){rect(25,7,50,46,'#759aa833');line(25,7,25,52);line(75,7,75,52);line(50,7,50,52,'#93aabd');rect(23,52,54,6,'#e1e6e6');line(51,17,62,17,'#d7e3ec');}
+    else if(type==='crossover'){svg.append(shape('path',{d:'M10 39 L19 29 L33 26 L42 14 L68 14 L78 27 L89 32 L93 46 L9 46 Z',fill:'#7899ac'}));svg.append(shape('path',{d:'M37 27 L45 17 L64 17 L73 27 Z',fill:'#283c50'}));circle(28,46,9,'#28303a');circle(76,46,9,'#28303a');circle(28,46,5,'#aebdca');circle(76,46,5,'#aebdca');}
+  }
+  else if (kind === 'ac') { rect(17,20,66,22,'#dce9f5',5); rect(23,34,54,3,'#688fae',1); line(28,47,24,55,'#77b9ec'); line(50,47,50,57,'#77b9ec'); line(72,47,76,55,'#77b9ec'); }
   else if (kind === 'light') {
     if (type === 'strip') { line(15,40,85,24,'#ffcc91'); line(15,44,85,28,'#8a684b'); }
     else if (type === 'spots') { line(20,19,80,19); [26,50,74].forEach(x=>{rect(x-6,20,12,13,'#d6dce6');circle(x,35,5,'#ffd29b');}); }
@@ -34,16 +52,18 @@ export function objectThumbnail(kind, type) {
 }
 
 export const FURNITURE_CATEGORIES = [
-  ['Все',''], ['Хранение','wardrobe bookshelf sideboard dresser nightstand'],
-  ['Гостиная','sofa armchair coffeeTable tv rug plant'], ['Спальня','bed nightstand dresser wardrobe'],
-  ['Кухня','kitchen island fridge diningSet'], ['Работа','desk bookshelf'], ['Ванная','vanity bathtub toilet'],
+  ['Все',''], ['NEW · Новые модели (15)',Object.keys(EXTRA_MODEL_INFO).join(' ')],
+  ['Хранение','wardrobe bookshelf sideboard dresser nightstand metalRack slidingWardrobe wallShelf'],
+  ['Гостиная','sofa armchair coffeeTable tv rug plant cornerSofa wallUnit'], ['Спальня','bed nightstand dresser wardrobe slidingWardrobe'],
+  ['Прихожая','hallUnit shoeCabinet'], ['Балкон и гараж','metalRack tireStack crossover'],
+  ['Кухня','kitchen island fridge diningSet dishwasher stove microwave'], ['Работа','desk bookshelf'], ['Ванная','vanity bathtub toilet washingMachine showerCabin laundryBasket'],
 ];
 
 export function openObjectCatalog({kind='furniture', existing=[], placeNodeId=null, rooms=[], roomId, onChoose}) {
   const dialog = h('dialog.object-catalog', {'aria-label':'Добавить на план'});
   const query = h('input.catalog-search', {type:'search',placeholder:'Найти мебель или оборудование…','aria-label':'Поиск по каталогу'});
   const category = h('select', {'aria-label':'Категория каталога'},h('option',{value:''},'Все категории'),
-    FURNITURE_CATEGORIES.slice(1).map(([label,types])=>h('option',{value:types},label)),
+    FURNITURE_CATEGORIES.slice(1).map(([label,types])=>h('option',{value:types},label.startsWith('NEW')?label:label+((types.split(' ').filter(t=>EXTRA_MODEL_INFO[t]).length)?` · ${types.split(' ').filter(t=>EXTRA_MODEL_INFO[t]).length} NEW`:''))),
     h('option',{value:'lights'},'Светильники'),h('option',{value:'ac'},'Кондиционеры'));
   const room = h('select', {'aria-label':'Комната размещения'},rooms.map(r=>h('option',{value:r.id},r.name||r.id)));
   room.value=roomId||rooms[0]?.id||'';
@@ -58,7 +78,7 @@ export function openObjectCatalog({kind='furniture', existing=[], placeNodeId=nu
   function render(){
     const q=query.value.trim().toLocaleLowerCase('ru');
     const list=choices.filter(x=>(!linked.value||x.kind==='furniture')&&(!q||x.name.toLocaleLowerCase('ru').includes(q))&&(!category.value||(category.value==='lights'?x.kind==='light':category.value==='ac'?x.kind==='ac':x.kind==='furniture'&&category.value.split(' ').includes(x.type))));
-    grid.replaceChildren(...list.map(x=>h('button.catalog-item',{onclick:()=>{if(!room.value)return;onChoose({...x,roomId:room.value,nodeId:x.kind==='furniture'?linked.value||null:null});close();}},objectThumbnail(x.kind,x.type),h('b',x.name),h('span',x.kind==='furniture'?(linked.value?'Связать с карточкой':'Мебель и учёт'): 'Декоративный объект'))));
+    grid.replaceChildren(...list.map(x=>h('button.catalog-item',{onclick:()=>{if(!room.value)return;onChoose({...x,roomId:room.value,nodeId:x.kind==='furniture'?linked.value||null:null});close();}},objectThumbnail(x.kind,x.type),h('b',x.name,EXTRA_MODEL_INFO[x.type]?h('em.catalog-new','NEW'):null),h('span',x.kind==='furniture'?(linked.value?'Связать с карточкой':'Мебель и учёт'): 'Декоративный объект'))));
     if(!list.length)grid.append(h('p.note','Ничего не найдено. Измените запрос или категорию.'));
   }
   query.addEventListener('input',render);category.addEventListener('change',render);linked.addEventListener('change',()=>{if(linked.value)category.value='';render();});

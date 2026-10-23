@@ -1,6 +1,6 @@
 <div align="center">
 
-# My Home · Мой дом
+# Life Assistant · Мой дом
 
 ### A place for everything.
 
@@ -13,7 +13,7 @@ A local-first macOS inventory with a 3D apartment and nested storage.
 
 [Download for Mac](https://github.com/provalny/my-home/releases/latest/download/MyHome.dmg) · [Русский](README.md) · [Feedback](https://github.com/provalny/my-home/issues)
 
-![Apartment and storage](docs/images/apartment.png)
+![Kitchen and storage](docs/images/kitchen-0.4.3.jpg)
 
 </div>
 
@@ -22,7 +22,7 @@ Keep track of what you own, where it belongs and what it is worth. Follow an add
 ## Install
 
 1. Download [**MyHome.dmg**](https://github.com/provalny/my-home/releases/latest/download/MyHome.dmg).
-2. Open the DMG and drag **Мой дом** into **Applications**.
+2. Open the DMG and drag **Life Assistant** into **Applications**.
 3. Launch the app and explore the sample apartment. Use the setup wizard to start your own home.
 
 Requires **macOS 13 or later**. Universal binary for **Apple silicon and Intel**. Inventory management works offline without an account.
@@ -39,8 +39,9 @@ Updates replace the **whole application**, including the interface, 3D view and 
 
 | Area | Included |
 | --- | --- |
-| 3D apartment | Floor-plan editor, furniture placement and a storage tree. |
-| Nested inventory | Rooms, furniture, shelves, drawers, boxes and individual items. Move containers with their contents. |
+| 3D apartment | Floor-plan editor, room types, previews and a storage tree. |
+| Open storage | Animated doors, IKEA-based kitchen modules and automatic shelves with a simple type selector. |
+| Nested inventory | Items and furniture in the catalog; built-in shelves and drawers stay in storage views and have no own price. |
 | Fast entry | Separate compact forms for items and storage, one photo, preset attributes, color swatches and saved drafts. |
 | Catalog | Table and photo views, filters, editable categories, consistent category icons and global search with **⌘K**. |
 | Value and occupancy | Purchase price, current estimate, condition, wear and manual room/storage occupancy. Apartment occupancy averages measured rooms. |

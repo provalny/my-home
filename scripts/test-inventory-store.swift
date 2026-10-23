@@ -62,6 +62,11 @@ import Foundation
         try fm.createDirectory(at: backupFolder, withIntermediateDirectories: true)
         try store.chooseBackupFolder(backupFolder)
         precondition((store.publicSettings["lastBackupError"] as? String ?? "").isEmpty, "Successful retry clears error")
-        print("PASS: backup health, failure recovery, reminder receipts; atomic save, relaunch, revision conflict, 5-copy rotation, unrelated files, daily backup, pre-restore protection, invalid data")
+        try store.setApplicationIcon("orbit")
+        let iconReopened = try InventoryStore(folder: folder)
+        precondition(iconReopened.publicSettings["appIcon"] as? String == "orbit", "Icon selection survives relaunch")
+        do { try store.setApplicationIcon("unknown"); fatalError("Unknown icon accepted") } catch {}
+        precondition(store.publicSettings["appIcon"] as? String == "orbit", "Invalid icon cannot replace saved choice")
+        print("PASS: icon preference, backup health, failure recovery, reminder receipts; atomic save, relaunch, revision conflict, 5-copy rotation, unrelated files, daily backup, pre-restore protection, invalid data")
     }
 }

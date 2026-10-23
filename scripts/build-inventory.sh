@@ -3,7 +3,7 @@ set -euo pipefail
 export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-/private/tmp/home-inventory-clang-cache}"
 export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-/private/tmp/home-inventory-swift-cache}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/build/Мой дом.app"
+APP="$ROOT/build/Life Assistant.app"
 ARCH_FLAGS=(--arch "$(uname -m)")
 if [ "${INVENTORY_UNIVERSAL:-0}" = 1 ]; then ARCH_FLAGS=(--arch arm64 --arch x86_64); fi
 RELEASE_METADATA="$(node --input-type=module -e '
@@ -27,7 +27,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/HomeInventory"
 if [ -d "$APP/Contents/Resources/web" ]; then rm -r "$APP/Contents/Resources/web"; fi
 cp -R "$ROOT/web/dist" "$APP/Contents/Resources/web"
-cp "$ROOT/macos/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+cp "$ROOT/macos/Icons/aurora.icns" "$APP/Contents/Resources/AppIcon.icns"
+mkdir -p "$APP/Contents/Resources/Icons"
+cp "$ROOT"/macos/Icons/*.icns "$APP/Contents/Resources/Icons/"
 SPARKLE_FRAMEWORK="$(find "$ROOT/build/swift/artifacts" -type d -name Sparkle.framework -path '*macos*' -print -quit)"
 test -n "$SPARKLE_FRAMEWORK"
 mkdir -p "$APP/Contents/Frameworks"
@@ -37,8 +39,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleName</key><string>Мой дом</string>
-<key>CFBundleDisplayName</key><string>Мой дом</string>
+<key>CFBundleName</key><string>Life Assistant</string>
+<key>CFBundleDisplayName</key><string>Life Assistant</string>
 <key>CFBundleIdentifier</key><string>local.myhome.inventory</string>
 <key>CFBundleExecutable</key><string>HomeInventory</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>

@@ -233,11 +233,14 @@ async function renderShot(config, store, room) {
 }
 
 const mode = window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'inventory';
-if (new URLSearchParams(location.search).has('inventoryEditor')) {
+if (new URLSearchParams(location.search).has('modelGallery')) {
+  import('./three/model-gallery.js').then(m=>m.bootModelGallery(app)).catch(e=>fatal('Не удалось открыть модели',e));
+} else if (new URLSearchParams(location.search).has('inventoryEditor')) {
   document.documentElement.classList.add('mode-editor');
   import('./editor/editor.js').then(m => m.bootEditor(app, {
     inventory: true, config: window.parent.__inventoryPlan,
     onSave: plan => window.parent.__inventorySavePlan(plan),
+    onClear: plan => window.parent.__inventoryClearEditor(plan),
     onClose: () => window.parent.__inventoryCloseEditor(),
   })).catch(e => fatal('Редактор не загрузился', e));
 } else if (mode === 'inventory') {

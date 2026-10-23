@@ -127,6 +127,7 @@ const FLOORS = {
 };
 
 const floorMaterials = new Map();
+export const isSharedMaterial = material => [...materials.values(),...floorMaterials.values()].includes(material);
 
 export function floorMaterial(kind) {
   const name = FLOORS[kind] ? kind : 'oak';

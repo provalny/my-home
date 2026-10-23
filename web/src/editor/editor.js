@@ -6,12 +6,17 @@ import './editor.css';
 import { normalize, loadRawConfig, LIGHT_KINDS, FLOOR_KINDS, isLinked } from '../config.js';
 import { createWorld } from '../three/world.js';
 import { FURNITURE_TYPES, footprint } from '../three/furniture.js';
+import { EXTRA_MODEL_INFO, extraDimensions } from '../three/furniture-info.js';
 import { h, clamp } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { isNative, isPhone, call, post, haptic, incoming } from '../bridge.js';
 import { createConnections } from './connections.js';
 import { FURNITURE_NAMES } from '../inventory/model.js';
 import { openObjectCatalog } from './catalog.js';
+import { roomGlyph } from '../inventory/room-icons.js';
+import { FURNITURE_GLYPHS } from '../inventory/appearance.js';
+import { roomPresentationForm } from '../inventory/room-form.js';
+import { IKEA_STORAGE } from '../inventory/ikea-storage.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const sv = (tag, attrs = {}, ...kids) => {
@@ -29,8 +34,8 @@ const WALL_NAMES = { north: 'Северная', east: 'Восточная', sout
 const LIGHT_NAMES = { ceiling: 'Потолочный', pendant: 'Подвесной', spots: 'Споты', floor: 'Торшер', table: 'Настольный', strip: 'Светодиодная лента' };
 const SCENE_ICONS = ['sun', 'sofa', 'film', 'moon', 'door', 'table', 'bed', 'tv', 'sparkles'];
 const REGIONS = [
-  ['eu', 'Central Europe'], ['eu-w', 'Western Europe'], ['us', 'Western America'], ['us-e', 'Eastern America'],
-  ['cn', 'China'], ['in', 'India'], ['sg', 'Singapore'],
+  ['eu', 'Центральная Европа'], ['eu-w', 'Западная Европа'], ['us', 'Западная Америка'], ['us-e', 'Восточная Америка'],
+  ['cn', 'Китай'], ['in', 'Индия'], ['sg', 'Сингапур'],
 ];
 
 const round = (v, step = 0.05) => Math.round(v / step) * step;
@@ -83,15 +88,17 @@ export async function bootEditor(root, options = {}) {
 
   /* ---------- layout ---------- */
 
-  const nameInput = h('input.title-input', { value: doc.name || 'Home', spellcheck: 'false', 'aria-label': 'Название квартиры' });
+  const nameInput = h('input.title-input', { value: doc.name || 'Квартира', spellcheck: 'false', 'aria-label': 'Название квартиры' });
   nameInput.addEventListener('input', () => { snapshot('name'); doc.name = nameInput.value; touch({ inspector: sel.kind === 'home' }); });
   const status = h('div.status');
   const saveBtn = h('button.btn.primary', { onclick: save }, icon('check', 15, 2.4), 'Сохранить план');
-  const hint = h('div.hint', isPhone ? 'Tap to select · drag what is selected · pinch to zoom'
+  const hint = h('div.hint', isPhone ? 'Нажмите для выбора · перетащите выбранное · разведите пальцы для масштаба'
     : 'Перетаскивайте комнаты и мебель · угол комнаты меняет размер · шаг сетки 5 см');
   const toastEl = h('div.toast');
 
   const sidebar = h('aside.side');
+  const collapsedGroups=new Set(JSON.parse(localStorage.getItem('iv:editor-collapsed-groups')||'[]'));
+  function saveGroups(){localStorage.setItem('iv:editor-collapsed-groups',JSON.stringify([...collapsedGroups]));renderSidebar();}
   const plan = sv('svg', { class: 'plan', tabindex: 0 });
   const inspector = h('div.inspector');
   const previewHost = h('div.preview');
@@ -105,7 +112,7 @@ export async function bootEditor(root, options = {}) {
   if (isPhone) buildPhoneLayout();
   else root.replaceChildren(h(`div.editor${inventory ? '.inventory-editor' : ''}`,
     h('header.bar',
-      h('div.bar-title', icon('home', 17), nameInput),
+      h('div.bar-title', icon('home', 17), nameInput,inventory?h('button.btn.danger',{onclick:clearAll},icon('trash',15),'Удалить всё'):null),
       h('div.bar-actions',
         sideToggle, inspectorToggle,
         h('button.btn.icon-btn', { title: 'Отменить (⌘Z)', 'aria-label': 'Отменить', onclick: () => stepHistory(undo, redo) }, icon('undo', 16)),
@@ -285,18 +292,21 @@ export async function bootEditor(root, options = {}) {
     const nodes = [h(`button.row.home-row${sel.kind === 'home' ? '.active' : ''}`, { onclick: () => select({ kind: 'home' }) },
       icon('home', 15), h('span.row-name', 'Настройки квартиры')),
     inventory ? null : links.sidebarRow(sel.kind === 'connections' || sel.kind === 'service', () => select({ kind: 'connections' }))];
+    const kinds=Object.keys(KEYS).filter(k=>!inventory||k!=='scene'),allClosed=kinds.every(k=>collapsedGroups.has(k));
+    nodes.push(h('button.group-all',{onclick:()=>{for(const k of kinds)allClosed?collapsedGroups.delete(k):collapsedGroups.add(k);saveGroups();}},icon(allClosed?'plus':'minus',13),allClosed?'Развернуть всё':'Свернуть всё'));
     for (const kind of Object.keys(KEYS)) {
       if (inventory && kind === 'scene') continue;
       const items = doc[KEYS[kind]];
       nodes.push(h('div.group',
-        h('span', `${TITLES[kind]}`), h('span.n', items.length),
+        h('button.group-toggle',{'aria-expanded':String(!collapsedGroups.has(kind)),'aria-label':`${collapsedGroups.has(kind)?'Развернуть':'Свернуть'}: ${TITLES[kind]}`,onclick:()=>{collapsedGroups.has(kind)?collapsedGroups.delete(kind):collapsedGroups.add(kind);saveGroups();}},icon(collapsedGroups.has(kind)?'next':'down',13),h('span',`${TITLES[kind]}`)), h('span.n', items.length),
         h('button.add', { title: `Добавить: ${TITLES[kind].toLowerCase()}`, 'aria-label': `Добавить: ${TITLES[kind].toLowerCase()}`, onclick: () => add(kind) }, icon('plus', 14, 2.4))));
+      if(collapsedGroups.has(kind))continue;
       items.forEach((item, index) => {
         const [name, sub] = rowLabel(kind, item);
         const active = sel.kind === kind && sel.index === index;
         nodes.push(h(`div.row${active ? '.active' : ''}`, { role: 'button', tabindex: 0, onclick: () => select({ kind, index }), onkeydown: e => { if (e.target === e.currentTarget && ['Enter', ' '].includes(e.key)) { e.preventDefault(); select({ kind, index }); } } },
-          h('span.row-name', name),
-          !inventory && isLinked(item) ? h('span.linked', { title: 'Linked to a real device' }, icon('link', 12, 2.2)) : null,
+          icon(kind==='room'?roomGlyph(item):kind==='furniture'?FURNITURE_GLYPHS[item.type]||'furniture':kind==='light'?item.type:kind==='ac'?'ac':'opening',14),h('span.row-name', name),
+          !inventory && isLinked(item) ? h('span.linked', { title: 'Связано с реальным устройством' }, icon('link', 12, 2.2)) : null,
           h('span.row-sub', sub),
           h('button.del', { title: kind === 'room' ? 'Удалить комнату' : 'Убрать с плана', 'aria-label': `${kind === 'room' ? 'Удалить комнату' : 'Убрать с плана'}: ${name}`, onclick: (e) => { e.stopPropagation(); remove(kind, index); } }, icon('close', 13, 2.4))));
       });
@@ -313,6 +323,7 @@ export async function bootEditor(root, options = {}) {
   }
 
   function add(kind) {
+    collapsedGroups.delete(kind);localStorage.setItem('iv:editor-collapsed-groups',JSON.stringify([...collapsedGroups]));
     if (inventory && ['furniture', 'light', 'ac'].includes(kind)) return showCatalog(kind);
     snapshot();
     const room = (sel.kind === 'room' && doc.rooms[sel.index]) || doc.rooms.find((r) => r.id === doc[KEYS[sel.kind]]?.[sel.index]?.room) || doc.rooms[0];
@@ -321,7 +332,7 @@ export async function bootEditor(root, options = {}) {
     if (kind === 'room') {
       const maxX = Math.max(0, ...doc.rooms.map((r) => r.rect[0] + r.rect[2]));
       const minZ = Math.min(...doc.rooms.map((r) => r.rect[1]), 0);
-      list.push({ id: uniqueId('room'), name: 'Новая комната', rect: [fix(maxX), fix(doc.rooms.length ? minZ : 0), 3, 3], floor: 'oak' });
+      list.push({ id: uniqueId('room'), name: 'Комната', roomType:'other', customName:'Комната', rect: [fix(maxX), fix(doc.rooms.length ? minZ : 0), 3, 3], floor: 'oak' });
     } else if (kind === 'light') {
       if (!room) return toast('Сначала добавьте комнату', true);
       list.push({ id: uniqueId(`${room.id}.light`), name: 'Новый светильник', room: room.id, type: 'ceiling', pos: freeSpot(room, center), capabilities: [] });
@@ -335,7 +346,7 @@ export async function bootEditor(root, options = {}) {
       const z = room.rect[1] + room.rect[3];
       list.push({ type: 'door', from: [fix(center[0] - 0.45), fix(z)], to: [fix(center[0] + 0.45), fix(z)] });
     } else if (kind === 'scene') {
-      list.push({ id: uniqueId('scene'), name: 'New scene', icon: 'sparkles', lights: { '*': { on: false } } });
+      list.push({ id: uniqueId('scene'), name: 'Новая сцена', icon: 'sparkles', lights: { '*': { on: false } } });
     }
     sel = { kind, index: list.length - 1 };
     touch();
@@ -357,10 +368,13 @@ export async function bootEditor(root, options = {}) {
       if (choice.kind === 'furniture') {
         const node = (inventoryData().furniture || []).find(n => n.id === choice.nodeId);
         entry = { id: node?.furnitureId || crypto.randomUUID(), type: choice.type, name: node?.name || choice.name, pos: center, rot: 0 };
+        if (EXTRA_MODEL_INFO[choice.type]?.defaultY) entry.y = EXTRA_MODEL_INFO[choice.type].defaultY;
+        if (choice.type === 'tireStack' && choice.layout) entry.layout = choice.layout;
         if (node) entry.inventoryNodeId = node.id;
       } else if (choice.kind === 'light') entry = { id: uniqueId(`${room.id}.light`), name: choice.name, room: room.id, type: choice.type, pos: freeSpot(room, center), capabilities: [] };
       else entry = { id: uniqueId(`${room.id}.ac`), name: `${room.name} — кондиционер`, room: room.id, wall: 'north', pos: [center[0], room.rect[1]], y: 2.2 };
       doc[KEYS[choice.kind]].push(entry);
+      collapsedGroups.delete(choice.kind);localStorage.setItem('iv:editor-collapsed-groups',JSON.stringify([...collapsedGroups]));
       sel = { kind: choice.kind, index: doc[KEYS[choice.kind]].length - 1 };
       touch();
     }});
@@ -674,7 +688,7 @@ export async function bootEditor(root, options = {}) {
     if (kind === 'home') {
       head('Квартира', 'Общие настройки планировки');
       doc.camera ||= { azimuth: 34, elevation: 47 };
-      if (isPhone) nodes.push(section('Real devices', links.sidebarRow(false, () => select({ kind: 'connections' }))));
+      if (isPhone) nodes.push(section('Реальные устройства', links.sidebarRow(false, () => select({ kind: 'connections' }))));
       nodes.push(section('Помещение',
         row(bind('Высота стен, м', number(0.1), { ...prop(doc, 'wallHeight', 2.6), parse: parseNum }),
           bind('Высота показа внутренних стен, м', number(0.05), { ...prop(doc, 'interiorWallHeight', 1.25), parse: parseNum })),
@@ -685,31 +699,31 @@ export async function bootEditor(root, options = {}) {
         h('p.note', 'Ближние к камере стены скрыты. Поворот камеры определяет открытые стороны квартиры.')),
       section('Как пользоваться',
         h('p.note', isPhone
-          ? 'Tap anything on the plan, or find it under Items, to edit it. “Save” keeps the plan on this iPhone and sends it to your paired Mac. Coordinates are metres: x grows to the right (east), z grows downwards (south).'
+          ? 'Выберите объект на плане или в списке. Сохранение записывает план на iPhone и отправляет его на связанный Mac. Координаты в метрах: X — вправо, Z — вниз.'
           : 'Выберите объект на плане или в списке. Сохраните план, затем закройте редактор. Координаты в метрах. Удаление мебели с плана сохраняет её карточку и содержимое в каталоге.')));
     } else if (kind === 'connections') {
-      head('Connections', 'Where your real lamps and air conditioners live');
-      if (isPhone) nodes.push(h('button.back-link', { onclick: () => select({ kind: 'home' }) }, icon('back', 14, 2.2), 'Home'));
+      head('Подключения', 'Настройка реальных светильников и кондиционеров');
+      if (isPhone) nodes.push(h('button.back-link', { onclick: () => select({ kind: 'home' }) }, icon('back', 14, 2.2), 'Квартира'));
       nodes.push(...links.overview());
     } else if (kind === 'service') {
-      nodes.push(h('button.back-link', { onclick: () => { links.stopPairing(); select({ kind: 'connections' }); } }, icon('back', 14, 2.2), 'Connections'));
+      nodes.push(h('button.back-link', { onclick: () => { links.stopPairing(); select({ kind: 'connections' }); } }, icon('back', 14, 2.2), 'Подключения'));
       nodes.push(h('div.insp-head.svc-head', links.tile(sel.service, 40),
         h('div', h('h2', links.title(sel.service)), h('span', links.blurb(sel.service)))));
       nodes.push(...[links.detail(sel.service, tuyaPanel)].flat());
     } else if (!item) {
       head('Ничего не выбрано');
-      if (isPhone) nodes.push(h('p.note', 'Tap a room, a lamp or anything else on the plan.'));
+      if (isPhone) nodes.push(h('p.note', 'Выберите комнату, светильник или другой объект на плане.'));
     } else if (kind === 'room') {
-      head(item.name || item.id, `id: ${item.id}`);
-      nodes.push(section('Комната',
-        bind('Название', text(), prop(item, 'name', '')),
+      head(item.name || 'Комната', 'Название и оформление комнаты');
+      const roomForm=roomPresentationForm(item);
+      nodes.push(section('Комната',roomForm.element,h('button.btn',{onclick:()=>{try{const copy=structuredClone(item);roomForm.apply(copy);snapshot();Object.keys(item).forEach(k=>delete item[k]);Object.assign(item,copy);touch();toast('Название и оформление обновлены');}catch(e){toast(e.message,true);}}},'Применить название и оформление'),
         bind('Покрытие пола', choice(FLOOR_KINDS.map(floor => [floor, {oak:'Дуб',walnut:'Орех',tile:'Плитка',stone:'Камень'}[floor] || floor])), { ...prop(item, 'floor', 'oak'), event: 'change' })),
       section('Положение и размеры, м',
         row(bind('X', number(0.1), { ...at(item, 'rect', 0), parse: parseNum }), bind('Z', number(0.1), { ...at(item, 'rect', 1), parse: parseNum })),
         row(bind('Ширина', number(0.1), { ...at(item, 'rect', 2), parse: parseNum }), bind('Глубина', number(0.1), { ...at(item, 'rect', 3), parse: parseNum })),
         h('p.note', 'Между соседними комнатами стена создаётся автоматически. Для соединения добавьте дверь или открытый проём.')));
     } else if (kind === 'light') {
-      head(item.name || item.id, `id: ${item.id}`);
+      head(item.name || item.id, `ID: ${item.id}`);
       item.capabilities ||= [];
       const cap = (name) => ({
         get: () => item.capabilities.includes(name),
@@ -725,16 +739,16 @@ export async function bootEditor(root, options = {}) {
           bind('Поворот, °', number(15), { ...prop(item, 'rot', 0), parse: parseNum })),
         item.type === 'strip' ? bind('Длина ленты, м', number(0.1), { ...prop(item, 'length', 1), parse: parseNum }) : null),
       inventory ? section('Оформление',
-        bind('Цвет света (hex, необязательно)', text(), optional(item, 'color')),
-        h('p.note', 'Декоративный светильник. На основном плане он не открывает управление.')) : section('What it can do',
+        bind('Цвет света (необязательно)', text(), optional(item, 'color')),
+        h('p.note', 'Декоративный светильник. На основном плане он не открывает управление.')) : section('Возможности',
         h('div.checks',
-          bind('Dimming', h('input', { type: 'checkbox' }), { ...cap('brightness'), event: 'change' }),
-          bind('White temperature', h('input', { type: 'checkbox' }), { ...cap('temp'), event: 'change' }),
-          bind('Colour', h('input', { type: 'checkbox' }), { ...cap('color'), event: 'change' })),
-        h('p.note', 'Leave all three off for a lamp on a plain smart plug: it is then a simple on/off switch.')),
+          bind('Регулировка яркости', h('input', { type: 'checkbox' }), { ...cap('brightness'), event: 'change' }),
+          bind('Температура белого света', h('input', { type: 'checkbox' }), { ...cap('temp'), event: 'change' }),
+          bind('Цвет', h('input', { type: 'checkbox' }), { ...cap('color'), event: 'change' })),
+        h('p.note', 'Для лампы в обычной умной розетке отключите все три возможности: останется только включение и выключение.')),
       inventory ? null : links.deviceSection(item, 'light', linkHooks));
     } else if (kind === 'ac') {
-      head(item.name || item.id, `id: ${item.id}`);
+      head(item.name || item.id, `ID: ${item.id}`);
       nodes.push(section('Кондиционер',
         bind('Название', text(), prop(item, 'name', '')),
         row(bind('Комната', choice(doc.rooms.map((r) => [r.id, r.name || r.id])), { ...prop(item, 'room'), event: 'change' }),
@@ -742,7 +756,7 @@ export async function bootEditor(root, options = {}) {
       section('Положение, м',
         row(bind('X', number(), { ...at(item, 'pos', 0), parse: parseNum }), bind('Z', number(), { ...at(item, 'pos', 1), parse: parseNum })),
         row(bind('Высота, м', number(), { ...prop(item, 'y', 2.2), parse: parseNum }),
-          inventory ? null : bind('Min / max °C', text(), {
+          inventory ? null : bind('Минимум / максимум, °C', text(), {
             get: () => `${item.min ?? 16}-${item.max ?? 30}`,
             set: ([a, b]) => { item.min = a; item.max = b; },
             parse: (v) => { const m = /^(\d+)\s*-\s*(\d+)$/.exec(v.trim()); return m && +m[1] < +m[2] ? [+m[1], +m[2]] : undefined; },
@@ -753,13 +767,20 @@ export async function bootEditor(root, options = {}) {
       inventory ? null : links.sensorSection(item, linkHooks));
     } else if (kind === 'furniture') {
       const linkedNode = inventoryNode(item);
+      const dimension=(key,axis)=>({...optional(item,key),get:()=>EXTRA_MODEL_INFO[item.type]?extraDimensions(item)[axis]:item[key]??IKEA_STORAGE[item.type]?.size[axis]??''});
       head(item.name || linkedNode?.name || FURNITURE_NAMES[item.type] || item.type, 'Мебель и место хранения');
       nodes.push(section('Мебель',
         bind('Название', text(), { get: () => item.name || linkedNode?.name || FURNITURE_NAMES[item.type] || '', set: value => { item.name = value; } }),
         bind('Тип', choice(FURNITURE_TYPES.map(t => [t, FURNITURE_NAMES[t] || t])), { ...prop(item, 'type'), event: 'change' }),
         row(bind('X', number(), { ...at(item, 'pos', 0), parse: parseNum }), bind('Z', number(), { ...at(item, 'pos', 1), parse: parseNum })),
         row(bind('Поворот, °', number(15), { ...prop(item, 'rot', 0), parse: parseNum }),
-          bind('Ширина, м', number(0.1), { ...optional(item, 'width'), parse: optNum })),
+          bind('Ширина, м', number(0.1), { ...dimension('width',0), parse: optNum })),
+        EXTRA_MODEL_INFO[item.type]||IKEA_STORAGE[item.type] ? row(
+          bind('Высота, м', number(0.1), { ...dimension('height',1), parse: optNum }),
+          bind('Глубина, м', number(0.1), { ...dimension('depth',2), parse: optNum })) : null,
+        bind('От пола, м', number(0.1), { ...prop(item, 'y', 0), parse: parseNum }),
+        item.type === 'tireStack' ? bind('Как хранить 4 шины', choice([['stack','Стопкой'],['row','В ряд']]), { ...prop(item,'layout','stack'), event:'change' }) : null,
+        item.type === 'cornerSofa' ? bind('Угол дивана', choice([['right','Справа'],['left','Слева']]), { ...prop(item,'chaise','right'), event:'change' }) : null,
         bind('Цвет (hex, необязательно)', text(), optional(item, 'color')),
         h('p.note', 'Короткая линия отмечает фасад. При повороте 0° он направлен к нижнему краю плана.')));
       if (inventory) {
@@ -791,7 +812,7 @@ export async function bootEditor(root, options = {}) {
           bind('Верх окна, м', number(), { ...prop(item, 'head', 2.1), parse: parseNum })) : null,
         h('p.note', 'Обе точки должны лежать на одной стене: совпадать по X или Z. Окна видны на дальних стенах; ближние к камере стены скрыты.')));
     } else if (kind === 'scene') {
-      head(item.name || item.id, `id: ${item.id}`);
+      head(item.name || item.id, `ID: ${item.id}`);
       item.lights ||= {};
       const rule = (id) => ({
         get: () => (item.lights[id]?.on === true ? 'on' : item.lights[id]?.on === false ? 'off' : ''),
@@ -800,15 +821,15 @@ export async function bootEditor(root, options = {}) {
           else item.lights[id] = { ...(item.lights[id] || {}), on: v === 'on' };
         },
       });
-      const tri = () => choice([['', 'Leave as is'], ['on', 'On'], ['off', 'Off']]);
-      nodes.push(section('Scene',
-        row(bind('Название', text(), prop(item, 'name', '')), bind('Icon', choice(SCENE_ICONS), { ...prop(item, 'icon', 'sun'), event: 'change' }))),
-      section('Lights',
-        bind('All lights (default)', tri(), { ...rule('*'), event: 'change' }),
+      const tri = () => choice([['', 'Без изменений'], ['on', 'Включено'], ['off', 'Выключено']]);
+      nodes.push(section('Сцена',
+        row(bind('Название', text(), prop(item, 'name', '')), bind('Значок', choice(SCENE_ICONS), { ...prop(item, 'icon', 'sun'), event: 'change' }))),
+      section('Светильники',
+        bind('Все светильники по умолчанию', tri(), { ...rule('*'), event: 'change' }),
         doc.lights.map((l) => bind(`${l.name} · ${roomName(l.room)}`, tri(), { ...rule(l.id), event: 'change' })),
-        h('p.note', 'Brightness, temperature and colour per light are kept from the plan file; edit them there for fine control.')),
-      section('Air conditioners',
-        bind('All ACs', choice([['', 'Leave as is'], ['off', 'Turn off'], ['on', 'Turn on']]), {
+        h('p.note', 'Яркость, температура и цвет каждого светильника сохраняются из файла плана.')),
+      section('Кондиционеры',
+        bind('Все кондиционеры', choice([['', 'Без изменений'], ['off', 'Выключить'], ['on', 'Включить']]), {
           get: () => (item.acs?.['*']?.on === true ? 'on' : item.acs?.['*']?.on === false ? 'off' : ''),
           set: (v) => { item.acs ||= {}; if (v === '') delete item.acs['*']; else item.acs['*'] = { on: v === 'on' }; },
           event: 'change',
@@ -851,55 +872,55 @@ export async function bootEditor(root, options = {}) {
   }
 
   function deviceList() {
-    if (tuya.busy) return h('p.note', 'Talking to Smart Life…');
+    if (tuya.busy) return h('p.note', 'Подключение к Smart Life…');
     if (tuya.error) return h('p.note.bad', tuya.error);
     if (!tuya.devices) return null;
-    if (!tuya.devices.length) return h('p.note.bad', 'Connected, but this account has no devices yet.');
+    if (!tuya.devices.length) return h('p.note.bad', 'Подключено, но в аккаунте пока нет устройств.');
     const used = new Map([...doc.lights, ...doc.acs].filter((d) => d.tuya?.deviceId).map((d) => [d.tuya.deviceId, d.name]));
-    return h('div.devices-list', h('h3', `${tuya.devices.length} devices in your account`), tuya.devices.map((d) => h('div.device',
+    return h('div.devices-list', h('h3', `Устройств в аккаунте: ${tuya.devices.length}`), tuya.devices.map((d) => h('div.device',
       h(`span.dot${d.online ? '.on' : ''}`),
-      h('div', h('b', d.name), h('span', `${d.product || d.category || 'device'} · ${d.codes.join(', ') || 'no functions reported'}`)),
+      h('div', h('b', d.name), h('span', `${d.product || d.category || 'устройство'} · ${d.codes.join(', ') || 'функции не указаны'}`)),
       used.has(d.id) ? h('span.pill.on', used.get(d.id)) : null)));
   }
 
   function tuyaPanel() {
     const nodes = [];
-    if (!isNative) nodes.push(h('p.note.bad', 'Connecting works inside the House Control app (this is the browser preview).'));
+    if (!isNative) nodes.push(h('p.note.bad', 'Подключение доступно в приложении; сейчас открыт браузерный просмотр.'));
 
     if (tuya.account.connected) {
-      nodes.push(section('Smart Life account',
-        h('div.device', h('span.dot.on'), h('div', h('b', tuya.account.account || 'Signed in'), h('span', `User Code ${tuya.account.userCode}`))),
+      nodes.push(section('Аккаунт Smart Life',
+        h('div.device', h('span.dot.on'), h('div', h('b', tuya.account.account || 'Вход выполнен'), h('span', `Код пользователя ${tuya.account.userCode}`))),
         h('div.fields',
-          h('button.btn', { onclick: fetchDevices }, 'Refresh devices'),
+          h('button.btn', { onclick: fetchDevices }, 'Обновить устройства'),
           h('button.btn', { onclick: async () => {
             stopLoginPolling();
             tuya.account = await call('smartlife.signOut');
             tuya.devices = null; tuya.qr = null;
             renderSidebar(); renderInspector();
             smartLifeChanged();
-          } }, 'Sign out')),
-        h('p.note', 'Pick a lamp or an AC on the plan, choose its device under “Smart Life device”, then press “Save & apply”.')),
+          } }, 'Выйти')),
+        h('p.note', 'Выберите светильник или кондиционер на плане, укажите устройство Smart Life и сохраните план.')),
       deviceList());
       if (!tuya.devices && !tuya.busy && !tuya.error && isNative) setTimeout(fetchDevices, 0);
     } else {
       const codeInput = text();
       codeInput.value = tuya.account.userCode || '';
-      codeInput.placeholder = 'e.g. aB12cD3';
+      codeInput.placeholder = 'например aB12cD3';
       const message = h('p.note');
       const qrBox = h('div.qr');
       const start = async () => {
         stopLoginPolling();
         message.className = 'note';
-        message.textContent = 'Requesting a login code…';
+        message.textContent = 'Запрашиваем код входа…';
         qrBox.replaceChildren();
         try {
           const userCode = codeInput.value.trim();
           const { token, qr } = await call('smartlife.begin', { userCode });
-          qrBox.replaceChildren(h('img', { src: qr, alt: 'Smart Life login QR code', width: 220, height: 220 }));
-          message.textContent = 'Scan this code with the Smart Life app (the scan icon on the Home tab) and confirm the login. Waiting…';
+          qrBox.replaceChildren(h('img', { src: qr, alt: 'QR-код входа в Smart Life', width: 220, height: 220 }));
+          message.textContent = 'Отсканируйте код в Smart Life на вкладке «Дом» и подтвердите вход. Ожидание…';
           let tries = 0;
           loginTimer = setInterval(async () => {
-            if (++tries > 90) { stopLoginPolling(); message.className = 'note bad'; message.textContent = 'The code expired. Press “Show QR code” again.'; return; }
+            if (++tries > 90) { stopLoginPolling(); message.className = 'note bad'; message.textContent = 'Срок действия кода истёк. Нажмите «Показать QR-код» ещё раз.'; return; }
             const r = await call('smartlife.poll', { token, userCode }).catch(() => null);
             if (!r?.connected) return;
             stopLoginPolling();
@@ -913,23 +934,23 @@ export async function bootEditor(root, options = {}) {
           message.textContent = e.message;
         }
       };
-      nodes.push(section('Sign in with the Smart Life app',
+      nodes.push(section('Вход через приложение Smart Life',
         h('ol.steps',
-          h('li', 'In the Smart Life app open Me → ⚙ Settings → Account and Security and copy the User Code at the bottom.'),
-          h('li', 'Type it here and press “Show QR code”.'),
-          h('li', 'Scan the code with the Smart Life app and confirm.')),
-        h('label.field', h('span', 'User Code'), codeInput),
-        h('button.btn.primary.wide', { onclick: start, disabled: !isNative }, 'Show QR code'),
+          h('li', 'В Smart Life откройте «Профиль» → «Настройки» → «Учётная запись и безопасность» и скопируйте код пользователя внизу.'),
+          h('li', 'Введите его здесь и нажмите «Показать QR-код».'),
+          h('li', 'Отсканируйте код в Smart Life и подтвердите вход.')),
+        h('label.field', h('span', 'Код пользователя'), codeInput),
+        h('button.btn.primary.wide', { onclick: start, disabled: !isNative }, 'Показать QR-код'),
         qrBox, message,
-        h('p.note', 'Free and needs no Tuya developer account: this is the same sign-in the Home Assistant integration uses. The session is stored only on this Mac.')));
+        h('p.note', 'Бесплатно, аккаунт разработчика Tuya не нужен. Данные входа хранятся только на этом Mac.')));
     }
 
     // The developer-project route stays available for those who already have one.
     const idInput = text();
     idInput.value = tuya.info.accessId || '';
-    idInput.placeholder = 'Access ID / Client ID';
+    idInput.placeholder = 'Идентификатор клиента (Access ID)';
     const secretInput = h('input', { type: 'password', autocomplete: 'off' });
-    secretInput.placeholder = tuya.info.hasSecret ? '•••••••• (saved — leave empty to keep)' : 'Access Secret / Client Secret';
+    secretInput.placeholder = tuya.info.hasSecret ? '•••••••• (сохранено; оставьте пустым, чтобы сохранить)' : 'Секрет клиента (Access Secret)';
     const region = choice(REGIONS.map(([id, label]) => [id, `${label} (${id})`]));
     region.value = tuya.info.region || 'eu';
     const saveCloud = async () => {
@@ -940,17 +961,19 @@ export async function bootEditor(root, options = {}) {
         if (tuya.info.configured) await fetchDevices(); else renderInspector();
       } catch (e) { toast(e.message, true); }
     };
-    nodes.push(h('details.advanced', h('summary', 'Advanced: Tuya Cloud project instead'),
-      h('p.note', 'Only if you already have a project on platform.tuya.com with your app account linked. The QR sign-in above takes priority when both are set.'),
-      h('label.field', h('span', 'Access ID'), idInput),
-      h('label.field', h('span', 'Access Secret'), secretInput),
-      h('label.field', h('span', 'Data center'), region),
-      h('button.btn.wide', { onclick: saveCloud, disabled: !isNative }, 'Save & fetch devices'),
+    nodes.push(h('details.advanced', h('summary', 'Дополнительно: проект Tuya Cloud'),
+      h('p.note', 'Для существующего проекта на platform.tuya.com со связанным аккаунтом. Приоритет у входа по QR-коду.'),
+      h('label.field', h('span', 'Идентификатор доступа'), idInput),
+      h('label.field', h('span', 'Секрет доступа'), secretInput),
+      h('label.field', h('span', 'Центр обработки данных'), region),
+      h('button.btn.wide', { onclick: saveCloud, disabled: !isNative }, 'Сохранить и загрузить устройства'),
       tuya.account.connected ? null : deviceList()));
     return nodes;
   }
 
   /* ---------- file actions ---------- */
+
+  async function clearAll(){try{const next=await options.onClear?.(structuredClone(doc));if(!next)return;doc=structuredClone(next);undo.length=0;redo.length=0;sel={kind:'home'};dirty=false;renderSidebar();renderPlan();renderInspector();validate();schedulePreview(0);toast('Карта очищена. Вещи сохранены в «Без места».');}catch(e){toast(e.message,true);}}
 
   async function save() {
     if (!valid) return;
@@ -973,7 +996,7 @@ export async function bootEditor(root, options = {}) {
     }
     if (!isNative) {
       download();
-      toast('Browser preview: the plan was downloaded instead of applied');
+      toast('План сохранён в файл для браузерного просмотра');
       return;
     }
     try {
@@ -981,7 +1004,7 @@ export async function bootEditor(root, options = {}) {
       dirty = false;
       validate();
       haptic('success');
-      toast(isPhone ? 'Saved' : 'Saved — the menu bar panel now shows this home');
+      toast(isPhone ? 'Сохранено' : 'План сохранён');
     } catch (e) {
       toast(e.message, true);
     }
@@ -1067,48 +1090,48 @@ export async function bootEditor(root, options = {}) {
   // (add, items, 3D, home) and the inspector as a sheet that rises when something is picked.
   function buildPhoneLayout() {
     const canvas = h('main.canvas');
-    const sheet = h('section.p-sheet', { 'aria-label': 'Details' });
-    const grip = h('div.p-grip', { role: 'button', 'aria-label': 'Resize details' }, h('span'));
+    const sheet = h('section.p-sheet', { 'aria-label': 'Свойства' });
+    const grip = h('div.p-grip', { role: 'button', 'aria-label': 'Изменить размер свойств' }, h('span'));
     const scrim = h('div.p-scrim');
-    const listSheet = h('section.p-modal', { 'aria-label': 'Items' });
-    const addSheet = h('section.p-modal.p-add', { 'aria-label': 'Add' });
-    const confirmSheet = h('section.p-modal.p-confirm', { 'aria-label': 'Unsaved changes' });
+    const listSheet = h('section.p-modal', { 'aria-label': 'Объекты' });
+    const addSheet = h('section.p-modal.p-add', { 'aria-label': 'Добавить' });
+    const confirmSheet = h('section.p-modal.p-confirm', { 'aria-label': 'Несохранённые изменения' });
     const undoBtn = h('button.p-icon', { 'aria-label': 'Отменить', onclick: () => { stepHistory(undo, redo); haptic('light'); } }, icon('undo', 19, 2.1));
     const redoBtn = h('button.p-icon', { 'aria-label': 'Повторить', onclick: () => { stepHistory(redo, undo); haptic('light'); } }, icon('redo', 19, 2.1));
     const doneBtn = h('button.p-save', { onclick: () => (dirty ? save() : close()) });
     const issue = h('div.p-issue');
-    const fitBtn = h('button.p-float', { 'aria-label': 'Show the whole plan', onclick: () => { ui.view = null; ui.applyView(); haptic('light'); } }, icon('fit', 18, 2));
+    const fitBtn = h('button.p-float', { 'aria-label': 'Показать всю планировку', onclick: () => { ui.view = null; ui.applyView(); haptic('light'); } }, icon('fit', 18, 2));
     const tool = (name, label, onclick) => h('button.p-tool', { onclick }, icon(name, 22, 1.9), h('span', label));
     const view3d = tool('box', '3D', () => setShow3D(!ui.show3D));
     const tools = h('nav.p-tools',
-      tool('plus', 'Add', () => openModal(addSheet)),
-      tool('list', 'Items', () => openModal(listSheet)),
+      tool('plus', 'Добавить', () => openModal(addSheet)),
+      tool('list', 'Объекты', () => openModal(listSheet)),
       view3d,
-      tool('home', 'Home', () => { select({ kind: 'home' }); setSheet('full'); }));
+      tool('home', 'Квартира', () => { select({ kind: 'home' }); setSheet('full'); }));
 
     nameInput.setAttribute('enterkeyhint', 'done');
     nameInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') nameInput.blur(); });
     sidebar.classList.add('p-list');
-    listSheet.append(h('div.p-modal-head', h('b', 'Items'), h('button.p-text', { onclick: closeModals }, 'Done')), sidebar);
+    listSheet.append(h('div.p-modal-head', h('b', 'Объекты'), h('button.p-text', { onclick: closeModals }, 'Готово')), sidebar);
     const addables = [
-      ['room', 'home', 'Комната'], ['light', 'bulb', 'Lamp'], ['ac', 'ac', 'Air conditioner'],
-      ['opening', 'opening', 'Door or window'], ['furniture', 'furniture', 'Мебель'], ['scene', 'sparkles', 'Scene'],
+      ['room', 'home', 'Комната'], ['light', 'bulb', 'Светильник'], ['ac', 'ac', 'Кондиционер'],
+      ['opening', 'opening', 'Дверь или окно'], ['furniture', 'furniture', 'Мебель'], ['scene', 'sparkles', 'Сцена'],
     ];
-    addSheet.append(h('div.p-modal-head', h('b', 'Add to the plan'), h('button.p-text', { onclick: closeModals }, 'Cancel')),
+    addSheet.append(h('div.p-modal-head', h('b', 'Добавить на план'), h('button.p-text', { onclick: closeModals }, 'Отмена')),
       h('div.p-add-grid', addables.map(([kind, name, label]) => h('button.p-add-item', {
         onclick: () => { closeModals(); add(kind); haptic('light'); ui.reveal(); },
       }, icon(name, 24, 1.8), h('span', label)))));
-    confirmSheet.append(h('div.p-modal-head', h('b', 'Unsaved changes')),
-      h('p.note', 'Save them before closing? Saved plans reach your paired Mac too.'),
+    confirmSheet.append(h('div.p-modal-head', h('b', 'Несохранённые изменения')),
+      h('p.note', 'Сохранить изменения перед закрытием?'),
       h('div.p-confirm-actions',
-        h('button.btn.primary.wide', { onclick: async () => { closeModals(); await save(); if (!dirty) close(); } }, 'Save and close'),
-        h('button.btn.wide.danger', { onclick: () => { closeModals(); dirty = false; close(); } }, 'Discard changes'),
-        h('button.btn.wide', { onclick: closeModals }, 'Keep editing')));
+        h('button.btn.primary.wide', { onclick: async () => { closeModals(); await save(); if (!dirty) close(); } }, 'Сохранить и закрыть'),
+        h('button.btn.wide.danger', { onclick: () => { closeModals(); dirty = false; close(); } }, 'Отменить изменения'),
+        h('button.btn.wide', { onclick: closeModals }, 'Продолжить редактирование')));
 
     sheet.append(grip, inspector);
     canvas.append(plan, h('div.p-preview', previewHost, previewToggle), issue, fitBtn, hint);
     const shell = h('div.editor.phone',
-      h('header.p-bar', h('button.p-icon', { 'aria-label': 'Close', onclick: requestClose }, icon('close', 20, 2.2)),
+      h('header.p-bar', h('button.p-icon', { 'aria-label': 'Закрыть', onclick: requestClose }, icon('close', 20, 2.2)),
         nameInput, undoBtn, redoBtn, doneBtn),
       canvas, tools, scrim, sheet, listSheet, addSheet, confirmSheet, toastEl);
     root.replaceChildren(shell);
@@ -1176,7 +1199,7 @@ export async function bootEditor(root, options = {}) {
     function setShow3D(on) {
       ui.show3D = on;
       canvas.classList.toggle('show-3d', on);
-      view3d.replaceChildren(icon(on ? 'map' : 'box', 22, 1.9), h('span', on ? 'Plan' : '3D'));
+      view3d.replaceChildren(icon(on ? 'map' : 'box', 22, 1.9), h('span', on ? 'План' : '3D'));
       schedulePreview(0);
       haptic('light');
     }
@@ -1315,11 +1338,11 @@ export async function bootEditor(root, options = {}) {
             'aria-label': 'Убрать с плана', onclick: () => { haptic('medium'); remove(sel.kind, sel.index); setSheet('closed'); },
           }, icon('trash', 18, 2)));
         }
-        nodes.push(h('button.p-icon', { 'aria-label': 'Close details', onclick: closeSheet }, icon('down', 20, 2.2)));
+        nodes.push(h('button.p-icon', { 'aria-label': 'Закрыть свойства', onclick: closeSheet }, icon('down', 20, 2.2)));
         return h('div.p-head-actions', nodes);
       },
       refresh() {
-        doneBtn.textContent = dirty ? 'Save' : 'Done';
+        doneBtn.textContent = dirty ? 'Сохранить' : 'Готово';
         doneBtn.classList.toggle('primary', dirty);
         doneBtn.disabled = dirty && !valid;
         undoBtn.disabled = !undo.length;
@@ -1354,7 +1377,7 @@ export async function bootEditor(root, options = {}) {
     }
     doc = structuredClone(config);
     for (const key of Object.values(KEYS)) doc[key] ||= [];
-    nameInput.value = doc.name || 'Home';
+    nameInput.value = doc.name || 'Квартира';
     if (sel.index != null && !doc[KEYS[sel.kind]]?.[sel.index]) sel = { kind: 'home' };
     touch();
     dirty = false;

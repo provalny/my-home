@@ -57,6 +57,10 @@ html.mode-editor, html.mode-editor body { user-select: none; }
   font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--faint);
 }
 .group .n { flex: 1; color: rgba(222, 230, 247, 0.22); }
+.group-toggle { display:flex;align-items:center;gap:5px;border:0;background:transparent;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;padding:4px 0;cursor:pointer; }
+.group-all { display:flex;gap:5px;align-items:center;background:transparent;border:0;color:var(--muted);font-size:10px;padding:8px 10px;cursor:pointer; }
+.group-toggle:focus-visible,.group-all:focus-visible { outline:2px solid #72a9ff;outline-offset:3px; }
+.catalog-new { display:inline-block;font:700 8px system-ui;font-style:normal;letter-spacing:.4px;padding:3px 4px;margin-left:5px;background:#699cf52b;color:#a8caff;border-radius:4px;vertical-align:middle; }
 .group .add {
   width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; color: var(--muted);
   background: var(--glass); border: 1px solid var(--line); transition: background 160ms, color 160ms;

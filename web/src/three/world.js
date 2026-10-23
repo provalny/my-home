@@ -8,6 +8,7 @@ import { buildHouse } from './house.js';
 import { buildFurniture } from './furniture.js';
 import { LightUnit } from './lights.js';
 import { ACUnit } from './ac.js';
+import { buildStorageInterior, disposeObject } from './storage-interior.js';
 
 export const STAGE_BG = '#0a0e1a';
 
@@ -19,7 +20,7 @@ const EL_MAX = 70;
 const ZOOM_MIN = 0.55;     // closest
 const ZOOM_MAX = 1.2;
 
-export function createWorld(canvas, config, store, { onHover, onPick, background = STAGE_BG }) {
+export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>{}, onZones=()=>{}, reduceMotion=false, background = STAGE_BG }) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -128,6 +129,16 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     goal: { az: baseAz, el: config.camera.elevation, dist: 30, target: center.clone() },
     zoom: 1, focus: null,
   };
+  let storage=null,storageProgress=0;
+  const dimmed=[],hidden=[];
+  const focusLight=new THREE.HemisphereLight('#fff0db','#706152',0);scene.add(focusLight);
+  const visible=o=>{for(let p=o;p;p=p.parent)if(!p.visible)return false;return true;};
+  function modelFor(id){return furniture.children.find(g=>{let found=false;g.traverse(o=>{if(o.userData.id===id)found=true;});return found;});}
+  function closeStorage(){
+    if(storage){storage.original.visible=true;if(storage.interior){scene.remove(storage.interior.root);storage.interior.dispose();}if(storage.outline){scene.remove(storage.outline);disposeObject(storage.outline);}}
+    for(const {mesh,original,clones}of dimmed){mesh.material=original;clones.forEach(m=>m.dispose());}dimmed.length=0;
+    for(const object of hidden)object.visible=true;hidden.length=0;storage=null;storageProgress=0;focusLight.intensity=0;onZones([]);shadowFrames=3;
+  }
   let width = 1;
   let height = 1;
   let topInset = 0;    // pixels at the top covered by the header
@@ -166,8 +177,12 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     const f = rig.focus;
     let box;
     let fill = 0.96;
-    if (f?.kind === 'room') {
-      const r = config.rooms.find((x) => x.id === f.id);
+    if (f?.kind === 'furniture') {
+      const model=storage?.interior?.root||modelFor(f.id);
+      if(!model){rig.focus=null;return frameGoal();}
+      box=new THREE.Box3().setFromObject(model);fill=.76;
+    } else if (f?.kind === 'room') {
+      const r = config.rooms.find((x) => x.id === f.id);if(!r){rig.focus=null;return frameGoal();}
       box = new THREE.Box3(new THREE.Vector3(r.x, 0, r.z), new THREE.Vector3(r.x + r.w, H * 0.75, r.z + r.d));
       fill = 0.84;
     } else if (f?.kind === 'ac') {
@@ -186,7 +201,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
   }
 
   function updateRig(dt, instant = false) {
-    const k = instant ? 1 : 1 - Math.exp(-dt * 5.5);
+    const k = instant || reduceMotion ? 1 : 1 - Math.exp(-dt * 5.5);
     const g = rig.goal;
     const delta = Math.abs(g.az - rig.az) + Math.abs(g.el - rig.el) + Math.abs(g.dist - rig.dist) * 2
       + rig.target.distanceTo(g.target) * 4;
@@ -231,7 +246,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     const r = canvas.getBoundingClientRect();
     ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
-    const hits = raycaster.intersectObjects(hitTargets, false);
+    const hits = raycaster.intersectObjects(storage?.interior?[...storage.interior.hits,...hitTargets]:hitTargets, false).filter(h=>visible(h.object));
     if (!hits.length) return null;
     // Devices win over the floor they stand on.
     const device = hits.find((h) => h.object.userData.kind !== 'room');
@@ -297,8 +312,9 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
       const dy = ev.clientY - drag.y;
       if (!drag.moved && Math.hypot(dx, dy) > 5) { drag.moved = true; setHover(null); canvas.style.cursor = 'grabbing'; }
       if (drag.moved) {
-        rig.goal.az = clamp(drag.az - dx * 0.35, baseAz - ORBIT_AZ, baseAz + ORBIT_AZ);
-        rig.goal.el = clamp(drag.el + dy * 0.3, EL_MIN, EL_MAX);
+        const focusAz=storage?(storage.shape.rot||0)+12:baseAz;
+        rig.goal.az = clamp(drag.az - dx * 0.35, focusAz - (storage?25:ORBIT_AZ), focusAz + (storage?25:ORBIT_AZ));
+        rig.goal.el = clamp(drag.el + dy * 0.3, storage?8:EL_MIN, storage?50:EL_MAX);
         frameGoal();
         wake();
       }
@@ -353,11 +369,18 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     let active = updateRig(dt);
+    if(storage){
+      if(storageProgress<1){storageProgress=reduceMotion?1:Math.min(1,storageProgress+dt*1.3);storage.interior?.animate(THREE.MathUtils.smoothstep(storageProgress,.12,1));active=true;
+        focusLight.intensity=storageProgress*1.8;
+        for(const {clones,colors,emissives}of dimmed)clones.forEach((m,i)=>{if(colors[i])m.color.copy(colors[i]).multiplyScalar(1-storageProgress*.7);if(emissives[i])m.emissive.copy(emissives[i]).multiplyScalar(1-storageProgress*.8);});
+      }
+    }
     for (const unit of lights.values()) active = unit.update(dt) || active;
     for (const unit of acs.values()) active = unit.update(dt) || active;
     if (shadowFrames > 0) { renderer.shadowMap.needsUpdate = true; shadowFrames--; active = true; }
     if (active || awake > 0) {
       composer.render(dt);
+      if(storage?.interior){const anchors=storage.interior.labels.map(label=>{const point=label.anchor.getWorldPosition(new THREE.Vector3()).project(camera),a=label.anchor.localToWorld(new THREE.Vector3(-label.width/2,-label.height/2,0)).project(camera),b=label.anchor.localToWorld(new THREE.Vector3(label.width/2,label.height/2,0)).project(camera);return {...label,anchor:undefined,x:(point.x*.5+.5)*width,y:(-point.y*.5+.5)*height,screenWidth:Math.abs(a.x-b.x)*width/2,screenHeight:Math.abs(a.y-b.y)*height/2,visible:storageProgress>.35&&point.z>-1&&point.z<1};});onZones(anchors);}
       awake = Math.max(0, awake - 1);
       if (hovered && active) onHover({ ...hovered, ...screenAnchor(hovered) });
     }
@@ -389,24 +412,38 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     cameraSnapshot() {
       return { az:rig.goal.az, el:rig.goal.el, dist:rig.goal.dist, target:rig.goal.target.toArray(), zoom:rig.zoom, focus:rig.focus };
     },
-    restoreCamera(saved) {
+    restoreCamera(saved,instant=true) {
       if (!saved || !Array.isArray(saved.target) || saved.target.length !== 3) return;
       rig.zoom=saved.zoom || 1;rig.focus=saved.focus;
-      rig.goal.az=rig.az=saved.az;rig.goal.el=rig.el=saved.el;rig.goal.dist=rig.dist=saved.dist;
-      rig.target.fromArray(saved.target);rig.goal.target.copy(rig.target);wake(2);
+      rig.goal.az=saved.az;rig.goal.el=saved.el;rig.goal.dist=saved.dist;rig.goal.target.fromArray(saved.target);
+      if(instant||reduceMotion){rig.az=saved.az;rig.el=saved.el;rig.dist=saved.dist;rig.target.copy(rig.goal.target);}wake(2);
     },
 
     setInsets(top, bottom) { topInset = top; bottomInset = bottom; resize(); },
     resize,
 
     focus(next) {
+      closeStorage();
       rig.focus = next;
       rig.zoom = 1;
-      rig.goal.az = baseAz + (next?.kind === 'ac' ? (WALL_SIDE[acs.get(next.id).cfg.wall] ?? 0) : 0);
-      rig.goal.el = next?.kind === 'ac' ? 30 : config.camera.elevation;
+      rig.goal.az = next?.kind==='furniture'?(config.furniture.find(f=>f.id===next.id)?.rot||0)+12:baseAz + (next?.kind === 'ac' ? (WALL_SIDE[acs.get(next.id).cfg.wall] ?? 0) : 0);
+      rig.goal.el = next?.kind==='furniture'?14:next?.kind === 'ac' ? 30 : config.camera.elevation;
       frameGoal();
       wake();
     },
+    openStorage({id,zones=[],openable=false,container=false,selectedId=null,moduleKey=null}){
+      const shape=config.furniture.find(f=>f.id===id),original=modelFor(id);if(!shape||!original)return false;
+      closeStorage();
+      for(const g of furniture.children)if(g!==original)g.traverse(mesh=>{if(!mesh.isMesh)return;const originals=Array.isArray(mesh.material)?mesh.material:[mesh.material],clones=originals.map(m=>m.clone());dimmed.push({mesh,original:mesh.material,clones,colors:clones.map(m=>m.color?.clone()),emissives:clones.map(m=>m.emissive?.clone())});mesh.material=Array.isArray(mesh.material)?clones:clones[0];});
+      house.group.traverse(mesh=>{if(mesh.isMesh&&mesh.userData.kind!=='room'&&mesh.visible){hidden.push(mesh);mesh.visible=false;}});
+      for(const unit of [...lights.values(),...acs.values()])if(unit.model?.visible){hidden.push(unit.model);unit.model.visible=false;}
+      let interior=null,outline=null;
+      if(openable){interior=buildStorageInterior(shape,zones,{container,moduleKey});scene.add(interior.root);interior.highlight(selectedId);original.visible=false;}
+      else{outline=new THREE.Group();original.updateMatrixWorld(true);original.traverse(mesh=>{if(!mesh.isMesh)return;const line=new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry,30),new THREE.LineBasicMaterial({color:'#70bcff',transparent:true,opacity:1,depthTest:false,toneMapped:false}));line.applyMatrix4(mesh.matrixWorld);line.renderOrder=8;outline.add(line);const shell=new THREE.Mesh(mesh.geometry.clone(),new THREE.MeshBasicMaterial({color:'#70bcff',side:THREE.BackSide,depthWrite:false,toneMapped:false}));shell.applyMatrix4(mesh.matrixWorld);shell.scale.multiplyScalar(1.015);shell.renderOrder=7;outline.add(shell);});scene.add(outline);}
+      storage={shape,original,interior,outline};rig.focus={kind:'furniture',id};rig.zoom=1;rig.goal.az=(shape.rot||0)+12;rig.goal.el=14;frameGoal();shadowFrames=3;wake(4);return true;
+    },
+    selectSection(id){storage?.interior?.highlight(id);wake();},
+    closeStorage(){closeStorage();wake(3);},
 
     // Camera sweep + staggered light-up, played whenever the panel appears.
     intro() {
@@ -429,11 +466,13 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     },
 
     dispose() {
+      closeStorage();
       unsubscribe();
       running = false;
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
       composer.dispose();
+      for(const pass of composer.passes)pass.dispose?.();disposeObject(scene);
       target.dispose();
       renderer.dispose();
       renderer.forceContextLoss();

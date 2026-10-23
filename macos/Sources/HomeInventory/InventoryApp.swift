@@ -21,6 +21,7 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
             let alert = NSAlert(); alert.messageText = "Не удалось открыть данные"; alert.informativeText = error.localizedDescription + "\nФайлы не изменены."; alert.runModal(); NSApp.terminate(nil); return
         }
         updates = UpdateManager()
+        try? ApplicationIcon.apply(store.settings["appIcon"] as? String ?? "aurora")
         host = WebHost(mode: "inventory", transparent: false, boot: { [weak self] in
             guard let self else { return [:] }
             var boot: [String: Any] = ["inventorySettings": self.publicSettings, "platform": "macos"]
@@ -32,7 +33,7 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
         store.backupFailure = { [weak self] error in self?.host.call("backupError", error) }
         store.settingsChanged = { [weak self] in self?.pushSettings() }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1380, height: 920), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Мой дом"; window.minSize = NSSize(width: 1000, height: 700)
+        window.title = "Life Assistant"; window.minSize = NSSize(width: 1000, height: 700)
         window.isReleasedWhenClosed = false; window.delegate = self
         window.backgroundColor = NSColor(calibratedRed: 0.04, green: 0.055, blue: 0.1, alpha: 1)
         window.contentView = host.webView; window.setFrameAutosaveName("InventoryMainWindow"); window.center()
@@ -51,6 +52,7 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
     }
     var publicSettings: [String: Any] {
         var s = store.publicSettings; s["login"] = LoginItem.state.rawValue
+        s["reduceMotion"] = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         s["notificationAuthorization"] = notificationAuthorization; s["notificationAlerts"] = notificationAlerts
         s.merge(updates?.settings ?? [:]) { _, new in new }
         return s
@@ -84,22 +86,28 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
     func windowWillClose(_ notification: Notification) { host.call("hidden") }
     func buildMenus() {
         let menu = NSMenu(); let appMenu = NSMenu(); let item = NSMenuItem(); item.submenu = appMenu; menu.addItem(item)
-        appMenu.addItem(withTitle: "Открыть Мой дом", action: #selector(show), keyEquivalent: "0").target = self
+        appMenu.addItem(withTitle: "Открыть Life Assistant", action: #selector(show), keyEquivalent: "0").target = self
         appMenu.addItem(withTitle: "Проверить обновления…", action: #selector(checkForUpdates), keyEquivalent: "").target = self
-        appMenu.addItem(.separator()); appMenu.addItem(withTitle: "Скрыть Мой дом", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "Выйти из Мой дом", action: #selector(quit), keyEquivalent: "q").target = self
+        appMenu.addItem(.separator()); appMenu.addItem(withTitle: "Скрыть Life Assistant", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Выйти из Life Assistant", action: #selector(quit), keyEquivalent: "q").target = self
         let edit = NSMenu(title: "Правка"); let editItem = NSMenuItem(title: "Правка", action: nil, keyEquivalent: ""); editItem.submenu = edit; menu.addItem(editItem)
         edit.addItem(withTitle: "Отменить", action: #selector(undoInventory), keyEquivalent: "z").target = self
         for (title, selector, key) in [("Вырезать", "cut:", "x"), ("Скопировать", "copy:", "c"), ("Вставить", "paste:", "v"), ("Выбрать всё", "selectAll:", "a")] { edit.addItem(withTitle: title, action: Selector(selector), keyEquivalent: key) }
         NSApp.mainMenu = menu
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "shippingbox", accessibilityDescription: "Мой дом")
-        let statusMenu = NSMenu(); statusMenu.addItem(withTitle: "Открыть Мой дом", action: #selector(show), keyEquivalent: "").target = self
+        statusItem.button?.image = NSImage(systemSymbolName: "shippingbox", accessibilityDescription: "Life Assistant")
+        let statusMenu = NSMenu(); statusMenu.addItem(withTitle: "Открыть Life Assistant", action: #selector(show), keyEquivalent: "").target = self
         statusMenu.addItem(.separator()); statusMenu.addItem(withTitle: "Выйти", action: #selector(quit), keyEquivalent: "q").target = self; statusItem.menu = statusMenu
     }
     func receive(_ m: [String: Any]) {
         do {
             switch m["type"] as? String {
+            case "inventoryAppIcon":
+                let name = m["icon"] as? String ?? ""
+                _ = try ApplicationIcon.image(name)
+                try store.setApplicationIcon(name)
+                try ApplicationIcon.apply(name)
+                pushSettings(); host.reply(to: m, publicSettings)
             case "inventoryCheckUpdates": try updates.check(); host.reply(to: m, ["ok": true])
             case "inventoryAutomaticUpdates": updates.setAutomaticChecks(m["on"] as? Bool ?? false); host.reply(to: m, publicSettings)
             case "saveInventory":
@@ -113,7 +121,7 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
             case "inventoryBackupNow": try store.backup(); host.reply(to: m, publicSettings)
             case "inventorySystemStatus": refreshSystemStatus(replyTo: m)
             case "inventoryExport":
-                let p = NSSavePanel(); p.nameFieldStringValue = "Мой-дом-\(InventoryStore.day()).json"; p.allowedContentTypes = [.json]
+                let p = NSSavePanel(); p.nameFieldStringValue = "Life-Assistant-\(InventoryStore.day()).json"; p.allowedContentTypes = [.json]
                 if p.runModal() == .OK, let url = p.url {
                     guard let d = store.document else { throw InventoryError.message("Нет данных для экспорта") }
                     try InventoryStore.encode(d).write(to: url, options: .atomic)

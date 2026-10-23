@@ -122,7 +122,12 @@ final class InventoryStore {
     var publicSettings: [String: Any] {
         ["backupFolder": settings["backupFolder"] ?? "", "lastBackupAt": settings["lastBackupAt"] ?? "",
          "lastBackupError": settings["lastBackupError"] ?? "", "lastBackupErrorAt": settings["lastBackupErrorAt"] ?? "",
-         "backupCount": settings["backupCount"] ?? 0]
+         "backupCount": settings["backupCount"] ?? 0, "appIcon": settings["appIcon"] ?? "aurora"]
+    }
+    func setApplicationIcon(_ name: String) throws {
+        guard ["aurora", "sunset", "orbit", "forest"].contains(name) else { throw InventoryError.message("Неизвестная иконка приложения") }
+        var next = settings; next["appIcon"] = name
+        try writeSettings(next)
     }
     // Remember scheduled reminders across launches, including banners the user has dismissed.
     // A future reminder removed by an edit is forgotten, so a later restore can notify again.

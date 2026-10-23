@@ -71,4 +71,4 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           node scripts/release-notes.mjs
-          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Мой дом / My Home $VERSION" --notes-file build/release-notes.md build/release/*
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Life Assistant $VERSION" --notes-file build/release-notes.md build/release/*

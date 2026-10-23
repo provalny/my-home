@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test src/inventory/model.test.js"
+    "test": "node --test src/inventory/model.test.js src/inventory/storage.test.js src/three/furniture.test.js"
   },
   "dependencies": {
     "lucide": "^0.544.0",
