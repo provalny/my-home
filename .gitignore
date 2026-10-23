@@ -21,6 +21,8 @@ tuya.json
 events.log
 .env
 .env.*
+.release-secrets/
+*.p12
 
 # Local assistant settings
 .claude/settings.local.json

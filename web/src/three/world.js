@@ -386,6 +386,16 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     lights,
     acs,
 
+    cameraSnapshot() {
+      return { az:rig.goal.az, el:rig.goal.el, dist:rig.goal.dist, target:rig.goal.target.toArray(), zoom:rig.zoom, focus:rig.focus };
+    },
+    restoreCamera(saved) {
+      if (!saved || !Array.isArray(saved.target) || saved.target.length !== 3) return;
+      rig.zoom=saved.zoom || 1;rig.focus=saved.focus;
+      rig.goal.az=rig.az=saved.az;rig.goal.el=rig.el=saved.el;rig.goal.dist=rig.dist=saved.dist;
+      rig.target.fromArray(saved.target);rig.goal.target.copy(rig.target);wake(2);
+    },
+
     setInsets(top, bottom) { topInset = top; bottomInset = bottom; resize(); },
     resize,
 

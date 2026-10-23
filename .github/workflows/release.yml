@@ -1,108 +1,74 @@
-# Builds the Mac app on GitHub's machines and attaches the disk image to a draft release.
-#
-#   Push a tag v<version> (the version in ios/Config/Base.xcconfig) → a draft release with
-#   HouseControl-<version>.dmg and its SHA-256 appears under Releases; publish it by hand.
-#   Run it from the Actions tab instead → the same image as a downloadable artifact, no release.
-#
-# The app is signed ad hoc, not with a Developer ID, so no personal certificate ever leaves a
-# developer's Mac. Instead, on a public repository every image carries a build provenance
-# attestation: `gh attestation verify <dmg> --repo 0xProbabillity/house-control` proves it was
-# built here, by this workflow, from the tagged commit.
-
-name: Release
-
+name: Release My Home
 on:
   push:
-    tags: ["v*"]
+    tags: ['v*']
   workflow_dispatch:
-
 permissions: {}
-
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
-
 jobs:
-  mac:
-    name: Mac app
+  release:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 35
     permissions:
-      contents: write      # create the draft release
-      id-token: write      # sign the provenance attestation
-      attestations: write  # store it
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-
-      - name: Check the tag matches the app version
+      - name: Validate version and release configuration
         id: version
         run: |
-          version="$(sed -n 's/^MARKETING_VERSION *= *//p' ios/Config/Base.xcconfig)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $version in ios/Config/Base.xcconfig"
-            exit 1
-          fi
-
-      # The widgets and Control Center controls need the macOS 26 SDK; the image defaults to Xcode 16.
-      - name: Use Xcode 26
+          node scripts/check-release.mjs
+          echo "version=$(node -p 'require("./web/src/inventory/releases.json")[0].version')" >> "$GITHUB_OUTPUT"
+      - name: Install web dependencies and run tests
         run: |
-          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
-          xcodebuild -version
-
-      - name: Install XcodeGen (generates the widgets' Xcode project)
-        run: brew install xcodegen
-
-      - name: Install the web UI's packages
-        run: npm ci --prefix web --no-audit --no-fund
-
-      - name: Build the app and the disk image
-        run: UNSIGNED=1 ./scripts/release-mac.sh
-
-      - name: Attest build provenance
-        if: github.event.repository.visibility == 'public'
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+          npm ci --prefix web --no-audit --no-fund
+          npm test --prefix web
+          npm install --global pnpm@11
+      - name: Build universal Mac application
+        run: INVENTORY_UNIVERSAL=1 bash scripts/build-inventory.sh
+      - name: Test native storage
+        run: |
+          swiftc macos/Sources/HomeInventory/InventoryStore.swift scripts/test-inventory-store.swift -o /tmp/myhome-store-checks
+          /tmp/myhome-store-checks
+      - name: Package DMG and ZIP
+        run: bash scripts/package-inventory.sh
+      - name: Sign update feed
+        env:
+          SPARKLE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
+        run: |
+          test -n "$SPARKLE_KEY" || { echo '::error::Configure SPARKLE_EDDSA_PRIVATE_KEY first'; exit 1; }
+          mkdir -p build/appcast
+          cp build/release/*.zip build/appcast/
+          node scripts/release-notes.mjs build/appcast
+          printf '%s' "$SPARKLE_KEY" | build/swift/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file - --maximum-deltas 0 --embed-release-notes --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/v${{ steps.version.outputs.version }}/" build/appcast
+          cp build/appcast/appcast.xml build/release/
+      - name: Attest public artifacts
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
-          subject-path: build/HouseControl-${{ steps.version.outputs.version }}.dmg
-
-      - name: Keep the image (manual runs)
-        if: github.ref_type != 'tag'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+          subject-path: |
+            build/release/*.dmg
+            build/release/*.zip
+      - name: Keep build artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: HouseControl-${{ steps.version.outputs.version }}
-          path: |
-            build/HouseControl-${{ steps.version.outputs.version }}.dmg
-            build/HouseControl-${{ steps.version.outputs.version }}.dmg.sha256
-          retention-days: 7
+          name: MyHome-${{ steps.version.outputs.version }}
+          path: build/release/
           if-no-files-found: error
-
-      - name: Create a draft release
+      - name: Publish tagged release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # The notes are this version's section of CHANGELOG.md, or GitHub's list of commits without one.
-          # Lines wrapped inside a list item are joined: release notes keep every line break.
-          awk -v v="$VERSION" '$0 ~ "^## " { if (on) exit; on = index($0, "## " v " ") == 1; next } on' CHANGELOG.md |
-            perl -0pe 's/\n {2,}(?=\S)/ /g' > build/notes.md
-          if [ -s build/notes.md ]; then
-            printf '\n**Full changelog:** [CHANGELOG.md](%s/%s/blob/%s/CHANGELOG.md)\n' \
-              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" >> build/notes.md
-            notes=(--notes-file build/notes.md)
-          else
-            notes=(--generate-notes)
-          fi
-          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
-            --title "House Control $VERSION" "${notes[@]}" \
-            "build/HouseControl-$VERSION.dmg" "build/HouseControl-$VERSION.dmg.sha256"
+          node scripts/release-notes.mjs
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Мой дом / My Home $VERSION" --notes-file build/release-notes.md build/release/*

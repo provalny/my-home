@@ -11,6 +11,7 @@ import { icon } from '../ui/icons.js';
 import { isNative, isPhone, call, post, haptic, incoming } from '../bridge.js';
 import { createConnections } from './connections.js';
 import { FURNITURE_NAMES } from '../inventory/model.js';
+import { openObjectCatalog } from './catalog.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const sv = (tag, attrs = {}, ...kids) => {
@@ -38,8 +39,12 @@ const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 
 export async function bootEditor(root, options = {}) {
   const inventory = Boolean(options.inventory);
+  const inventoryData = () => inventory ? (window.parent.__inventoryEditorData || { furniture: [] }) : { furniture: [] };
+  const inventoryNode = (item) => (inventoryData().furniture || []).find(n => n.id === item.inventoryNodeId) || (inventoryData().furniture || []).find(n => n.furnitureId === item.id);
   let doc = structuredClone(options.config || await loadRawConfig());
   for (const key of Object.values(KEYS)) doc[key] ||= [];
+  const rememberCardLinks = () => { if (inventory) for (const item of doc.furniture) { const node = inventoryNode(item); if (node) item.inventoryNodeId = node.id; } };
+  rememberCardLinks();
 
   // "connections", "service:smartlife|homeassistant|hue|homekit": where the editor opens
   // (HOUSE_OPEN_EDITOR, or the Mac's Settings window through incoming.openSection).
@@ -51,6 +56,9 @@ export async function bootEditor(root, options = {}) {
   let world = null;
   let phone = null; // the iPhone's layout and gestures, set up by buildPhoneLayout()
   let previewLights = true;
+  let deletingFurniture = false;
+  let layout = { side: 220, right: 300, sideClosed: false, rightClosed: false, previewClosed: false };
+  try { Object.assign(layout, JSON.parse(localStorage.getItem('myhome:editor-layout') || '{}')); } catch { /* defaults */ }
   const undo = [];
   const redo = [];
   const tuya = {
@@ -88,23 +96,68 @@ export async function bootEditor(root, options = {}) {
   const inspector = h('div.inspector');
   const previewHost = h('div.preview');
   const previewToggle = h('button.chip', { onclick: () => { previewLights = !previewLights; schedulePreview(0); } });
+  const sideToggle = h('button.btn.panel-toggle', { 'aria-label': 'Свернуть список объектов', onclick: () => setLayout('sideClosed', !layout.sideClosed) }, 'Объекты');
+  const inspectorToggle = h('button.btn.panel-toggle', { 'aria-label': 'Свернуть свойства', onclick: () => setLayout('rightClosed', !layout.rightClosed) }, 'Свойства');
+  const previewCollapse = h('button.btn', { onclick: () => setLayout('previewClosed', !layout.previewClosed) });
+  const sidebarRestore = h('button.panel-restore', { onclick: () => setLayout('sideClosed', false), 'aria-label': 'Развернуть список объектов' }, icon('list', 18));
+  const rightRestore = h('button.panel-restore', { onclick: () => setLayout('rightClosed', false), 'aria-label': 'Развернуть свойства' }, icon('settings', 18));
 
   if (isPhone) buildPhoneLayout();
-  else root.replaceChildren(h('div.editor',
+  else root.replaceChildren(h(`div.editor${inventory ? '.inventory-editor' : ''}`,
     h('header.bar',
       h('div.bar-title', icon('home', 17), nameInput),
       h('div.bar-actions',
-        h('button.btn', { title: 'Отменить (⌘Z)', onclick: () => stepHistory(undo, redo) }, 'Отменить'),
-        h('button.btn', { title: 'Повторить (⇧⌘Z)', onclick: () => stepHistory(redo, undo) }, 'Повторить'),
+        sideToggle, inspectorToggle,
+        h('button.btn.icon-btn', { title: 'Отменить (⌘Z)', 'aria-label': 'Отменить', onclick: () => stepHistory(undo, redo) }, icon('undo', 16)),
+        h('button.btn.icon-btn', { title: 'Повторить (⇧⌘Z)', 'aria-label': 'Повторить', onclick: () => stepHistory(redo, undo) }, icon('redo', 16)),
         h('button.btn', { onclick: importPlan }, 'Импорт…'),
         h('button.btn', { onclick: exportPlan }, 'Экспорт…'),
         saveBtn,
         inventory ? h('button.btn', { onclick: () => { if (!dirty || confirm('Выйти без сохранения изменений плана?')) options.onClose?.(); } }, 'Закрыть редактор') : null)),
-    sidebar,
-    h('main.canvas', plan, hint),
-    h('aside.right', h('div.preview-wrap', previewHost, previewToggle), inspector),
+    h('div.side-shell', sidebar, sidebarRestore),
+    h('main.canvas', plan, hint, resizeHandle('side'), resizeHandle('right')),
+    h('aside.right', h('div.panel-heading', previewCollapse), h('div.preview-wrap', previewHost, previewToggle), inspector, rightRestore),
     h('footer.foot', status),
     toastEl));
+
+  function setLayout(key, value) {
+    layout[key] = value;
+    try { localStorage.setItem('myhome:editor-layout', JSON.stringify(layout)); } catch { /* no persistence */ }
+    applyLayout();
+    if (key === 'previewClosed' || key === 'rightClosed') schedulePreview(0);
+  }
+  function applyLayout() {
+    if (isPhone) return;
+    const shell = root.querySelector('.editor');
+    if (!shell) return;
+    const available = Math.max(680, root.clientWidth || innerWidth);
+    const sideSize = layout.sideClosed ? 38 : clamp(Number(layout.side) || 220, 170, Math.max(170, available - (layout.rightClosed ? 38 : 260) - 300));
+    const rightSize = layout.rightClosed ? 38 : clamp(Number(layout.right) || 300, 260, Math.max(260, available - sideSize - 300));
+    shell.style.setProperty('--side-width', `${sideSize}px`);
+    shell.style.setProperty('--right-width', `${rightSize}px`);
+    shell.classList.toggle('side-closed', layout.sideClosed);
+    shell.classList.toggle('right-closed', layout.rightClosed);
+    shell.classList.toggle('preview-closed', layout.previewClosed);
+    sideToggle.setAttribute('aria-expanded', String(!layout.sideClosed));
+    sideToggle.setAttribute('aria-label', layout.sideClosed ? 'Развернуть список объектов' : 'Свернуть список объектов');
+    inspectorToggle.setAttribute('aria-expanded', String(!layout.rightClosed));
+    inspectorToggle.setAttribute('aria-label', layout.rightClosed ? 'Развернуть свойства' : 'Свернуть свойства');
+    previewCollapse.textContent = layout.previewClosed ? 'Показать 3D-предпросмотр' : 'Свернуть 3D-предпросмотр';
+    previewCollapse.setAttribute('aria-expanded', String(!layout.previewClosed));
+    world?.resize();
+  }
+  function resizeHandle(which) {
+    const handle = h(`div.panel-resize.${which}`, { role: 'separator', tabindex: 0, 'aria-orientation': 'vertical', 'aria-label': which === 'side' ? 'Ширина списка объектов' : 'Ширина свойств' });
+    let start = null;
+    handle.addEventListener('pointerdown', e => { const current = parseFloat(root.querySelector('.editor')?.style.getPropertyValue(`--${which}-width`)); start = { x: e.clientX, width: current || Number(layout[which]) || (which === 'side' ? 220 : 300) }; handle.setPointerCapture(e.pointerId); e.preventDefault(); });
+    handle.addEventListener('pointermove', e => { if (!start) return; layout[`${which}Closed`] = false; layout[which] = clamp(start.width + (e.clientX - start.x) * (which === 'side' ? 1 : -1), which === 'side' ? 170 : 260, 520); applyLayout(); });
+    const end = () => { if (!start) return; start = null; setLayout(which, layout[which]); };
+    handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end);
+    handle.addEventListener('keydown', e => { if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); layout[`${which}Closed`] = false; setLayout(which, clamp((Number(layout[which]) || 260) + (e.key === 'ArrowRight' ? 20 : -20) * (which === 'side' ? 1 : -1), which === 'side' ? 170 : 260, 520)); });
+    return handle;
+  }
+  if (!isPhone) new ResizeObserver(applyLayout).observe(root);
+  applyLayout();
 
   /* ---------- history ---------- */
 
@@ -157,6 +210,10 @@ export async function bootEditor(root, options = {}) {
   let valid = null;
   function validate() {
     try {
+      if (inventory) {
+        const outside = doc.furniture.find(f => !doc.rooms.some(r => f.pos[0] >= r.rect[0] && f.pos[0] <= r.rect[0] + r.rect[2] && f.pos[1] >= r.rect[1] && f.pos[1] <= r.rect[1] + r.rect[3]));
+        if (outside) throw Error(`«${outside.name || FURNITURE_NAMES[outside.type] || 'Мебель'}» находится вне комнат. Переместите её в комнату или уберите с плана.`);
+      }
       valid = normalize(structuredClone(doc));
       const linked = [...doc.lights, ...doc.acs].filter(isLinked).length;
       status.className = 'status';
@@ -186,6 +243,7 @@ export async function bootEditor(root, options = {}) {
   function buildPreview() {
     previewToggle.replaceChildren(icon(previewLights ? 'bright' : 'moon', 14), previewLights ? 'Свет включён' : 'Свет выключен');
     if (!valid) return;
+    if (!isPhone && (layout.previewClosed || layout.rightClosed)) { world?.dispose(); world = null; previewHost.replaceChildren(); return; }
     if (isPhone && !phone.show3D) { world?.dispose(); world = null; previewHost.replaceChildren(); return; }
     world?.dispose();
     world = null;
@@ -212,11 +270,11 @@ export async function bootEditor(root, options = {}) {
   /* ---------- sidebar ---------- */
 
   function rowLabel(kind, item) {
-    if (kind === 'room') return [item.name || item.id, `${fix(item.rect[2])} × ${fix(item.rect[3])} m`];
+    if (kind === 'room') return [item.name || item.id, `${fix(item.rect[2])} × ${fix(item.rect[3])} м`];
     if (kind === 'light') return [item.name || item.id, `${roomName(item.room)} · ${LIGHT_NAMES[item.type] || item.type}`];
     if (kind === 'ac') return [item.name || item.id, `${roomName(item.room)} · ${WALL_NAMES[item.wall] || item.wall}`];
-    if (kind === 'furniture') return [FURNITURE_NAMES[item.type] || item.type, roomName(roomAt(item.pos)?.id) || '—'];
-    if (kind === 'opening') return [item.type || 'door', `${fix(Math.hypot(item.to[0] - item.from[0], item.to[1] - item.from[1]))} m`];
+    if (kind === 'furniture') return [item.name || inventoryNode(item)?.name || FURNITURE_NAMES[item.type] || item.type, roomName(roomAt(item.pos)?.id) || '—'];
+    if (kind === 'opening') return [{door:'Дверь',open:'Проход',window:'Окно'}[item.type] || 'Дверь', `${fix(Math.hypot(item.to[0] - item.from[0], item.to[1] - item.from[1]))} м`];
     return [item.name || item.id, `${Object.keys(item.lights || {}).length} rules`];
   }
 
@@ -236,11 +294,11 @@ export async function bootEditor(root, options = {}) {
       items.forEach((item, index) => {
         const [name, sub] = rowLabel(kind, item);
         const active = sel.kind === kind && sel.index === index;
-        nodes.push(h(`div.row${active ? '.active' : ''}`, { role: 'button', tabindex: 0, onclick: () => select({ kind, index }) },
+        nodes.push(h(`div.row${active ? '.active' : ''}`, { role: 'button', tabindex: 0, onclick: () => select({ kind, index }), onkeydown: e => { if (e.target === e.currentTarget && ['Enter', ' '].includes(e.key)) { e.preventDefault(); select({ kind, index }); } } },
           h('span.row-name', name),
           !inventory && isLinked(item) ? h('span.linked', { title: 'Linked to a real device' }, icon('link', 12, 2.2)) : null,
           h('span.row-sub', sub),
-          h('button.del', { title: 'Убрать с плана', 'aria-label': `Remove ${name}`, onclick: (e) => { e.stopPropagation(); remove(kind, index); } }, icon('close', 13, 2.4))));
+          h('button.del', { title: kind === 'room' ? 'Удалить комнату' : 'Убрать с плана', 'aria-label': `${kind === 'room' ? 'Удалить комнату' : 'Убрать с плана'}: ${name}`, onclick: (e) => { e.stopPropagation(); remove(kind, index); } }, icon('close', 13, 2.4))));
       });
     }
     const top = sidebar.scrollTop;
@@ -255,6 +313,7 @@ export async function bootEditor(root, options = {}) {
   }
 
   function add(kind) {
+    if (inventory && ['furniture', 'light', 'ac'].includes(kind)) return showCatalog(kind);
     snapshot();
     const room = (sel.kind === 'room' && doc.rooms[sel.index]) || doc.rooms.find((r) => r.id === doc[KEYS[sel.kind]]?.[sel.index]?.room) || doc.rooms[0];
     const center = room ? [fix(room.rect[0] + room.rect[2] / 2), fix(room.rect[1] + room.rect[3] / 2)] : [1, 1];
@@ -264,15 +323,15 @@ export async function bootEditor(root, options = {}) {
       const minZ = Math.min(...doc.rooms.map((r) => r.rect[1]), 0);
       list.push({ id: uniqueId('room'), name: 'Новая комната', rect: [fix(maxX), fix(doc.rooms.length ? minZ : 0), 3, 3], floor: 'oak' });
     } else if (kind === 'light') {
-      if (!room) return toast('Add a room first', true);
+      if (!room) return toast('Сначала добавьте комнату', true);
       list.push({ id: uniqueId(`${room.id}.light`), name: 'Новый светильник', room: room.id, type: 'ceiling', pos: freeSpot(room, center), capabilities: [] });
     } else if (kind === 'ac') {
-      if (!room) return toast('Add a room first', true);
+      if (!room) return toast('Сначала добавьте комнату', true);
       list.push({ id: uniqueId(`${room.id}.ac`), name: `${room.name} — кондиционер`, room: room.id, wall: 'north', pos: [center[0], room.rect[1]], y: 2.2 });
     } else if (kind === 'furniture') {
       list.push({ id: crypto.randomUUID(), type: 'sofa', pos: center, rot: 0 });
     } else if (kind === 'opening') {
-      if (!room) return toast('Add a room first', true);
+      if (!room) return toast('Сначала добавьте комнату', true);
       const z = room.rect[1] + room.rect[3];
       list.push({ type: 'door', from: [fix(center[0] - 0.45), fix(z)], to: [fix(center[0] + 0.45), fix(z)] });
     } else if (kind === 'scene') {
@@ -280,6 +339,31 @@ export async function bootEditor(root, options = {}) {
     }
     sel = { kind, index: list.length - 1 };
     touch();
+  }
+
+  function availableInventoryFurniture(current = null) {
+    return (inventoryData().furniture || []).filter(n => !doc.furniture.some(f => f !== current && (f.inventoryNodeId === n.id || f.id === n.furnitureId)));
+  }
+  function showCatalog(kind = 'furniture', nodeId = null) {
+    if (!doc.rooms.length) return toast('Сначала добавьте комнату', true);
+    const selected = doc[KEYS[sel.kind]]?.[sel.index];
+    const targetRoom = sel.kind === 'room' ? doc.rooms[sel.index] : doc.rooms.find(r => r.id === selected?.room) || (selected?.pos ? roomAt(selected.pos) : null) || doc.rooms[0];
+    openObjectCatalog({ kind, existing: availableInventoryFurniture(), placeNodeId: nodeId, rooms: doc.rooms, roomId: targetRoom?.id, onChoose: choice => {
+      const room = doc.rooms.find(r => r.id === choice.roomId);
+      if (!room) return;
+      snapshot();
+      const center = [fix(room.rect[0] + room.rect[2] / 2), fix(room.rect[1] + room.rect[3] / 2)];
+      let entry;
+      if (choice.kind === 'furniture') {
+        const node = (inventoryData().furniture || []).find(n => n.id === choice.nodeId);
+        entry = { id: node?.furnitureId || crypto.randomUUID(), type: choice.type, name: node?.name || choice.name, pos: center, rot: 0 };
+        if (node) entry.inventoryNodeId = node.id;
+      } else if (choice.kind === 'light') entry = { id: uniqueId(`${room.id}.light`), name: choice.name, room: room.id, type: choice.type, pos: freeSpot(room, center), capabilities: [] };
+      else entry = { id: uniqueId(`${room.id}.ac`), name: `${room.name} — кондиционер`, room: room.id, wall: 'north', pos: [center[0], room.rect[1]], y: 2.2 };
+      doc[KEYS[choice.kind]].push(entry);
+      sel = { kind: choice.kind, index: doc[KEYS[choice.kind]].length - 1 };
+      touch();
+    }});
   }
 
   // The middle of the room, or the nearest place around it no other lamp stands on.
@@ -297,9 +381,17 @@ export async function bootEditor(root, options = {}) {
   }
 
   function remove(kind, index) {
+    const item = doc[KEYS[kind]]?.[index];
+    if (!item) return;
+    if (kind === 'room' && doc.rooms.length === 1) return toast('Добавьте другую комнату, прежде чем удалить последнюю', true);
+    if (inventory && kind === 'room' && !confirm(`Удалить комнату «${item.name || item.id}»? Её вещи и мебель останутся в разделе «Без места». Объекты оформления этой комнаты будут убраны с плана после сохранения.`)) return;
+    const roomFurniture = inventory && kind === 'room' ? new Set(doc.furniture.filter(f => roomAt(f.pos)?.id === item.id).map(f => f.id)) : null;
     snapshot();
     const [gone] = doc[KEYS[kind]].splice(index, 1);
     if (kind === 'room') {
+      if (inventory) {
+        doc.furniture = doc.furniture.filter(f => !roomFurniture.has(f.id));
+      }
       // Devices cannot outlive their room.
       doc.lights = doc.lights.filter((l) => l.room !== gone.id);
       doc.acs = doc.acs.filter((a) => a.room !== gone.id);
@@ -312,6 +404,29 @@ export async function bootEditor(root, options = {}) {
     }
     sel = { kind: 'home' };
     touch();
+  }
+
+  async function trashFurniture(item) {
+    const node = inventoryNode(item);
+    if (!window.parent.__inventoryDeleteFromEditor) return toast('Удаление в корзину сейчас недоступно', true);
+    if (deletingFurniture) return;
+    try {
+      if (!valid) throw Error('Сначала исправьте ошибки в плане');
+      deletingFurniture = true;
+      // The parent previews the draft, asks how to handle contents, then saves
+      // the plan and deletion together. Cancel leaves this draft untouched.
+      const plan = await window.parent.__inventoryDeleteFromEditor(node?.id || null, { plan: structuredClone(doc), furnitureId: item.id });
+      if (!plan) return;
+      doc = structuredClone(plan);
+      nameInput.value = doc.name || 'Моя квартира';
+      for (const key of Object.values(KEYS)) doc[key] ||= [];
+      rememberCardLinks();
+      undo.length = 0; redo.length = 0; lastSnapshotKey = null;
+      sel = { kind: 'home' };
+      touch(); dirty = false; validate();
+      toast('Мебель перемещена в корзину');
+    } catch (e) { validate(); toast(e.message, true); }
+    finally { deletingFurniture = false; }
   }
 
   /* ---------- plan (SVG) ---------- */
@@ -582,13 +697,13 @@ export async function bootEditor(root, options = {}) {
         h('div', h('h2', links.title(sel.service)), h('span', links.blurb(sel.service)))));
       nodes.push(...[links.detail(sel.service, tuyaPanel)].flat());
     } else if (!item) {
-      head('Nothing selected');
+      head('Ничего не выбрано');
       if (isPhone) nodes.push(h('p.note', 'Tap a room, a lamp or anything else on the plan.'));
     } else if (kind === 'room') {
       head(item.name || item.id, `id: ${item.id}`);
       nodes.push(section('Комната',
         bind('Название', text(), prop(item, 'name', '')),
-        bind('Покрытие пола', choice(FLOOR_KINDS), { ...prop(item, 'floor', 'oak'), event: 'change' })),
+        bind('Покрытие пола', choice(FLOOR_KINDS.map(floor => [floor, {oak:'Дуб',walnut:'Орех',tile:'Плитка',stone:'Камень'}[floor] || floor])), { ...prop(item, 'floor', 'oak'), event: 'change' })),
       section('Положение и размеры, м',
         row(bind('X', number(0.1), { ...at(item, 'rect', 0), parse: parseNum }), bind('Z', number(0.1), { ...at(item, 'rect', 1), parse: parseNum })),
         row(bind('Ширина', number(0.1), { ...at(item, 'rect', 2), parse: parseNum }), bind('Глубина', number(0.1), { ...at(item, 'rect', 3), parse: parseNum })),
@@ -637,23 +752,44 @@ export async function bootEditor(root, options = {}) {
       inventory ? null : links.deviceSection(item, 'ac', linkHooks),
       inventory ? null : links.sensorSection(item, linkHooks));
     } else if (kind === 'furniture') {
-      head(FURNITURE_NAMES[item.type] || item.type, 'Мебель и место хранения');
+      const linkedNode = inventoryNode(item);
+      head(item.name || linkedNode?.name || FURNITURE_NAMES[item.type] || item.type, 'Мебель и место хранения');
       nodes.push(section('Мебель',
+        bind('Название', text(), { get: () => item.name || linkedNode?.name || FURNITURE_NAMES[item.type] || '', set: value => { item.name = value; } }),
         bind('Тип', choice(FURNITURE_TYPES.map(t => [t, FURNITURE_NAMES[t] || t])), { ...prop(item, 'type'), event: 'change' }),
         row(bind('X', number(), { ...at(item, 'pos', 0), parse: parseNum }), bind('Z', number(), { ...at(item, 'pos', 1), parse: parseNum })),
         row(bind('Поворот, °', number(15), { ...prop(item, 'rot', 0), parse: parseNum }),
           bind('Ширина, м', number(0.1), { ...optional(item, 'width'), parse: optNum })),
         bind('Цвет (hex, необязательно)', text(), optional(item, 'color')),
         h('p.note', 'Короткая линия отмечает фасад. При повороте 0° он направлен к нижнему краю плана.')));
+      if (inventory) {
+        const available = availableInventoryFurniture(item);
+        const linkSelect = choice(linkedNode ? [[linkedNode.id, linkedNode.name]] : [['', 'Новая карточка после сохранения'], ...available.map(n => [n.id, n.name])]);
+        linkSelect.disabled = Boolean(linkedNode);
+        nodes.push(section('Карточка учёта',
+          bind('Связь с мебелью в каталоге', linkSelect, {
+            get: () => linkedNode?.id || '', event: 'change', set: nodeId => {
+              const node = available.find(n => n.id === nodeId);
+              if (node) { item.inventoryNodeId = node.id; item.name = node.name; }
+              else delete item.inventoryNodeId;
+            },
+          }),
+          h('p.note', linkedNode ? 'У этой мебели уже есть карточка. Цена и содержимое сохраняются; название обновится после сохранения плана.' : 'Можно выбрать существующую мебель без размещения на плане. Новая модель и выбранная карточка будут связаны после сохранения.')),
+        section('Действия',
+          h('button.btn.wide', { onclick: () => remove('furniture', sel.index) }, 'Убрать с плана'),
+          h('p.note', 'Карточка, цена и содержимое останутся в каталоге.'),
+          h('button.btn.wide.danger', { onclick: () => trashFurniture(item) }, 'Удалить в корзину'),
+          h('p.note', 'Мебель и содержимое можно будет восстановить из корзины.')));
+      }
     } else if (kind === 'opening') {
-      head(item.type || 'door', 'A gap or a window in a wall');
+      head({door:'Дверь',open:'Открытый проход',window:'Окно'}[item.type] || 'Дверь', 'Проём в стене');
       nodes.push(section('Проём',
         bind('Тип', choice([['door', 'Дверь'], ['open', 'Открытый проход'], ['window', 'Окно']]), { ...prop(item, 'type', 'door'), event: 'change' }),
-        row(bind('From X', number(), { ...at(item, 'from', 0), parse: parseNum }), bind('From Z', number(), { ...at(item, 'from', 1), parse: parseNum })),
-        row(bind('To X', number(), { ...at(item, 'to', 0), parse: parseNum }), bind('To Z', number(), { ...at(item, 'to', 1), parse: parseNum })),
+        row(bind('Начало X', number(), { ...at(item, 'from', 0), parse: parseNum }), bind('Начало Z', number(), { ...at(item, 'from', 1), parse: parseNum })),
+        row(bind('Конец X', number(), { ...at(item, 'to', 0), parse: parseNum }), bind('Конец Z', number(), { ...at(item, 'to', 1), parse: parseNum })),
         item.type === 'window' ? row(bind('Подоконник, м', number(), { ...prop(item, 'sill', 0.85), parse: parseNum }),
           bind('Верх окна, м', number(), { ...prop(item, 'head', 2.1), parse: parseNum })) : null,
-        h('p.note', 'Both points must lie on the same wall line (same X or same Z). Windows only show on the far walls; the walls facing the camera are cut away.')));
+        h('p.note', 'Обе точки должны лежать на одной стене: совпадать по X или Z. Окна видны на дальних стенах; ближние к камере стены скрыты.')));
     } else if (kind === 'scene') {
       head(item.name || item.id, `id: ${item.id}`);
       item.lights ||= {};
@@ -820,7 +956,18 @@ export async function bootEditor(root, options = {}) {
     if (!valid) return;
     if (inventory) {
       saveBtn.disabled = true;
-      try { await options.onSave(structuredClone(doc)); dirty = false; validate(); toast('План сохранён'); }
+      try {
+        const selectedId = doc[KEYS[sel.kind]]?.[sel.index]?.id;
+        await options.onSave(structuredClone(doc));
+        // Sync can remove geometry outside rooms or add stable card links.
+        // Continue editing the canonical saved plan rather than a stale draft.
+        if (window.parent.__inventoryPlan) doc = structuredClone(window.parent.__inventoryPlan);
+        for (const key of Object.values(KEYS)) doc[key] ||= [];
+        rememberCardLinks();
+        if (selectedId) { const index = doc[KEYS[sel.kind]]?.findIndex(item => item.id === selectedId); sel = index >= 0 ? { kind: sel.kind, index } : { kind: 'home' }; }
+        if (sel.index != null && !doc[KEYS[sel.kind]]?.[sel.index]) sel = { kind: 'home' };
+        dirty = false; renderSidebar(); renderPlan(); renderInspector(); validate(); schedulePreview(0); toast('План сохранён');
+      }
       catch (e) { toast(e.message, true); saveBtn.disabled = false; }
       return;
     }
@@ -850,25 +997,26 @@ export async function bootEditor(root, options = {}) {
     if (!isNative) { download(); return; }
     try {
       const r = await call('exportPlan', { config: doc });
-      if (r.ok) toast('Plan exported');
+      if (r.ok) toast('План экспортирован');
     } catch (e) { toast(e.message, true); }
   }
 
   async function importPlan() {
+    if (dirty && !confirm('Импорт заменит текущий план. Несохранённые изменения будут потеряны. Продолжить?')) return;
     const load = (json) => {
       try {
         normalize(structuredClone(json));
       } catch (e) {
-        toast(`Not a valid plan: ${e.message}`, true);
+        toast(`Не удалось открыть план: ${e.message}`, true);
         return;
       }
       snapshot();
       doc = json;
       for (const key of Object.values(KEYS)) doc[key] ||= [];
-      nameInput.value = doc.name || 'Home';
+      nameInput.value = doc.name || 'Моя квартира';
       sel = { kind: 'home' };
       touch();
-      toast('Plan imported — review it and press “Save & apply”');
+      toast('План импортирован. Проверьте его и нажмите «Сохранить план».');
     };
     if (isNative) {
       try {
@@ -879,7 +1027,7 @@ export async function bootEditor(root, options = {}) {
     }
     const input = h('input', { type: 'file', accept: 'application/json,.json' });
     input.addEventListener('change', async () => {
-      try { load(JSON.parse(await input.files[0].text())); } catch (e) { toast(`Could not read the file: ${e.message}`, true); }
+      try { if (input.files[0]) load(JSON.parse(await input.files[0].text())); } catch (e) { toast(`Не удалось прочитать файл: ${e.message}`, true); }
     });
     input.click();
   }
@@ -887,6 +1035,7 @@ export async function bootEditor(root, options = {}) {
   /* ---------- keyboard ---------- */
 
   window.addEventListener('keydown', (ev) => {
+    if (document.querySelector('dialog[open]')) return;
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
     if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'z' && !typing) {
       ev.preventDefault();
@@ -1190,6 +1339,12 @@ export async function bootEditor(root, options = {}) {
   dirty = false;
   validate();
   schedulePreview(0);
+  if (inventory && inventoryData().placeNodeId) {
+    const nodeId = inventoryData().placeNodeId;
+    const index = doc.furniture.findIndex(f => inventoryNode(f)?.id === nodeId);
+    if (index >= 0) select({ kind: 'furniture', index });
+    else setTimeout(() => showCatalog('furniture', nodeId), 0);
+  }
   incoming.openSection = (at) => select(sectionSel(at));
   // A plan saved on the other device (the Mac, or the paired iPhone) while this editor is open.
   incoming.planArrived = (config, from) => {

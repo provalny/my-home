@@ -15,6 +15,8 @@ const DEMO_PLANS = [
 const STAGE_INSETS = [62, 50]; // header above, panel overlap below
 
 const app = document.getElementById('app');
+// App actions handle their own menus; never expose the WebView developer menu.
+if (new URLSearchParams(location.search).has('inventoryEditor') || (window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'inventory') === 'inventory') document.addEventListener('contextmenu', e => e.preventDefault());
 if (isNative) document.documentElement.classList.add('native');
 if (isPhone) document.documentElement.classList.add('ios');
 

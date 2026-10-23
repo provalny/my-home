@@ -29,7 +29,7 @@ final class WebHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         self.bootProvider = boot
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(AssetSchemeHandler(root: Self.assetRoot), forURLScheme: AssetSchemeHandler.scheme)
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.preferences.setValue(false, forKey: "developerExtrasEnabled")
         // A run against a throw-away data folder must not touch the saved panel state either.
         if ProcessInfo.processInfo.environment["HOUSE_DATA_DIR"] != nil { config.websiteDataStore = .nonPersistent() }
         webView = FirstMouseWebView(frame: .zero, configuration: config)
@@ -82,6 +82,8 @@ final class WebHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let json = WebJSON.literal(boot)
         controller.addUserScript(WKUserScript(source: "window.__HOUSE_BOOT__ = \(json);",
                                               injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(source: "document.addEventListener('contextmenu', event => event.preventDefault());",
+                                              injectionTime: .atDocumentStart, forMainFrameOnly: false))
         controller.addUserScript(WKUserScript(source: Self.errorReporter, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let base = ProcessInfo.processInfo.environment["HOUSE_DEV_URL"] ?? AssetSchemeHandler.indexURL
         webView.load(URLRequest(url: URL(string: "\(base)?mode=\(mode)")!))

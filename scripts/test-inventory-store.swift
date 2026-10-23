@@ -37,6 +37,31 @@ import Foundation
         precondition(old["revision"] as? Int == 1, "Recovery copy contains the old document")
         do { _ = try InventoryStore.decode(Data("{\"version\":99}".utf8)); fatalError("Malformed backup accepted") }
         catch { let reloaded = try InventoryStore(folder: folder); precondition(reloaded.revision == 2) }
-        print("PASS: atomic save, relaunch, revision conflict, 5-copy rotation, unrelated files, daily backup, pre-restore protection, invalid data")
+        let status = store.publicSettings
+        precondition(!(status["lastBackupAt"] as? String ?? "").isEmpty, "Last successful backup date must be public")
+        precondition(status["backupCount"] as? Int == 5)
+        precondition((status["lastBackupError"] as? String ?? "").isEmpty)
+        let future = Date().addingTimeInterval(3600)
+        let past = Date().addingTimeInterval(-3600)
+        store.rememberNotificationSchedule("future", fire: future)
+        store.rememberNotificationSchedule("past", fire: past)
+        precondition(!store.wasNotificationScheduled("future", before: Date()))
+        precondition(store.wasNotificationScheduled("past", before: Date()))
+        store.reconcileNotificationSchedules(active: [], now: Date())
+        let receipts = try InventoryStore(folder: folder)
+        precondition(!receipts.wasNotificationScheduled("future", before: future.addingTimeInterval(1)), "Cancelled future reminders are forgotten")
+        precondition(receipts.wasNotificationScheduled("past", before: Date()), "Delivered reminders survive relaunch")
+        try fm.removeItem(at: backupFolder)
+        try Data("folder is unavailable".utf8).write(to: backupFolder)
+        do { try store.backup(); fatalError("Backup to a file succeeded") } catch {}
+        precondition(!(store.publicSettings["lastBackupError"] as? String ?? "").isEmpty, "Failure must stay visible")
+        precondition(store.revision == 2, "Failed backup cannot change document")
+        let failedReopened = try InventoryStore(folder: folder)
+        precondition(!(failedReopened.publicSettings["lastBackupError"] as? String ?? "").isEmpty, "Failure survives relaunch")
+        try fm.removeItem(at: backupFolder)
+        try fm.createDirectory(at: backupFolder, withIntermediateDirectories: true)
+        try store.chooseBackupFolder(backupFolder)
+        precondition((store.publicSettings["lastBackupError"] as? String ?? "").isEmpty, "Successful retry clears error")
+        print("PASS: backup health, failure recovery, reminder receipts; atomic save, relaunch, revision conflict, 5-copy rotation, unrelated files, daily backup, pre-restore protection, invalid data")
     }
 }
