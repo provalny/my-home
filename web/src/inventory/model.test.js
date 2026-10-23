@@ -82,3 +82,43 @@ test('invalid dates and malformed event history cannot replace a valid document'
   {const d=seed();find(d,'Молоко').expiry='2026-02-31';assert.throws(()=>M.validate(d));}
   {const d=seed();d.events.push({type:'purchase'});assert.throws(()=>M.validate(d));}
 });
+test('deleting a single item removes it from search and totals and survives backup roundtrip',()=>{
+  const d=seed();const item=find(d,'Футболка Nike');const before=M.totals(d).purchase;
+  const entry=M.remove(d,item.id);
+  assert.equal(M.getNode(d,item.id),undefined);assert.equal(M.search(d,'Nike').length,0);assert.equal(M.totals(d).purchase,before-item.purchaseCents);
+  const loaded=M.validate(JSON.parse(JSON.stringify(d)));
+  assert.equal(loaded.trash[0].id,entry.id);assert.equal(loaded.trash[0].nodes[0].name,item.name);
+});
+test('deleting furniture with its subtree removes its geometry and recovery restores all original identities',()=>{
+  const d=seed();const wardrobe=find(d,'Шкаф в спальне');const parent=wardrobe.parentId;
+  const expectedIds=[wardrobe,...M.descendants(d,wardrobe.id)].map(n=>n.id);const before=M.totals(d);
+  const entry=M.remove(d,wardrobe.id);
+  assert.ok(expectedIds.every(i=>!M.getNode(d,i)));assert.ok(!d.plan.furniture.some(f=>f.id===wardrobe.furnitureId));M.validate(d);
+  M.recover(d,entry.id,parent);
+  assert.ok(expectedIds.every(i=>M.getNode(d,i)));assert.ok(d.plan.furniture.some(f=>f.id===wardrobe.furnitureId));assert.deepEqual(M.totals(d),before);assert.equal(d.trash.length,0);M.validate(d);
+});
+test('delete furniture while moving all contents, including archived children, elsewhere',()=>{
+  const d=seed();const wardrobe=find(d,'Шкаф в спальне');const belt=find(d,'Ремень');const shelf=find(d,'Полка 1');const room=d.nodes.find(n=>n.kind==='room'&&n.id!==wardrobe.parentId);
+  M.archive(d,shelf.id,{reason:'Другое',date:M.today()});
+  const entry=M.remove(d,wardrobe.id,{together:false,destination:room.id});
+  assert.equal(entry.nodes.length,1);assert.equal(shelf.parentId,room.id);assert.ok(shelf.archived);assert.ok(M.address(d,belt).startsWith(room.name+' → '));M.validate(d);
+});
+test('invalid delete destination and attempts to delete a room do not modify the document',()=>{
+  const d=seed();const wardrobe=find(d,'Шкаф в спальне');const before=JSON.stringify(d);
+  assert.throws(()=>M.remove(d,wardrobe.id,{together:false,destination:find(d,'Полка 1').id}));assert.equal(JSON.stringify(d),before);
+  assert.throws(()=>M.remove(d,wardrobe.parentId));assert.equal(JSON.stringify(d),before);
+});
+test('recovery can choose another room when the original storage is missing',()=>{
+  const d=seed();const item=find(d,'Футболка Nike');const wardrobe=find(d,'Шкаф в спальне');const other=d.nodes.find(n=>n.kind==='room'&&n.id!==wardrobe.parentId);
+  const itemEntry=M.remove(d,item.id);M.remove(d,wardrobe.id);M.recover(d,itemEntry.id,other.id);
+  assert.equal(M.getNode(d,item.id).parentId,other.id);M.validate(d);
+});
+test('importing an old plan cannot silently resurrect trashed furniture',()=>{
+  const d=seed();const original=structuredClone(d.plan);const wardrobe=find(d,'Шкаф в спальне');M.remove(d,wardrobe.id);
+  M.syncPlan(d,original);assert.ok(!d.plan.furniture.some(f=>f.id===wardrobe.furnitureId));assert.equal(M.getNode(d,wardrobe.id),undefined);M.validate(d);
+});
+test('corrupt trash snapshots reject dangling children, duplicate IDs and invalid money',()=>{
+  {const d=seed();const wardrobe=find(d,'Шкаф в спальне');const entry=M.remove(d,wardrobe.id);entry.nodes.find(n=>n.id!==entry.rootId).parentId='missing';assert.throws(()=>M.validate(d));}
+  {const d=seed();const entry=M.remove(d,find(d,'Ремень').id);entry.nodes[0].id=d.nodes[0].id;entry.rootId=d.nodes[0].id;assert.throws(()=>M.validate(d));}
+  {const d=seed();const entry=M.remove(d,find(d,'Ремень').id);entry.nodes[0].purchaseCents=-10;assert.throws(()=>M.validate(d));}
+});

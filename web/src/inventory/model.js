@@ -106,6 +106,50 @@ export function restore(d,nodeId,parentId) {
   for (const x of restored) { x.archived = null; record(d,'restore',x); }
   placeGeometry(d,restored,parentId);
 }
+// Trash keeps complete snapshots so removal is reversible across restarts and backups.
+export function remove(d,nodeId,{together=true,destination=null}={}) {
+  const n=getNode(d,nodeId);
+  if (!n || n.kind==='room') throw Error('Можно удалить вещь, мебель или отсек');
+  const nested=descendants(d,nodeId);
+  if (!together && nested.length) {
+    if (!destinations(d,nodeId).some(p=>p.id===destination)) throw Error('Выберите новое место содержимого');
+    for (const child of d.nodes.filter(x=>x.parentId===nodeId)) {
+      if (!child.archived) move(d,child.id,destination);
+      else {
+        const affected=[child,...descendants(d,child.id)];
+        const before=new Map(affected.map(x=>[x.id,address(d,x)]));
+        child.parentId=destination;placeGeometry(d,affected,destination);
+        for (const x of affected) record(d,'move',x,{from:before.get(x.id),to:address(d,x)});
+      }
+    }
+  }
+  const removed=[n,...descendants(d,nodeId)];
+  const nodeIds=new Set(removed.map(x=>x.id));
+  const furnitureIds=new Set(removed.map(x=>x.furnitureId).filter(Boolean));
+  const entry={id:id(),rootId:nodeId,removedAt:new Date().toISOString(),
+    nodes:structuredClone(removed),furniture:structuredClone(d.plan.furniture.filter(f=>furnitureIds.has(f.id)))};
+  d.trash ||= [];d.trash.push(entry);
+  d.nodes=d.nodes.filter(x=>!nodeIds.has(x.id));
+  d.plan.furniture=d.plan.furniture.filter(f=>!furnitureIds.has(f.id));
+  record(d,'delete',n,{count:removed.length});
+  return entry;
+}
+export function recover(d,entryId,parentId) {
+  const entry=d.trash?.find(x=>x.id===entryId);
+  const parent=getNode(d,parentId);
+  if (!entry) throw Error('Объект не найден в корзине');
+  if (!parent || parent.archived || parent.kind==='item') throw Error('Выберите действующее место хранения');
+  if (entry.nodes.some(n=>getNode(d,n.id)) || entry.furniture.some(f=>d.plan.furniture.some(x=>x.id===f.id))) throw Error('Объекты с такими идентификаторами уже существуют');
+  const restored=structuredClone(entry.nodes);
+  const root=restored.find(n=>n.id===entry.rootId);
+  if (!root) throw Error('Некорректная запись корзины');
+  root.parentId=parentId;root.order=children(d,parentId).length;
+  d.nodes.push(...restored);d.plan.furniture.push(...structuredClone(entry.furniture));
+  placeGeometry(d,restored,parentId);
+  d.trash=d.trash.filter(x=>x.id!==entryId);
+  record(d,'recover',root,{count:restored.length});
+  return root;
+}
 export function reorder(d,nodeId,beforeId) {
   const n = getNode(d,nodeId); const b = getNode(d,beforeId);
   if (!n || !b || n.parentId !== b.parentId || n.kind === 'item' || b.kind === 'item') throw Error('Порядок меняется внутри одного места');
@@ -120,6 +164,8 @@ export function newNode(d, props) {
 export function syncPlan(d, raw) {
   const plan = structuredClone(raw);
   plan.furniture ||= [];
+  const removedFurniture=new Set((d.trash||[]).flatMap(entry=>entry.furniture.map(f=>f.id)));
+  plan.furniture=plan.furniture.filter(f=>!removedFurniture.has(f.id));
   const first = plan.rooms[0]; if (!first) throw Error('В квартире нужна хотя бы одна комната');
   const roomIds = new Set(plan.rooms.map(r => r.id));
   for (const r of plan.rooms) {
@@ -169,7 +215,7 @@ export function validate(d) {
     if (n.categoryId && !cats.has(n.categoryId)) throw Error('Категория не найдена');
   }
   for (const e of d.events) {
-    if (!e || typeof e.id !== 'string' || typeof e.nodeId !== 'string' || typeof e.name !== 'string' || !['purchase','move','archive','value','restore'].includes(e.type) || typeof e.date !== 'string' || Number.isNaN(Date.parse(e.date)) || e.effectiveDate && !validDate(e.effectiveDate)) throw Error('Некорректная запись истории');
+    if (!e || typeof e.id !== 'string' || typeof e.nodeId !== 'string' || typeof e.name !== 'string' || !['purchase','move','archive','value','restore','delete','recover'].includes(e.type) || typeof e.date !== 'string' || Number.isNaN(Date.parse(e.date)) || e.effectiveDate && !validDate(e.effectiveDate)) throw Error('Некорректная запись истории');
     for (const key of ['purchaseCents','currentCents','saleCents','beforePurchase','beforeCurrent']) if (e[key] != null && (!Number.isSafeInteger(e[key]) || e[key] < 0)) throw Error('Некорректная сумма в истории');
   }
   const furnitureIds = new Set();
@@ -180,6 +226,22 @@ export function validate(d) {
     address(d,n);
   }
   if (!Number.isInteger(d.settings.reminderDays) || d.settings.reminderDays < 0 || d.settings.reminderDays > 365) throw Error('Некорректный срок напоминаний');
+  if (d.trash != null && !Array.isArray(d.trash)) throw Error('Некорректная корзина');
+  const trashIds=new Set(),allNodeIds=new Set(ids),allFurnitureIds=new Set(furnitureIds);
+  const room=d.nodes.find(n=>n.kind==='room'&&!n.archived);
+  for (const entry of d.trash||[]) {
+    if (!entry || typeof entry.id!=='string' || trashIds.has(entry.id) || typeof entry.removedAt!=='string' || Number.isNaN(Date.parse(entry.removedAt)) || !Array.isArray(entry.nodes) || !entry.nodes.length || !Array.isArray(entry.furniture)) throw Error('Некорректная запись корзины');
+    trashIds.add(entry.id);
+    const ownIds=new Set(entry.nodes.map(n=>n.id));
+    if (!ownIds.has(entry.rootId) || entry.nodes.some(n=>n.kind==='room' || allNodeIds.has(n.id) || n.id!==entry.rootId&&!ownIds.has(n.parentId))) throw Error('Некорректное содержимое корзины');
+    for (const n of entry.nodes) allNodeIds.add(n.id);
+    const ownFurniture=new Set(entry.nodes.map(n=>n.furnitureId).filter(Boolean));
+    for (const f of entry.furniture) { if (allFurnitureIds.has(f.id) || !ownFurniture.has(f.id)) throw Error('Некорректная мебель в корзине');allFurnitureIds.add(f.id); }
+    if (!room) throw Error('Для восстановления нужна комната');
+    const nodes=structuredClone(entry.nodes);nodes.find(n=>n.id===entry.rootId).parentId=room.id;
+    // Reuse the full card/tree validation, without recursively validating trash.
+    validate({...d,trash:[],nodes:[...d.nodes,...nodes],plan:{...d.plan,furniture:[...d.plan.furniture,...entry.furniture]}});
+  }
   return d;
 }
 export function dueItems(d, now = today()) {
