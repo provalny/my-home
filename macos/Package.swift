@@ -8,6 +8,7 @@ let package = Package(
         .package(path: "../core")
     ],
     targets: [
+        .executableTarget(name: "HomeInventory", path: "Sources/HomeInventory"),
         .executableTarget(name: "HouseControl",
                           dependencies: [.product(name: "HouseCore", package: "core"),
                                          .product(name: "HouseSmartLife", package: "core")],

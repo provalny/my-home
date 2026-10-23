@@ -45,7 +45,10 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
 
   const house = buildHouse(config, camDir);
   scene.add(house.group);
-  scene.add(buildFurniture(config.furniture));
+  const furniture = buildFurniture(config.furniture);
+  scene.add(furniture);
+  const furnitureHits = [];
+  if (config.inventoryPicking) furniture.traverse(o => { if (o.isMesh) furnitureHits.push(o); });
 
   const lights = new Map();
   for (const cfg of config.lights) {
@@ -87,7 +90,8 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     acs.set(cfg.id, unit);
     scene.add(unit.group);
   }
-  const hitTargets = [...[...lights.values()].map((u) => u.hit), ...[...acs.values()].map((u) => u.hit), ...house.floors];
+  const hitTargets = config.inventoryPicking ? [...furnitureHits, ...house.floors]
+    : [...[...lights.values()].map((u) => u.hit), ...[...acs.values()].map((u) => u.hit), ...house.floors];
 
   // Night-time ambience: enough to read the model with every lamp off.
   scene.add(new THREE.HemisphereLight(0x8ea6ff, 0x0b0e17, 0.42));

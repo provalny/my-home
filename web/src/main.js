@@ -230,8 +230,18 @@ async function renderShot(config, store, room) {
   }
 }
 
-const mode = window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'panel';
-if (mode === 'editor') {
+const mode = window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'inventory';
+if (new URLSearchParams(location.search).has('inventoryEditor')) {
+  document.documentElement.classList.add('mode-editor');
+  import('./editor/editor.js').then(m => m.bootEditor(app, {
+    inventory: true, config: window.parent.__inventoryPlan,
+    onSave: plan => window.parent.__inventorySavePlan(plan),
+    onClose: () => window.parent.__inventoryCloseEditor(),
+  })).catch(e => fatal('Редактор не загрузился', e));
+} else if (mode === 'inventory') {
+  document.documentElement.classList.add('mode-inventory');
+  import('./inventory/app.js').then(m => m.bootInventory(app)).catch(e => fatal('Не удалось открыть инвентаризацию', e));
+} else if (mode === 'editor') {
   document.documentElement.classList.add('mode-editor');
   import('./editor/editor.js').then((m) => m.bootEditor(app)).catch((e) => fatal('Editor failed to start', e));
 } else if (mode === 'agent') {

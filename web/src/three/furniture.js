@@ -365,7 +365,10 @@ export function buildFurniture(items) {
     g.rotation.y = THREE.MathUtils.degToRad(item.rot || 0);
     const flat = g.userData.flat;
     g.traverse((o) => {
-      if (o.isMesh) { o.castShadow = !flat; o.receiveShadow = true; }
+      if (o.isMesh) {
+        o.castShadow = !flat; o.receiveShadow = true;
+        if (item.id) o.userData = { kind: 'furniture', id: item.id };
+      }
     });
     root.add(g);
   }
