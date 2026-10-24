@@ -5,7 +5,10 @@
 import './editor.css';
 import { normalize, loadRawConfig, LIGHT_KINDS, FLOOR_KINDS, isLinked } from '../config.js';
 import { createWorld } from '../three/world.js';
+import { updateWallAttachments } from '../three/wall-attachment.js';
+import { updateSurfaceAttachments, SURFACE_ITEMS } from '../three/surface-attachment.js';
 import { FURNITURE_TYPES, footprint } from '../three/furniture.js';
+import { EQUIPMENT_FIELDS } from '../inventory/equipment.js';
 import { EXTRA_MODEL_INFO, extraDimensions } from '../three/furniture-info.js';
 import { h, clamp } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
@@ -13,10 +16,12 @@ import { isNative, isPhone, call, post, haptic, incoming } from '../bridge.js';
 import { createConnections } from './connections.js';
 import { FURNITURE_NAMES } from '../inventory/model.js';
 import { openObjectCatalog } from './catalog.js';
+import { OBJECT_SECTIONS, objectSection } from './object-sections.js';
 import { roomGlyph } from '../inventory/room-icons.js';
 import { FURNITURE_GLYPHS } from '../inventory/appearance.js';
 import { roomPresentationForm } from '../inventory/room-form.js';
 import { IKEA_STORAGE } from '../inventory/ikea-storage.js';
+import { historyShortcut, editingText } from '../inventory/action-history.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const sv = (tag, attrs = {}, ...kids) => {
@@ -28,7 +33,7 @@ const sv = (tag, attrs = {}, ...kids) => {
 
 const KEYS = { room: 'rooms', light: 'lights', ac: 'acs', furniture: 'furniture', opening: 'openings', scene: 'scenes' };
 const TITLES = { room: 'Комнаты', light: 'Свет', ac: 'Кондиционеры', furniture: 'Мебель', opening: 'Двери и окна', scene: 'Сцены' };
-const FLOOR_FILL = { oak: '#4a3d2e', walnut: '#3c2f28', tile: '#39424b', stone: '#30353c' };
+const FLOOR_FILL = { oak: '#4a3d2e', walnut: '#3c2f28', tile: '#39424b', stone: '#30353c', carpetWhite: '#eeece7', carpetGrey: '#95979b', laminateLightOak: '#d7c4a0' };
 const WALLS = ['north', 'east', 'south', 'west'];
 const WALL_NAMES = { north: 'Северная', east: 'Восточная', south: 'Южная', west: 'Западная' };
 const LIGHT_NAMES = { ceiling: 'Потолочный', pendant: 'Подвесной', spots: 'Споты', floor: 'Торшер', table: 'Настольный', strip: 'Светодиодная лента' };
@@ -62,10 +67,12 @@ export async function bootEditor(root, options = {}) {
   let phone = null; // the iPhone's layout and gestures, set up by buildPhoneLayout()
   let previewLights = true;
   let deletingFurniture = false;
+  let saving = false;
   let layout = { side: 220, right: 300, sideClosed: false, rightClosed: false, previewClosed: false };
   try { Object.assign(layout, JSON.parse(localStorage.getItem('myhome:editor-layout') || '{}')); } catch { /* defaults */ }
   const undo = [];
   const redo = [];
+  let savedDocument = JSON.stringify(doc);
   const tuya = {
     info: window.__HOUSE_BOOT__?.tuya || { configured: false, accessId: '', region: 'eu' },
     account: window.__HOUSE_BOOT__?.smartLife || { connected: false, userCode: '', account: '' },
@@ -92,6 +99,8 @@ export async function bootEditor(root, options = {}) {
   nameInput.addEventListener('input', () => { snapshot('name'); doc.name = nameInput.value; touch({ inspector: sel.kind === 'home' }); });
   const status = h('div.status');
   const saveBtn = h('button.btn.primary', { onclick: save }, icon('check', 15, 2.4), 'Сохранить план');
+  const undoBtn = h('button.btn.icon-btn', { title: 'Отменить правку в редакторе (⌘Z)', 'aria-label': 'Отменить', disabled: true, onclick: () => stepHistory(undo, redo) }, icon('undo', 16));
+  const redoBtn = h('button.btn.icon-btn', { title: 'Повторить правку в редакторе (⇧⌘Z)', 'aria-label': 'Повторить', disabled: true, onclick: () => stepHistory(redo, undo) }, icon('redo', 16));
   const hint = h('div.hint', isPhone ? 'Нажмите для выбора · перетащите выбранное · разведите пальцы для масштаба'
     : 'Перетаскивайте комнаты и мебель · угол комнаты меняет размер · шаг сетки 5 см');
   const toastEl = h('div.toast');
@@ -115,8 +124,7 @@ export async function bootEditor(root, options = {}) {
       h('div.bar-title', icon('home', 17), nameInput,inventory?h('button.btn.danger',{onclick:clearAll},icon('trash',15),'Удалить всё'):null),
       h('div.bar-actions',
         sideToggle, inspectorToggle,
-        h('button.btn.icon-btn', { title: 'Отменить (⌘Z)', 'aria-label': 'Отменить', onclick: () => stepHistory(undo, redo) }, icon('undo', 16)),
-        h('button.btn.icon-btn', { title: 'Повторить (⇧⌘Z)', 'aria-label': 'Повторить', onclick: () => stepHistory(redo, undo) }, icon('redo', 16)),
+        undoBtn, redoBtn,
         h('button.btn', { onclick: importPlan }, 'Импорт…'),
         h('button.btn', { onclick: exportPlan }, 'Экспорт…'),
         saveBtn,
@@ -178,7 +186,7 @@ export async function bootEditor(root, options = {}) {
   }
 
   function stepHistory(from, to) {
-    if (!from.length) return;
+    if (!from.length || saving || deletingFurniture || document.querySelector('dialog[open]')) return;
     to.push(JSON.stringify(doc));
     doc = JSON.parse(from.pop());
     lastSnapshotKey = null;
@@ -188,7 +196,14 @@ export async function bootEditor(root, options = {}) {
   }
 
   function touch({ inspector: redrawInspector = true } = {}) {
-    dirty = true;
+    updateWallAttachments(doc.furniture,doc.rooms,{movingId:sel.kind==='furniture'?doc.furniture[sel.index]?.id:null});
+    updateSurfaceAttachments(doc.furniture,{movingId:sel.kind==='furniture'?doc.furniture[sel.index]?.id:null});
+    const active=sel.kind==='furniture'?doc.furniture[sel.index]:null;
+    if(!redrawInspector&&active&&SURFACE_ITEMS.has(active.type)){
+      const height=inspector.querySelector('[data-surface-height]'),note=inspector.querySelector('.surface-note');
+      if(height)height.value=active.y||0;if(note)note.textContent=surfaceNote(active);
+    }
+    dirty = JSON.stringify(doc) !== savedDocument;
     renderSidebar();
     renderPlan();
     if (redrawInspector) renderInspector();
@@ -230,7 +245,9 @@ export async function bootEditor(root, options = {}) {
       status.className = 'status bad';
       status.textContent = `⚠ ${e.message}`;
     }
-    saveBtn.disabled = !valid;
+    saveBtn.disabled = !valid || saving;
+    undoBtn.disabled = saving || deletingFurniture || !undo.length;
+    redoBtn.disabled = saving || deletingFurniture || !redo.length;
     if (isPhone) phone.refresh();
   }
 
@@ -292,16 +309,19 @@ export async function bootEditor(root, options = {}) {
     const nodes = [h(`button.row.home-row${sel.kind === 'home' ? '.active' : ''}`, { onclick: () => select({ kind: 'home' }) },
       icon('home', 15), h('span.row-name', 'Настройки квартиры')),
     inventory ? null : links.sidebarRow(sel.kind === 'connections' || sel.kind === 'service', () => select({ kind: 'connections' }))];
-    const kinds=Object.keys(KEYS).filter(k=>!inventory||k!=='scene'),allClosed=kinds.every(k=>collapsedGroups.has(k));
+    const groups=Object.keys(KEYS).flatMap(k=>k==='furniture'?Object.keys(OBJECT_SECTIONS):[k]);
+    const kinds=groups.filter(k=>!inventory||k!=='scene'),allClosed=kinds.every(k=>collapsedGroups.has(k));
     nodes.push(h('button.group-all',{onclick:()=>{for(const k of kinds)allClosed?collapsedGroups.delete(k):collapsedGroups.add(k);saveGroups();}},icon(allClosed?'plus':'minus',13),allClosed?'Развернуть всё':'Свернуть всё'));
-    for (const kind of Object.keys(KEYS)) {
+    for (const group of groups) {
+      const kind=OBJECT_SECTIONS[group]?'furniture':group;
+      const title=OBJECT_SECTIONS[group]||TITLES[kind];
       if (inventory && kind === 'scene') continue;
-      const items = doc[KEYS[kind]];
+      const items = doc[KEYS[kind]].map((item,index)=>({item,index})).filter(({item})=>kind!=='furniture'||objectSection(item.type)===group);
       nodes.push(h('div.group',
-        h('button.group-toggle',{'aria-expanded':String(!collapsedGroups.has(kind)),'aria-label':`${collapsedGroups.has(kind)?'Развернуть':'Свернуть'}: ${TITLES[kind]}`,onclick:()=>{collapsedGroups.has(kind)?collapsedGroups.delete(kind):collapsedGroups.add(kind);saveGroups();}},icon(collapsedGroups.has(kind)?'next':'down',13),h('span',`${TITLES[kind]}`)), h('span.n', items.length),
-        h('button.add', { title: `Добавить: ${TITLES[kind].toLowerCase()}`, 'aria-label': `Добавить: ${TITLES[kind].toLowerCase()}`, onclick: () => add(kind) }, icon('plus', 14, 2.4))));
-      if(collapsedGroups.has(kind))continue;
-      items.forEach((item, index) => {
+        h('button.group-toggle',{'aria-expanded':String(!collapsedGroups.has(group)),'aria-label':`${collapsedGroups.has(group)?'Развернуть':'Свернуть'}: ${title}`,onclick:()=>{collapsedGroups.has(group)?collapsedGroups.delete(group):collapsedGroups.add(group);saveGroups();}},icon(collapsedGroups.has(group)?'next':'down',13),h('span',`${title}`)), h('span.n', items.length),
+        h('button.add', { title: `Добавить: ${title.toLowerCase()}`, 'aria-label': `Добавить: ${title.toLowerCase()}`, onclick: () => OBJECT_SECTIONS[group]?showCatalog(group):add(kind) }, icon('plus', 14, 2.4))));
+      if(collapsedGroups.has(group))continue;
+      items.forEach(({item, index}) => {
         const [name, sub] = rowLabel(kind, item);
         const active = sel.kind === kind && sel.index === index;
         nodes.push(h(`div.row${active ? '.active' : ''}`, { role: 'button', tabindex: 0, onclick: () => select({ kind, index }), onkeydown: e => { if (e.target === e.currentTarget && ['Enter', ' '].includes(e.key)) { e.preventDefault(); select({ kind, index }); } } },
@@ -359,6 +379,8 @@ export async function bootEditor(root, options = {}) {
     if (!doc.rooms.length) return toast('Сначала добавьте комнату', true);
     const selected = doc[KEYS[sel.kind]]?.[sel.index];
     const targetRoom = sel.kind === 'room' ? doc.rooms[sel.index] : doc.rooms.find(r => r.id === selected?.room) || (selected?.pos ? roomAt(selected.pos) : null) || doc.rooms[0];
+    const linkedType = nodeId ? inventoryData().furniture.find(n => n.id === nodeId)?.modelType : null;
+    if (linkedType) kind = objectSection(linkedType);
     openObjectCatalog({ kind, existing: availableInventoryFurniture(), placeNodeId: nodeId, rooms: doc.rooms, roomId: targetRoom?.id, onChoose: choice => {
       const room = doc.rooms.find(r => r.id === choice.roomId);
       if (!room) return;
@@ -374,7 +396,7 @@ export async function bootEditor(root, options = {}) {
       } else if (choice.kind === 'light') entry = { id: uniqueId(`${room.id}.light`), name: choice.name, room: room.id, type: choice.type, pos: freeSpot(room, center), capabilities: [] };
       else entry = { id: uniqueId(`${room.id}.ac`), name: `${room.name} — кондиционер`, room: room.id, wall: 'north', pos: [center[0], room.rect[1]], y: 2.2 };
       doc[KEYS[choice.kind]].push(entry);
-      collapsedGroups.delete(choice.kind);localStorage.setItem('iv:editor-collapsed-groups',JSON.stringify([...collapsedGroups]));
+      collapsedGroups.delete(choice.kind==='furniture'?objectSection(choice.type):choice.kind);localStorage.setItem('iv:editor-collapsed-groups',JSON.stringify([...collapsedGroups]));
       sel = { kind: choice.kind, index: doc[KEYS[choice.kind]].length - 1 };
       touch();
     }});
@@ -436,11 +458,12 @@ export async function bootEditor(root, options = {}) {
       for (const key of Object.values(KEYS)) doc[key] ||= [];
       rememberCardLinks();
       undo.length = 0; redo.length = 0; lastSnapshotKey = null;
+      savedDocument = JSON.stringify(doc);
       sel = { kind: 'home' };
       touch(); dirty = false; validate();
       toast('Мебель перемещена в корзину');
     } catch (e) { validate(); toast(e.message, true); }
-    finally { deletingFurniture = false; }
+    finally { deletingFurniture = false; validate(); }
   }
 
   /* ---------- plan (SVG) ---------- */
@@ -658,6 +681,11 @@ export async function bootEditor(root, options = {}) {
     return h('label.field', h('span', label), input);
   }
 
+  function surfaceNote(item){
+    if(item.surfaceSnap===false)return 'Высоту можно задать вручную.';
+    const support=doc.furniture.find(f=>f.id===item.surfaceAttachment?.supportId);
+    return support?'На поверхности: '+(support.name||FURNITURE_NAMES[support.type]||'мебель')+'. Предмет перемещается и поворачивается вместе с ней.':'Перетащите предмет на стол или тумбу — он автоматически встанет на поверхность. Вне мебели он располагается на полу.';
+  }
   const number = (step = 0.05) => h('input', { type: 'number', step, inputmode: 'decimal' });
   const parseNum = (v) => (v === '' || Number.isNaN(Number(v)) ? undefined : Number(v));
   const text = () => h('input', { type: 'text', spellcheck: 'false' });
@@ -717,7 +745,7 @@ export async function bootEditor(root, options = {}) {
       head(item.name || 'Комната', 'Название и оформление комнаты');
       const roomForm=roomPresentationForm(item);
       nodes.push(section('Комната',roomForm.element,h('button.btn',{onclick:()=>{try{const copy=structuredClone(item);roomForm.apply(copy);snapshot();Object.keys(item).forEach(k=>delete item[k]);Object.assign(item,copy);touch();toast('Название и оформление обновлены');}catch(e){toast(e.message,true);}}},'Применить название и оформление'),
-        bind('Покрытие пола', choice(FLOOR_KINDS.map(floor => [floor, {oak:'Дуб',walnut:'Орех',tile:'Плитка',stone:'Камень'}[floor] || floor])), { ...prop(item, 'floor', 'oak'), event: 'change' })),
+        bind('Покрытие пола', choice(FLOOR_KINDS.map(floor => [floor, {oak:'Дуб',walnut:'Орех',tile:'Плитка',stone:'Камень',carpetWhite:'Ковролин — белый',carpetGrey:'Ковролин — серый',laminateLightOak:'Ламинат — светлый дуб'}[floor] || floor])), { ...prop(item, 'floor', 'oak'), event: 'change' })),
       section('Положение и размеры, м',
         row(bind('X', number(0.1), { ...at(item, 'rect', 0), parse: parseNum }), bind('Z', number(0.1), { ...at(item, 'rect', 1), parse: parseNum })),
         row(bind('Ширина', number(0.1), { ...at(item, 'rect', 2), parse: parseNum }), bind('Глубина', number(0.1), { ...at(item, 'rect', 3), parse: parseNum })),
@@ -768,21 +796,33 @@ export async function bootEditor(root, options = {}) {
     } else if (kind === 'furniture') {
       const linkedNode = inventoryNode(item);
       const dimension=(key,axis)=>({...optional(item,key),get:()=>EXTRA_MODEL_INFO[item.type]?extraDimensions(item)[axis]:item[key]??IKEA_STORAGE[item.type]?.size[axis]??''});
-      head(item.name || linkedNode?.name || FURNITURE_NAMES[item.type] || item.type, 'Мебель и место хранения');
-      nodes.push(section('Мебель',
+      head(item.name || linkedNode?.name || FURNITURE_NAMES[item.type] || item.type, OBJECT_SECTIONS[objectSection(item.type)]);
+      nodes.push(section(OBJECT_SECTIONS[objectSection(item.type)],
         bind('Название', text(), { get: () => item.name || linkedNode?.name || FURNITURE_NAMES[item.type] || '', set: value => { item.name = value; } }),
-        bind('Тип', choice(FURNITURE_TYPES.map(t => [t, FURNITURE_NAMES[t] || t])), { ...prop(item, 'type'), event: 'change' }),
+        bind('Тип', choice(FURNITURE_TYPES.filter(t => objectSection(t) === objectSection(item.type)).map(t => [t, FURNITURE_NAMES[t] || t])), { ...prop(item, 'type'), event: 'change' }),
         row(bind('X', number(), { ...at(item, 'pos', 0), parse: parseNum }), bind('Z', number(), { ...at(item, 'pos', 1), parse: parseNum })),
-        row(bind('Поворот, °', number(15), { ...prop(item, 'rot', 0), parse: parseNum }),
-          bind('Ширина, м', number(0.1), { ...dimension('width',0), parse: optNum })),
-        EXTRA_MODEL_INFO[item.type]||IKEA_STORAGE[item.type] ? row(
+        row(bind('Поворот, °', h('input',{type:'number',step:15,disabled:item.type==='neonPorsche'&&item.wallSnap!==false}), { ...prop(item, 'rot', 0), parse: parseNum }),
+          EXTRA_MODEL_INFO[item.type]?.fixedSize ? null : bind('Ширина, м', number(0.1), { ...dimension('width',0), parse: optNum })),
+        !EXTRA_MODEL_INFO[item.type]?.fixedSize && (EXTRA_MODEL_INFO[item.type]||IKEA_STORAGE[item.type]) ? row(
           bind('Высота, м', number(0.1), { ...dimension('height',1), parse: optNum }),
           bind('Глубина, м', number(0.1), { ...dimension('depth',2), parse: optNum })) : null,
-        bind('От пола, м', number(0.1), { ...prop(item, 'y', 0), parse: parseNum }),
+        bind('От пола, м', h('input',{type:'number',step:.01,'data-surface-height':'',disabled:SURFACE_ITEMS.has(item.type)&&item.surfaceSnap!==false}), { ...prop(item, 'y', 0), parse: parseNum }),
+        SURFACE_ITEMS.has(item.type)?bind('Привязка к поверхности',h('input',{type:'checkbox'}),{...prop(item,'surfaceSnap',true),event:'change'}):null,
+        SURFACE_ITEMS.has(item.type)?h('p.note.surface-note',surfaceNote(item)):null,
+        item.type==='neonPorsche'?bind('Привязка к стене',h('input',{type:'checkbox'}),{...prop(item,'wallSnap',true),event:'change'}):null,
+        item.type==='neonPorsche'?h('p.note','Вывеска встаёт на ближайшую стену и поворачивается светящейся стороной в комнату. Высота задаётся в поле «От пола».'):null,
         item.type === 'tireStack' ? bind('Как хранить 4 шины', choice([['stack','Стопкой'],['row','В ряд']]), { ...prop(item,'layout','stack'), event:'change' }) : null,
         item.type === 'cornerSofa' ? bind('Угол дивана', choice([['right','Справа'],['left','Слева']]), { ...prop(item,'chaise','right'), event:'change' }) : null,
         bind('Цвет (hex, необязательно)', text(), optional(item, 'color')),
         h('p.note', 'Короткая линия отмечает фасад. При повороте 0° он направлен к нижнему краю плана.')));
+      if(EQUIPMENT_FIELDS[item.type]){
+        nodes.push(section('Характеристики',h('p.note',['simCockpit','simCockpitTriple'].includes(item.type)?'Комплектация сохраняется в карточке. Внешний вид кокпита не меняется. ПК приобретается и размещается отдельно.':item.type==='macBook'?'Один размер корпуса: 31 × 25 см, высота с открытым экраном 22 см. Характеристики не меняют модель.':'Стеклянная боковая стенка и внутренняя подсветка. Характеристики сохраняются в карточке.'),
+          ...Object.entries(EQUIPMENT_FIELDS[item.type]).map(([key,options])=>{
+            const listId='equipment-'+item.id+'-'+Object.keys(EQUIPMENT_FIELDS[item.type]).indexOf(key);
+            const control=text();control.setAttribute('list',listId);control.placeholder='Выберите или введите своё';
+            return h('div',bind(key,control,{get:()=>item.equipmentFields?.[key]??linkedNode?.fields?.[key]??'',set:value=>{item.equipmentFields={...item.equipmentFields,[key]:value};}}),h('datalist',{id:listId},options.map(value=>h('option',{value}))));
+          })));
+      }
       if (inventory) {
         const available = availableInventoryFurniture(item);
         const linkSelect = choice(linkedNode ? [[linkedNode.id, linkedNode.name]] : [['', 'Новая карточка после сохранения'], ...available.map(n => [n.id, n.name])]);
@@ -973,12 +1013,12 @@ export async function bootEditor(root, options = {}) {
 
   /* ---------- file actions ---------- */
 
-  async function clearAll(){try{const next=await options.onClear?.(structuredClone(doc));if(!next)return;doc=structuredClone(next);undo.length=0;redo.length=0;sel={kind:'home'};dirty=false;renderSidebar();renderPlan();renderInspector();validate();schedulePreview(0);toast('Карта очищена. Вещи сохранены в «Без места».');}catch(e){toast(e.message,true);}}
+  async function clearAll(){if(saving||deletingFurniture)return;try{const next=await options.onClear?.(structuredClone(doc));if(!next)return;doc=structuredClone(next);undo.length=0;redo.length=0;lastSnapshotKey=null;savedDocument=JSON.stringify(doc);nameInput.value=doc.name||'';sel={kind:'home'};dirty=false;renderSidebar();renderPlan();renderInspector();validate();schedulePreview(0);toast('Карта очищена. Вещи сохранены в «Без места».');}catch(e){toast(e.message,true);}}
 
   async function save() {
-    if (!valid) return;
+    if (!valid || saving || deletingFurniture) return;
     if (inventory) {
-      saveBtn.disabled = true;
+      saving = true;root.inert = true;validate();
       try {
         const selectedId = doc[KEYS[sel.kind]]?.[sel.index]?.id;
         await options.onSave(structuredClone(doc));
@@ -989,9 +1029,11 @@ export async function bootEditor(root, options = {}) {
         rememberCardLinks();
         if (selectedId) { const index = doc[KEYS[sel.kind]]?.findIndex(item => item.id === selectedId); sel = index >= 0 ? { kind: sel.kind, index } : { kind: 'home' }; }
         if (sel.index != null && !doc[KEYS[sel.kind]]?.[sel.index]) sel = { kind: 'home' };
+        savedDocument = JSON.stringify(doc);lastSnapshotKey = null;
         dirty = false; renderSidebar(); renderPlan(); renderInspector(); validate(); schedulePreview(0); toast('План сохранён');
       }
-      catch (e) { toast(e.message, true); saveBtn.disabled = false; }
+      catch (e) { toast(e.message, true); }
+      finally { saving = false;root.inert = false;validate(); }
       return;
     }
     if (!isNative) {
@@ -1001,6 +1043,7 @@ export async function bootEditor(root, options = {}) {
     }
     try {
       await call('savePlan', { config: doc });
+      savedDocument = JSON.stringify(doc);lastSnapshotKey = null;
       dirty = false;
       validate();
       haptic('success');
@@ -1057,12 +1100,20 @@ export async function bootEditor(root, options = {}) {
 
   /* ---------- keyboard ---------- */
 
+  function routeHistory(repeat = false) {
+    if (saving || deletingFurniture) return;
+    if (editingText(document.activeElement)) { document.execCommand(repeat ? 'redo' : 'undo'); return; }
+    stepHistory(repeat ? redo : undo, repeat ? undo : redo);
+  }
+  incoming.inventoryUndo = () => routeHistory();
+  incoming.inventoryRedo = () => routeHistory(true);
+
   window.addEventListener('keydown', (ev) => {
-    if (document.querySelector('dialog[open]')) return;
-    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
-    if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'z' && !typing) {
+    if (saving || deletingFurniture || document.querySelector('dialog[open]')) return;
+    const typing = editingText(document.activeElement), command = historyShortcut(ev);
+    if (command && !typing) {
       ev.preventDefault();
-      if (ev.shiftKey) stepHistory(redo, undo); else stepHistory(undo, redo);
+      routeHistory(command === 'redo');
     } else if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 's') {
       ev.preventDefault();
       save();
@@ -1345,8 +1396,8 @@ export async function bootEditor(root, options = {}) {
         doneBtn.textContent = dirty ? 'Сохранить' : 'Готово';
         doneBtn.classList.toggle('primary', dirty);
         doneBtn.disabled = dirty && !valid;
-        undoBtn.disabled = !undo.length;
-        redoBtn.disabled = !redo.length;
+        undoBtn.disabled = saving || deletingFurniture || !undo.length;
+        redoBtn.disabled = saving || deletingFurniture || !redo.length;
         issue.textContent = valid ? '' : status.textContent;
         issue.classList.toggle('show', !valid);
       },
@@ -1377,6 +1428,7 @@ export async function bootEditor(root, options = {}) {
     }
     doc = structuredClone(config);
     for (const key of Object.values(KEYS)) doc[key] ||= [];
+    rememberCardLinks();savedDocument=JSON.stringify(doc);undo.length=0;redo.length=0;lastSnapshotKey=null;
     nameInput.value = doc.name || 'Квартира';
     if (sel.index != null && !doc[KEYS[sel.kind]]?.[sel.index]) sel = { kind: 'home' };
     touch();

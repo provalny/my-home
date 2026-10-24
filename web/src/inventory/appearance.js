@@ -1,6 +1,9 @@
 import { roomGlyph } from './room-icons.js';
+import { KITCHEN_MODULE_TYPES } from './ikea-storage.js';
 // One resolver for every inventory view, including location pickers.
 export const FURNITURE_GLYPHS = {
+  officeChair:'furniture',gamingDesktop:'games',monitorStand:'tv',desktopMonitor:'tv',smallDesk:'desk',neonPorsche:'car',ikeaFloorLamp:'bulb',whiteSpeaker:'film',bookcaseTall:'shelf',bookcaseMedium:'shelf',
+  pcCase:'laptop',macBook:'laptop',simCockpit:'games',simCockpitTriple:'games',printer3dEnclosed:'box',printer3dOpen:'box',printerCabinet:'dresser',
   sofa:'sofa',armchair:'furniture',coffeeTable:'desk',desk:'desk',diningSet:'dishes',
   bed:'bed',nightstand:'dresser',wardrobe:'wardrobe',bookshelf:'shelf',sideboard:'dresser',dresser:'dresser',
   kitchen:'stove',island:'dishes',fridge:'fridge',tv:'tv',plant:'flower',rug:'stop',
@@ -27,6 +30,8 @@ export function categoryAppearance(doc, categoryId) {
   return { glyph:glyph || GLYPHS[kind] || 'box', kind };
 }
 export function nodeAppearance(doc, n) {
+  if(n.fridgeChamber)return {glyph:n.fridgeChamber==='freezer'?'cool':n.fridgeChamber==='fresh'?'leaf':'fridge',kind:n.kind};
+  if(n.kitchenModule)return {glyph:KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.glyph||'folder',kind:n.kind};
   if (n.kind === 'room') return {glyph:roomGlyph(n),kind:'room'};
   const type = doc.plan?.furniture?.find(f=>f.id===n.furnitureId)?.type || n.modelType;
   if(n.kind==='furniture'&&FURNITURE_GLYPHS[type]) return {glyph:FURNITURE_GLYPHS[type],kind:categoryAppearance(doc,n.categoryId).kind};

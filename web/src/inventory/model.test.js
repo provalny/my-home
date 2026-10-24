@@ -25,7 +25,7 @@ test('specific model icons survive removing geometry and keep category and photo
   const plan=structuredClone(d.plan);plan.furniture.push({id:'stove-icon',type:'stove',pos},{id:'rack-icon',type:'metalRack',pos});M.syncPlan(d,plan);
   const stove=d.nodes.find(n=>n.furnitureId==='stove-icon'),rack=d.nodes.find(n=>n.furnitureId==='rack-icon');
   assert.equal(nodeAppearance(d,stove).glyph,'stove');assert.equal(nodeAppearance(d,rack).glyph,'rack');
-  assert.equal(stove.categoryId,'electronics');stove.photo='data:image/png;base64,AA';
+  assert.equal(stove.categoryId,'appliances');stove.photo='data:image/png;base64,AA';
   M.detachFurniture(d,stove.id);assert.equal(nodeAppearance(d,stove).glyph,'stove');assert.ok(stove.photo);
   const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);assert.equal(nodeAppearance(copy,M.getNode(copy,stove.id)).glyph,'stove');
 });
@@ -398,4 +398,42 @@ test('backups require actual successful timestamps and corrupt optional award da
   assert.equal(calculateAwards(d).find(a=>a.id==='first-backup').earned,true);
   d.awards.earned['future-id']={earnedAt:null};syncAwards(d);assert.ok(d.awards.earned['future-id']);
   assert.equal(new Set(calculateAwards(d).map(a=>a.id)).size,18);
+});
+
+
+test('object categories migrate legacy models, archive and trash while preserving custom branches',()=>{
+  const d=seed(),room=d.plan.rooms[0],plan=structuredClone(d.plan);
+  for(const type of ['washingMachine','microwave','rug','plant','pcCase','sofa'])plan.furniture.push({id:'category-'+type,type,pos:[room.rect[0]+.5,room.rect[1]+.5]});
+  M.syncPlan(d,plan);
+  const cards=Object.fromEntries(['washingMachine','microwave','rug','plant','pcCase','sofa'].map(type=>[type,d.nodes.find(n=>n.furnitureId==='category-'+type)]));
+  cards.washingMachine.categoryId='electronics';cards.rug.categoryId='furniture';
+  d.categories.find(c=>c.id==='electronics').name='Электроника';d.categories.find(c=>c.id==='decor').name='Декор';
+  d.categories.push({id:'my-appliances',name:'Моя техника',parentId:'electronics'});
+  cards.microwave.categoryId='my-appliances';
+  delete d.settings.objectCategoriesVersion;
+  M.archive(d,cards.washingMachine.id,{reason:'Продано',date:'2026-10-24'});
+  M.remove(d,cards.plant.id);
+  const trash=d.trash.at(-1).nodes.find(n=>n.id===cards.plant.id);trash.categoryId='furniture';
+  M.migrate(d);M.validate(d);
+  assert.equal(cards.washingMachine.categoryId,'appliances');
+  assert.equal(cards.rug.categoryId,'decor');assert.equal(trash.categoryId,'decor');
+  assert.equal(cards.pcCase.categoryId,'electronics');assert.equal(cards.sofa.categoryId,'furniture');
+  assert.equal(cards.microwave.categoryId,'my-appliances');
+  assert.equal(d.categories.find(c=>c.id==='electronics').name,'Домашняя электроника');
+  assert.equal(d.categories.find(c=>c.id==='decor').name,'Уют');
+  assert.equal(d.categories.find(c=>c.id==='appliances').parentId,null);
+  const before=structuredClone(d);M.migrate(d);assert.deepEqual(d,before);
+});
+
+test('legacy appliance category retains its ID, items and children as a separate root',()=>{
+  const d=seed();d.categories=d.categories.filter(c=>c.id!=='appliances');
+  for(const n of d.nodes)if(n.categoryId==='appliances')n.categoryId='legacy-appliances';
+  d.categories.push({id:'legacy-appliances',name:'Бытовая техника',parentId:'electronics'});
+  d.categories.push({id:'legacy-kitchen',name:'Для кухни',parentId:'legacy-appliances'});
+  const n=M.newNode(d,{name:'Чайник',parentId:M.UNPLACED_ID,categoryId:'legacy-appliances'});
+  delete d.settings.objectCategoriesVersion;M.migrate(d);M.validate(d);
+  assert.equal(d.categories.find(c=>c.id==='legacy-appliances').parentId,null);
+  assert.equal(d.categories.find(c=>c.id==='legacy-kitchen').parentId,'legacy-appliances');
+  assert.equal(n.categoryId,'legacy-appliances');
+  assert.equal(d.categories.filter(c=>c.name==='Бытовая техника').length,1);
 });

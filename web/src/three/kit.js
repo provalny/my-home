@@ -119,8 +119,24 @@ function tiles(base, perSide, grout) {
   });
 }
 
+function carpet(base) {
+  return canvasTexture(512, (g, s) => {
+    const rand = rng(7351);
+    g.fillStyle = base;
+    g.fillRect(0, 0, s, s);
+    // Short, fine fibres give the carpet a soft texture without plank seams.
+    for (let i = 0; i < 70000; i++) {
+      g.fillStyle = shade(base, (rand() - 0.5) * 0.08);
+      g.fillRect(Math.floor(rand() * s), Math.floor(rand() * s), 1, rand() > 0.5 ? 2 : 1);
+    }
+  });
+}
+
 const FLOORS = {
   oak: () => planks('#c7a47c'),
+  carpetWhite: () => carpet('#eeece7'),
+  carpetGrey: () => carpet('#95979b'),
+  laminateLightOak: () => planks('#d7c4a0'),
   walnut: () => planks('#94705a'),
   tile: () => tiles('#d5dade', 4, '#aab0b8'),
   stone: () => tiles('#a2a7ae', 3, '#7c828b'),
@@ -134,7 +150,7 @@ export function floorMaterial(kind) {
   if (!floorMaterials.has(name)) {
     floorMaterials.set(name, new THREE.MeshStandardMaterial({
       map: FLOORS[name](),
-      roughness: name === 'tile' || name === 'stone' ? 0.55 : 0.75,
+      roughness: name.startsWith('carpet') ? 1 : name === 'tile' || name === 'stone' ? 0.55 : 0.75,
     }));
   }
   return floorMaterials.get(name);

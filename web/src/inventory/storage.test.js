@@ -8,10 +8,64 @@ import { roomGlyph } from './room-icons.js';
 import { layoutZones, arrangeStorage, validateStorageLayout, sectionRects } from './storage-layout.js';
 import { translationCandidates, translatePlan } from './localization.js';
 import { buildStorageInterior } from '../three/storage-interior.js';
-import { kitchenModules, SECTION_KINDS } from './ikea-storage.js';
+import { kitchenModules, SECTION_KINDS, KITCHEN_MODULE_TYPES, kitchenTypeOptions } from './ikea-storage.js';
 import { buildKitchen } from '../three/kitchen.js';
+import { buildFurniture } from '../three/furniture.js';
+import { OPENABLE_TYPES } from './storage-layout.js';
 import { normalize } from '../config.js';
+import { fridgeChambers, fridgeConfig } from './fridge-layout.js';
+import { planLocation } from './plan-location.js';
 const seed=()=>M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8')));
+test('show on plan resolves the actual wardrobe and shelf without changing inventory',()=>{
+  const d=seed(),item=d.nodes.find(n=>n.name==='Футболка Nike'),shelf=M.getNode(d,item.parentId),cabinet=M.getNode(d,shelf.parentId),before=JSON.stringify(d);
+  assert.deepEqual(planLocation(d,item.id),{roomId:cabinet.parentId,roomGeometryId:M.getNode(d,cabinet.parentId).roomId,placeId:shelf.id,anchorId:cabinet.id,focusId:cabinet.id,sectionId:shelf.id});
+  assert.equal(JSON.stringify(d),before);
+  const box=M.newNode(d,{kind:'box',name:'Вложенная коробка',parentId:shelf.id}),nested=M.newNode(d,{name:'В коробке',parentId:box.id});
+  const target=planLocation(d,nested.id);assert.equal(target.anchorId,cabinet.id);assert.equal(target.focusId,cabinet.id);assert.equal(target.sectionId,shelf.id);assert.equal(target.placeId,box.id);
+});
+test('show on plan selects the exact kitchen cabinet or fridge chamber and its inner shelf',()=>{
+  for(const type of ['kitchen','fridge']){
+    const d=seed(),shape=d.plan.furniture.find(f=>f.type===type),root=d.nodes.find(n=>n.furnitureId===shape.id),unit=M.children(d,root.id).find(n=>type==='kitchen'?n.kitchenModule:n.fridgeChamber==='cooling');
+    const shelf=M.children(d,unit.id).find(n=>n.kind!=='item')||M.newNode(d,{kind:'shelf',parentId:unit.id,name:'Полка'}),item=M.newNode(d,{name:'Внутри отделения',parentId:shelf.id});
+    const target=planLocation(d,item.id);assert.equal(target.anchorId,root.id);assert.equal(target.focusId,unit.id);assert.equal(target.sectionId,shelf.id);assert.equal(target.placeId,shelf.id);
+    const direct=M.newNode(d,{name:'Без полки',parentId:unit.id});assert.equal(planLocation(d,direct.id).focusId,unit.id);assert.equal(planLocation(d,direct.id).sectionId,unit.id);
+  }
+});
+test('show on plan follows current moves, falls back to the room for detached storage, and rejects unplaced/archive',()=>{
+  const d=seed(),item=d.nodes.find(n=>n.name==='Футболка Nike'),shelf=M.getNode(d,item.parentId),cabinet=M.getNode(d,shelf.parentId),room=M.getNode(d,cabinet.parentId);
+  M.detachFurniture(d,cabinet.id);const detached=planLocation(d,item.id);assert.equal(detached.anchorId,undefined);assert.equal(detached.roomId,room.id);assert.ok(detached.note);
+  M.move(d,item.id,room.id);assert.equal(planLocation(d,item.id).placeId,room.id);assert.equal(planLocation(d,item.id).anchorId,undefined);
+  M.move(d,item.id,M.UNPLACED_ID);assert.match(planLocation(d,item.id).reason,/Без места/);
+  M.archive(d,item.id,{reason:'Другое',date:'2026-10-24'});assert.match(planLocation(d,item.id).reason,/архиве/);
+  assert.ok(planLocation(d,'missing').reason);
+});
+test('show on plan uses the closest physical furniture and safely rejects invalid ancestry or missing rooms',()=>{
+  const d=seed(),item=d.nodes.find(n=>n.name==='Футболка Nike'),shelf=M.getNode(d,item.parentId),cabinet=M.getNode(d,shelf.parentId);
+  const box=M.newNode(d,{kind:'furniture',name:'Модель внутри шкафа',parentId:shelf.id});box.furnitureId='nested-model';d.plan.furniture.push({id:box.furnitureId,type:'sideboard'});item.parentId=box.id;
+  assert.equal(planLocation(d,item.id).anchorId,box.id);
+  box.parentId=item.id;assert.ok(planLocation(d,item.id).reason);box.parentId=shelf.id;
+  d.plan.rooms=[];assert.match(planLocation(d,item.id).reason,/Комната/);
+  d.plan.rooms=[{id:M.getNode(d,cabinet.parentId).roomId}];cabinet.archived={};assert.match(planLocation(d,item.id).reason,/архиве/);
+});
+test('fridge settings preserve products when changing type or freezer position and archive old chambers when changing their count',()=>{
+  const d=seed(),shape=d.plan.furniture.find(f=>f.type==='fridge'),n=d.nodes.find(n=>n.furnitureId===shape.id),chambers=M.children(d,n.id).filter(n=>n.fridgeChamber),cooling=chambers.find(n=>n.fridgeChamber==='cooling'),product=M.newNode(d,{name:'Продукт в холодильнике',parentId:cooling.id,purchaseCents:25000}),oldIds=chambers.map(n=>n.id);
+  assert.equal(chambers.length,2);M.configureFridge(d,n.id,{installation:'builtIn',freezerPosition:'top'});M.validate(d);assert.deepEqual(M.children(d,n.id).filter(n=>n.fridgeChamber).map(n=>n.fridgeChamber),['freezer','cooling']);assert.equal(product.parentId,cooling.id);assert.equal(product.archived,null);assert.ok(oldIds.every(id=>M.getNode(d,id)&&!M.getNode(d,id).archived));
+  const before=JSON.parse(JSON.stringify(d));M.configureFridge(d,n.id,{chambers:3});M.validate(d);assert.ok(product.archived);assert.equal(product.purchaseCents,25000);assert.ok(oldIds.every(id=>M.getNode(d,id).archived));assert.equal(layoutZones(d,n.id).length,3);assert.ok(M.children(d,n.id).filter(n=>n.fridgeChamber).every(n=>!oldIds.includes(n.id)));M.validate(before);assert.equal(M.getNode(before,product.id).archived,null);
+  const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.migrate(copy);M.validate(copy);M.syncPlan(copy,structuredClone(copy.plan));assert.deepEqual(fridgeConfig(copy.plan.furniture.find(f=>f.id===shape.id)),{installation:'builtIn',chambers:3,freezerPosition:'top'});assert.equal(layoutZones(copy,n.id).length,3);
+  const snapshot=JSON.stringify(copy);for(const options of [{chambers:0},{chambers:4},{installation:'bad'},{freezerPosition:'left'}])assert.throws(()=>M.configureFridge(copy,n.id,options));assert.equal(JSON.stringify(copy),snapshot);
+});
+test('all fridge chamber configurations share the same closed model; only the selected door and interior light open',()=>{
+  const physicalBounds=root=>{root.updateMatrixWorld(true);const bounds=new THREE.Box3();root.traverse(o=>{if(o.isMesh&&o.userData.kind!=='section')bounds.union(new THREE.Box3().setFromObject(o));});return bounds;};
+  for(const installation of ['freestanding','builtIn'])for(const chambers of [1,2,3])for(const freezerPosition of ['top','bottom']){
+    const shape={type:'fridge',pos:[2,3],rot:90,width:.75,height:2,depth:.65,fridge:{installation,chambers,freezerPosition}},spec=fridgeChambers(shape),zones=spec.map(c=>({nodeId:c.key,name:c.name,kind:'box',fridgeChamber:c.key,rect:[0,0,1,1]})),plan=buildFurniture([shape]),overview=buildStorageInterior(shape,zones);
+    assert.equal(spec.length,chambers);assert.ok(Math.abs(spec.reduce((a,c)=>a+c.rect[3],0)-1)<1e-8);if(chambers>1)assert.equal(spec[freezerPosition==='top'?0:spec.length-1].key,'freezer');const a=physicalBounds(plan),b=physicalBounds(overview.root);assert.ok(a.min.distanceTo(b.min)<1e-6&&a.max.distanceTo(b.max)<1e-6);overview.animate(1);assert.ok(overview.doors.every(d=>d.pivot.rotation.y===0));assert.ok(overview.lights.every(l=>l.light.intensity===0));
+    const selected=spec[0].key,opened=buildStorageInterior(shape,[{nodeId:selected,name:'Отделение',kind:'space',rect:[0,0,1,1]}],{chamberKey:selected});opened.animate(1);assert.equal(opened.doors.filter(d=>d.pivot.rotation.y!==0).length,1);assert.equal(opened.lights.filter(l=>l.light.intensity>0).length,1);assert.equal(opened.lights.find(l=>l.light.intensity>0).key,selected);assert.deepEqual(opened.hits.map(h=>h.userData.id),[selected]);assert.equal(opened.focusRoot.userData.fridgeChamber,selected);opened.animate(0);assert.ok(opened.lights.every(l=>l.light.intensity===0));opened.root.traverse(o=>{if(o.geometry)for(const v of o.geometry.attributes.position.array)assert.ok(Number.isFinite(v));});overview.dispose();opened.dispose();
+  }
+});
+test('legacy fridge shelves and direct products survive migration without archiving or changing stable IDs',()=>{
+  const d=seed(),shape=d.plan.furniture.find(f=>f.type==='fridge'),n=d.nodes.find(n=>n.furnitureId===shape.id),legacy=M.newNode(d,{parentId:n.id,kind:'shelf',name:'Старая полка'}),product=M.newNode(d,{parentId:legacy.id,name:'Продукт на старой полке',purchaseCents:5000}),direct=M.newNode(d,{parentId:n.id,name:'Продукт без полки'});
+  n.storageLayout={template:'grid',columns:1,rows:1,zones:[{nodeId:legacy.id,rect:[0,0,1,1]}]};M.migrate(d);M.validate(d);const parent=M.getNode(d,legacy.parentId);assert.equal(parent.fridgeChamber,'cooling');assert.equal(product.parentId,legacy.id);assert.equal(product.archived,null);assert.equal(direct.parentId,n.id);assert.equal(direct.archived,null);assert.equal(product.purchaseCents,5000);assert.equal(parent.storageLayout.zones[0].nodeId,legacy.id);const count=d.nodes.length;M.migrate(d);assert.equal(d.nodes.length,count);
+});
 test('clear map keeps only items in Unplaced, trashes furniture, supports an empty plan and undo snapshot',()=>{
   const d=seed(),before=structuredClone(d),items=d.nodes.filter(n=>n.kind==='item').map(n=>structuredClone(n));M.clearApartment(d);M.validate(d);const cfg=normalize(d.plan);assert.ok(Object.values(cfg.bounds).every(Number.isFinite));assert.equal(d.plan.rooms.length,0);assert.equal(d.plan.furniture.length,0);assert.deepEqual(d.nodes.filter(n=>n.kind==='item').map(n=>n.id),items.map(n=>n.id));assert.ok(d.nodes.every(n=>n.kind==='item'&&n.parentId===M.UNPLACED_ID||n.id===M.UNPLACED_ID));assert.ok(d.trash.length);assert.ok(d.trash.every(e=>e.nodes.every(n=>n.kind!=='item')));assert.equal(d.nodes.find(n=>n.name==='Футболка Nike').purchaseCents,items.find(n=>n.name==='Футболка Nike').purchaseCents);M.validate(JSON.parse(JSON.stringify(d)));M.validate(before);
   M.recover(d,d.trash[0].id,M.UNPLACED_ID);M.validate(d);assert.equal(d.plan.furniture.length,0);
@@ -19,6 +73,24 @@ test('clear map keeps only items in Unplaced, trashes furniture, supports an emp
 test('kitchen packing uses METOD widths, leaves a filler, respects upper toggle and custom depth',()=>{
   for(const width of [.15,.6,1.3,3,3.05,3.2,4.7]){const s=kitchenModules({width}),base=s.modules.filter(m=>m.tier==='base');assert.ok(base.every(m=>[.2,.3,.4,.6,.8].includes(m.width)));assert.ok(Math.abs(base.reduce((v,m)=>v+m.width,0)+s.filler-width)<1e-7);assert.ok(base.every(m=>m.x-m.width/2>=-width/2-.001&&m.x+m.width/2<=width/2+.001));}
   assert.equal(kitchenModules({width:3}).modules.length,10);assert.equal(kitchenModules({width:3,upper:false}).modules.length,5);assert.ok(Math.abs(kitchenModules({depth:.7}).depth-.7)<1e-9);
+});
+test('kitchen module replacement archives previous contents, keeps module IDs and persists through migrations and plan edits',()=>{
+  const d=seed(),shape=d.plan.furniture.find(f=>f.type==='kitchen'),root=d.nodes.find(n=>n.furnitureId===shape.id),module=d.nodes.find(n=>n.parentId===root.id&&n.kitchenModule==='base:0'),shelf=M.children(d,module.id)[0],thing=M.newNode(d,{name:'Вещь в заменяемом шкафу',parentId:shelf.id,purchaseCents:12000}),before=structuredClone(d),oldIds=M.children(d,module.id).map(n=>n.id);
+  M.changeKitchenModuleType(d,module.id,'washingMachine');M.validate(d);assert.equal(module.kitchenModule,'base:0');assert.equal(shape.moduleTypes['base:0'],'washingMachine');assert.ok(thing.archived);assert.equal(thing.parentId,shelf.id);assert.equal(thing.purchaseCents,12000);assert.ok(oldIds.every(id=>M.getNode(d,id).archived));assert.equal(M.children(d,module.id).length,0);assert.deepEqual(layoutZones(d,module.id),[]);assert.ok(M.catalogItems(d,'',true).some(n=>n.id===thing.id));
+  const count=d.nodes.length,events=d.events.length;M.changeKitchenModuleType(d,module.id,'washingMachine');assert.equal(d.events.length,events);M.migrate(d);M.migrate(d);assert.equal(d.nodes.length,count);assert.equal(M.children(d,module.id).length,0);
+  const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.syncPlan(copy,structuredClone(copy.plan));M.validate(copy);assert.equal(copy.plan.furniture.find(f=>f.id===shape.id).moduleTypes['base:0'],'washingMachine');assert.equal(M.getNode(copy,module.id).kitchenModuleType,'washingMachine');
+  M.changeKitchenModuleType(copy,module.id,'cabinet');M.validate(copy);assert.equal(M.children(copy,module.id).length,3);assert.ok(M.children(copy,module.id).every(n=>!oldIds.includes(n.id)));assert.ok(M.getNode(copy,thing.id).archived);M.validate(before);assert.equal(M.getNode(before,thing.id).archived,null);
+});
+test('all requested kitchen types have tier-specific choices, safe validation and distinct shared plan/focus models',()=>{
+  const d=seed(),shape=d.plan.furniture.find(f=>f.type==='kitchen'),root=d.nodes.find(n=>n.furnitureId===shape.id),modules=M.children(d,root.id).filter(n=>n.kitchenModule),base=modules.find(n=>n.kitchenModule==='base:0'),upper=modules.find(n=>n.kitchenModule==='upper:0');
+  const before=JSON.stringify(d);for(const [node,type]of [[upper,'washingMachine'],[base,'hood'],[base,'dishDrainer'],[upper,'bad']])assert.throws(()=>M.changeKitchenModuleType(d,node.id,type));assert.equal(JSON.stringify(d),before);
+  assert.ok(kitchenTypeOptions('upper').some(([id])=>id==='dishDrainer'));assert.ok(kitchenTypeOptions('base').some(([id])=>id==='dryer'));
+  for(const [type,meta]of Object.entries(KITCHEN_MODULE_TYPES)){
+    const node=meta.tiers.includes('base')?base:upper;M.changeKitchenModuleType(d,node.id,type);M.migrate(d);M.validate(d);const model=buildKitchen(shape),focused=buildKitchen(shape,{moduleKey:node.kitchenModule,zones:layoutZones(d,node.id)}),group=model.root.children.find(g=>g.userData.kitchenModule===node.kitchenModule),focusedGroup=focused.focusRoot;
+    assert.equal(group.userData.moduleType,type);assert.equal(focusedGroup.userData.moduleType,type);assert.equal(M.children(d,node.id).length,meta.shelves||0);const a=new THREE.Box3().setFromObject(group),b=new THREE.Box3().setFromObject(focusedGroup);assert.ok(a.min.distanceTo(b.min)<.04&&a.max.distanceTo(b.max)<.04,type+' replaces the model in focused mode');focused.animate(1);
+    let meshes=0;group.traverse(o=>{if(o.geometry){meshes++;for(const v of o.geometry.attributes.position.array)assert.ok(Number.isFinite(v));}});assert.ok(meshes>3);if(!meta.storage)assert.ok(group.children.some(g=>g.userData.applianceType===type));
+  }
+  for(const moduleTypes of [{bad:'hood'},{'base:0':'hood'},{'upper:0':'unknown'},[]]){const bad=structuredClone(d);bad.plan.furniture.find(f=>f.id===shape.id).moduleTypes=moduleTypes;assert.throws(()=>M.validate(bad));}
 });
 test('built-in sections are storage only, hidden from all item catalog modes and have no own value',()=>{
   const d=seed(),shirt=d.nodes.find(n=>n.name==='Футболка Nike'),s=M.getNode(d,shirt.parentId),cabinet=d.nodes.find(n=>n.kitchenModule),realBox=d.nodes.find(n=>n.name==='Коробка с аксессуарами');
@@ -37,6 +109,41 @@ test('automatic section types renumber without losing prices or nested things an
 test('kitchen open and closed share identical frames, countertops and module bounds',()=>{
   const shape={type:'kitchen',width:3,pos:[1,2],rot:90},modules=kitchenModules(shape),zones=modules.modules.map(m=>({nodeId:m.key,moduleKey:m.key,name:m.key,kind:'box',rect:[0,0,1,1]})),closed=buildKitchen(shape),opened=buildKitchen(shape,{zones});
   const a=new THREE.Box3().setFromObject(closed.root),b=new THREE.Box3().setFromObject(opened.root);assert.ok(a.min.distanceTo(b.min)<.04&&a.max.distanceTo(b.max)<.04);opened.animate(1);assert.equal(opened.hits.length,10);assert.equal(opened.labels.length,10);const ys=opened.labels.map(l=>l.anchor.getWorldPosition(new THREE.Vector3()).y);assert.ok(Math.max(...ys)-Math.min(...ys)>1);for(const hit of opened.hits)assert.ok(hit.userData.id);for(const r of [closed.root,opened.root])r.traverse(o=>{if(o.geometry)for(const v of o.geometry.getAttribute('position').array)assert.ok(Number.isFinite(v));});
+});
+test('kitchen overview keeps all doors closed; entering a module opens only its door and exposes its shelves',()=>{
+  const shape={type:'kitchen',width:3,pos:[1,2],rot:90},zones=kitchenModules(shape).modules.map(m=>({nodeId:m.key,moduleKey:m.key,name:m.key,kind:'box',rect:[0,0,1,1]}));
+  const pivots=model=>{const result=[];model.root.traverse(o=>{if(o.parent?.userData.kitchenModule&&o.isGroup)result.push(o);});return result;};
+  const overview=buildStorageInterior(shape,zones);overview.animate(1);assert.ok(pivots(overview).every(p=>p.rotation.y===0));
+  for(const key of ['upper:2','base:4']){
+    const shelves=sectionRects('grid',2,2,4).map((rect,i)=>({nodeId:'s'+i,name:'Полка '+i,kind:'shelf',rect})),model=buildStorageInterior(shape,shelves,{moduleKey:key});model.animate(1);
+    const opened=pivots(model).filter(p=>p.rotation.y!==0);assert.equal(opened.length,1);assert.equal(opened[0].parent.userData.kitchenModule,key);assert.equal(model.focusRoot.userData.kitchenModule,key);assert.deepEqual(model.hits.map(h=>h.userData.id),shelves.map(s=>s.nodeId));assert.ok(model.labels.every(l=>!l.moduleKey));model.animate(0);assert.ok(pivots(model).every(p=>p.rotation.y===0));model.dispose();
+  }
+  overview.dispose();
+});
+test('user grid overrides automatic sections and survives migration, type changes and backup roundtrips',()=>{
+  const d=seed(),n=d.nodes.find(n=>n.name==='Шкаф в спальне'),before=d.nodes.filter(x=>x.parentId===n.id).map(x=>x.id),thing=d.nodes.find(n=>n.name==='Футболка Nike'),parent=thing.parentId,price=thing.purchaseCents;
+  const sections=M.setStorageGrid(d,n.id,{columns:2,rows:3});assert.equal(sections.length,6);M.validate(d);const expected=sectionRects('grid',2,3,6);assert.deepEqual(layoutZones(d,n.id).map(z=>z.rect),expected);assert.ok(before.every(id=>M.getNode(d,id).parentId===n.id));
+  M.changeSectionType(d,sections[0].id,'drawer');const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.validate(copy);assert.deepEqual(layoutZones(copy,n.id).map(z=>z.rect),expected);assert.equal(M.getNode(copy,thing.id).parentId,parent);assert.equal(M.getNode(copy,thing.id).purchaseCents,price);
+  const snapshot=JSON.stringify(copy);assert.throws(()=>M.setStorageGrid(copy,n.id,{columns:0,rows:1}));assert.equal(JSON.stringify(copy),snapshot);
+  const cabinet=d.nodes.find(n=>n.kitchenModule);M.setStorageGrid(d,cabinet.id,{columns:2,rows:2,kinds:['shelf','drawer','compartment','box']});M.validate(d);assert.deepEqual(layoutZones(d,cabinet.id).map(z=>z.rect),sectionRects('grid',2,2,4));
+});
+test('reducing the grid archives every old section with its complete contents and creates a new empty grid',()=>{
+  const d=seed(),n=d.nodes.find(n=>n.name==='Шкаф в спальне');M.setStorageGrid(d,n.id,{columns:3,rows:3});
+  const old=d.nodes.filter(x=>x.parentId===n.id&&!x.archived&&x.kind!=='item'),oldIds=old.map(s=>s.id),shirt=d.nodes.find(n=>n.name==='Футболка Nike'),oldParent=shirt.parentId,price=shirt.purchaseCents;
+  const independent=M.newNode(d,{parentId:old[0].id,name:'Отдельный архив'});M.archive(d,independent.id,{reason:'Другое',date:'2026-10-23'});const oldArchive=structuredClone(independent.archived);
+  const created=M.setStorageGrid(d,n.id,{columns:2,rows:2,kinds:['shelf','drawer','compartment','box']});M.validate(d);assert.equal(created.length,4);assert.ok(created.every(s=>!oldIds.includes(s.id)&&!M.children(d,s.id).length));assert.ok(old.every(s=>s.archived?.reason==='Изменено количество секций'));
+  assert.ok(shirt.archived);assert.equal(shirt.parentId,oldParent);assert.equal(shirt.purchaseCents,price);assert.deepEqual(independent.archived,oldArchive);assert.ok(oldIds.every(id=>M.catalogItems(d,'',true).some(s=>s.id===id)));assert.equal(layoutZones(d,n.id).length,4);
+  const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.validate(copy);assert.equal(layoutZones(copy,n.id).length,4);assert.ok(oldIds.every(id=>M.getNode(copy,id).archived));M.restore(copy,oldParent,n.id);M.validate(copy);assert.equal(M.getNode(copy,shirt.id).archived,null);assert.equal(M.getNode(copy,shirt.id).parentId,oldParent);assert.deepEqual(M.getNode(copy,independent.id).archived,oldArchive);
+});
+test('opening keeps the exact original furniture at rest and preserves source materials and model details',()=>{
+  function signature(root){root.updateMatrixWorld(true);const parts=[];root.traverse(o=>{if(!o.isMesh||o.userData.kind==='section')return;for(let p=o;p;p=p.parent)if(!p.visible)return;const m=Array.isArray(o.material)?o.material:[o.material];parts.push(JSON.stringify([o.geometry.type,o.geometry.attributes.position.count,m.map(m=>[m.color?.getHexString(),m.roughness,m.metalness]),o.matrixWorld.elements.map(v=>Math.round(v*1e6)/1e6)]));});return parts.sort();}
+  const zones=[{nodeId:'a',name:'Полка 1',kind:'shelf',rect:[0,0,1,.5]},{nodeId:'b',name:'Ящик 1',kind:'drawer',rect:[0,.5,1,.5]}];
+  for(const type of [...OPENABLE_TYPES].filter(t=>t!=='kitchen')){
+    const shape={id:'source',type,color:'#28504b',width:1.3,height:1.9,depth:.55,pos:[3,4],y:.12,rot:90},source=buildFurniture([shape]),model=buildStorageInterior(shape,zones),expected=signature(source);
+    assert.deepEqual(signature(model.root),expected,type+' changes the original furniture at rest');
+    const colors=new Set();source.traverse(o=>{if(o.material?.color)colors.add(o.material.color.getHexString());});model.animate(1);const visibleColors=new Set();model.root.traverse(o=>{if(o.isMesh&&o.visible&&o.material?.color)visibleColors.add(o.material.color.getHexString());});assert.ok([...colors].every(c=>visibleColors.has(c)),type+' loses source materials');
+    model.animate(0);assert.deepEqual(signature(model.root),expected,type+' does not close back to the original model');model.dispose();
+  }
 });
 test('room type changes only presentation, preserves geometry, contents, identity and overrides',()=>{
   const d=seed(),r=d.plan.rooms[0],n=d.nodes.find(n=>n.roomId===r.id),rect=structuredClone(r.rect),furniture=JSON.stringify(d.plan.furniture),ids=d.nodes.map(n=>n.id);

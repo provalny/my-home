@@ -178,9 +178,9 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     let box;
     let fill = 0.96;
     if (f?.kind === 'furniture') {
-      const model=storage?.interior?.root||modelFor(f.id);
+      const model=storage?.interior?.focusRoot||storage?.interior?.root||modelFor(f.id);
       if(!model){rig.focus=null;return frameGoal();}
-      box=new THREE.Box3().setFromObject(model);fill=.76;
+      storage?.interior?.root.updateMatrixWorld(true);box=new THREE.Box3().setFromObject(model);fill=.76;
     } else if (f?.kind === 'room') {
       const r = config.rooms.find((x) => x.id === f.id);if(!r){rig.focus=null;return frameGoal();}
       box = new THREE.Box3(new THREE.Vector3(r.x, 0, r.z), new THREE.Vector3(r.x + r.w, H * 0.75, r.z + r.d));
@@ -371,7 +371,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     let active = updateRig(dt);
     if(storage){
       if(storageProgress<1){storageProgress=reduceMotion?1:Math.min(1,storageProgress+dt*1.3);storage.interior?.animate(THREE.MathUtils.smoothstep(storageProgress,.12,1));active=true;
-        focusLight.intensity=storageProgress*1.8;
+        focusLight.intensity=storageProgress*.8;
         for(const {clones,colors,emissives}of dimmed)clones.forEach((m,i)=>{if(colors[i])m.color.copy(colors[i]).multiplyScalar(1-storageProgress*.7);if(emissives[i])m.emissive.copy(emissives[i]).multiplyScalar(1-storageProgress*.8);});
       }
     }
@@ -431,16 +431,16 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
       frameGoal();
       wake();
     },
-    openStorage({id,zones=[],openable=false,container=false,selectedId=null,moduleKey=null}){
+    openStorage({id,zones=[],openable=false,container=false,selectedId=null,moduleKey=null,chamberKey=null}){
       const shape=config.furniture.find(f=>f.id===id),original=modelFor(id);if(!shape||!original)return false;
       closeStorage();
-      for(const g of furniture.children)if(g!==original)g.traverse(mesh=>{if(!mesh.isMesh)return;const originals=Array.isArray(mesh.material)?mesh.material:[mesh.material],clones=originals.map(m=>m.clone());dimmed.push({mesh,original:mesh.material,clones,colors:clones.map(m=>m.color?.clone()),emissives:clones.map(m=>m.emissive?.clone())});mesh.material=Array.isArray(mesh.material)?clones:clones[0];});
+      for(const g of furniture.children)if(g!==original&&g.visible){hidden.push(g);g.visible=false;}
       house.group.traverse(mesh=>{if(mesh.isMesh&&mesh.userData.kind!=='room'&&mesh.visible){hidden.push(mesh);mesh.visible=false;}});
       for(const unit of [...lights.values(),...acs.values()])if(unit.model?.visible){hidden.push(unit.model);unit.model.visible=false;}
       let interior=null,outline=null;
-      if(openable){interior=buildStorageInterior(shape,zones,{container,moduleKey});scene.add(interior.root);interior.highlight(selectedId);original.visible=false;}
+      if(openable){interior=buildStorageInterior(shape,zones,{container,moduleKey,chamberKey});scene.add(interior.root);interior.highlight(selectedId);original.visible=false;}
       else{outline=new THREE.Group();original.updateMatrixWorld(true);original.traverse(mesh=>{if(!mesh.isMesh)return;const line=new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry,30),new THREE.LineBasicMaterial({color:'#70bcff',transparent:true,opacity:1,depthTest:false,toneMapped:false}));line.applyMatrix4(mesh.matrixWorld);line.renderOrder=8;outline.add(line);const shell=new THREE.Mesh(mesh.geometry.clone(),new THREE.MeshBasicMaterial({color:'#70bcff',side:THREE.BackSide,depthWrite:false,toneMapped:false}));shell.applyMatrix4(mesh.matrixWorld);shell.scale.multiplyScalar(1.015);shell.renderOrder=7;outline.add(shell);});scene.add(outline);}
-      storage={shape,original,interior,outline};rig.focus={kind:'furniture',id};rig.zoom=1;rig.goal.az=(shape.rot||0)+12;rig.goal.el=14;frameGoal();shadowFrames=3;wake(4);return true;
+      storage={shape,original,interior,outline};rig.focus={kind:'furniture',id};rig.zoom=1;rig.goal.az=(shape.rot||0)+12;rig.goal.el=14;interior?.animate(1);frameGoal();interior?.animate(0);shadowFrames=3;wake(4);return true;
     },
     selectSection(id){storage?.interior?.highlight(id);wake();},
     closeStorage(){closeStorage();wake(3);},

@@ -1,0 +1,53 @@
+import { h } from '../ui/dom.js';
+import { icon } from '../ui/icons.js';
+
+// Visual preferences belong to this device, not to apartment data or undo history.
+const KEY = 'iv:interface';
+export function createInterfacePreferences(onChange) {
+  let saved;
+  try { saved=JSON.parse(localStorage.getItem(KEY)||'{}'); } catch { saved={}; }
+  const prefs={
+    theme:['light','dark'].includes(saved?.theme)?saved.theme:'dark',
+    material:['glass','matte','glow'].includes(saved?.material)?saved.material:'glass',
+    collapsed:typeof saved?.collapsed==='boolean'?saved.collapsed:innerWidth<850,
+  };
+  const controls=new Set();
+  function apply() {
+    const html=document.documentElement;
+    html.dataset.inventoryTheme=prefs.theme;
+    html.dataset.inventoryMaterial=prefs.material;
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content',prefs.theme);
+    for(const control of controls){
+      if(!control.isConnected){controls.delete(control);continue;}
+      for(const b of control.querySelectorAll('button[data-preference]')){
+        b.setAttribute('aria-pressed',String(prefs[b.dataset.preference]===b.dataset.value));
+      }
+    }
+  }
+  function set(patch) {
+    const previous={...prefs};Object.assign(prefs,patch);
+    try { localStorage.setItem(KEY,JSON.stringify(prefs)); } catch { /* Preferences still work for this session. */ }
+    apply();onChange?.(prefs,previous);
+  }
+  function settings() {
+    function choices(label,key,options) {
+      return h('div.iv-appearance-field',h('span',label),h('div.iv-appearance-options',{'role':'group','aria-label':label},...options.map(([value,title,glyph,description])=>{
+        const b=h('button.iv-appearance-choice',{type:'button','data-preference':key,'data-value':value,'aria-pressed':String(prefs[key]===value),onclick:()=>set({[key]:value})},
+          icon(glyph,19),h('span',h('strong',title),h('small',description)));
+        return b;
+      })));
+    }
+    const section=h('section.iv-card.iv-appearance-settings',h('h2','Внешний вид'),h('p.iv-muted','Свет, глубина и немного домашнего тепла.'),
+      choices('Тема','theme',[
+        ['dark','Тёмная','moon','Дымчатое стекло и тёплые акценты'],
+        ['light','Светлая','sun','Светлое стекло и мягкие тени'],
+      ]),
+      choices('Поверхности','material',[
+        ['glass','Liquid Glass','copy','Прозрачность, объёмные края и живые блики'],
+        ['matte','Матовые','stop','Спокойные непрозрачные панели'],
+        ['glow','Свечение','sparkles','Мягкая подсветка акцентов'],
+      ]));
+    controls.add(section);return section;
+  }
+  apply();return {prefs,set,settings};
+}

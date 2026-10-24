@@ -4,7 +4,7 @@
 
 Нужны macOS, Xcode Command Line Tools, Node.js **22.12+** и **pnpm 11**.
 
-Текущая локальная версия — 0.4.3. [Открытие хранилищ и настройка комнат](storage-focus.ru.md).
+Текущая версия — 0.4.31. [Открытие хранилищ и настройка комнат](storage-focus.ru.md).
 
 ```sh
 git clone https://github.com/provalny/my-home.git

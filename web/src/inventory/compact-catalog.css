@@ -1,0 +1,69 @@
+/* Scoped to the two compact sections: archive and the apartment keep their layouts. */
+.mode-inventory :is(.iv-catalog-compact,.iv-categories-compact) .iv-heading { margin-bottom:8px; }
+.mode-inventory :is(.iv-catalog-compact,.iv-categories-compact) .iv-heading p { margin-top:3px; }
+.mode-inventory :is(.iv-catalog-compact,.iv-categories-compact) .iv-heading>.iv-actions:empty { display:none; }
+.mode-inventory :is(.iv-catalog-compact,.iv-categories-compact) .iv-btn { min-height:28px;padding:4px 8px;font-size:11px; }
+.mode-inventory :is(.iv-catalog-compact,.iv-categories-compact) .iv-actions { gap:8px;margin-bottom:8px; }
+.mode-inventory .iv-catalog-compact .iv-filters { gap:8px;margin:8px 0; }
+.mode-inventory .iv-catalog-compact .iv-filters select { min-height:30px;padding:5px 8px;font-size:11px;min-width:min(100%,120px); }
+.iv-catalog-compact .iv-filter-chips:empty { display:none; }
+.iv-catalog-compact .iv-show-furniture { font-size:11px; }
+.mode-inventory .iv-catalog-compact .iv-bulk { padding:8px 10px;gap:8px;margin:8px 0;font-size:11px; }
+.mode-inventory .iv-catalog-compact .iv-table-head,.mode-inventory .iv-catalog-compact .iv-table-row { padding:4px 10px;gap:8px; }
+.mode-inventory .iv-catalog-compact .iv-table-head { min-height:28px; }
+.mode-inventory .iv-catalog-compact .iv-table-row { min-height:44px; }
+.mode-inventory .iv-catalog-compact .iv-table-row .iv-thumb { width:28px;height:28px; }
+.mode-inventory .iv-catalog-compact .iv-item-copy { display:block;min-width:0;flex:1; }
+.mode-inventory .iv-catalog-compact .iv-item-name { min-width:0;gap:8px; }
+.mode-inventory .iv-catalog-compact .iv-item-name strong { font-size:12px;line-height:16px;overflow-wrap:anywhere; }
+.mode-inventory .iv-catalog-compact .iv-item-meta { display:flex;align-items:center;gap:4px 8px;flex-wrap:wrap;min-width:0; }
+.mode-inventory .iv-catalog-compact .iv-item-meta>small { margin:0;font-size:10px;line-height:13px;overflow-wrap:anywhere; }
+.mode-inventory .iv-catalog-compact .iv-prices strong { line-height:15px;font-size:12px; }
+.mode-inventory .iv-catalog-compact .iv-prices small { margin-top:1px;line-height:13px;font-size:10px; }
+.mode-inventory .iv-catalog-compact .iv-table-row .iv-address { font-size:11px;line-height:14px; }
+.mode-inventory .iv-catalog-compact .iv-table-row .iv-actions { margin:0;gap:4px; }
+.mode-inventory .iv-catalog-compact .iv-wear-indicator { display:flex;flex-direction:row;align-items:center;gap:4px;width:auto;max-width:none;margin:0;flex:none; }
+.mode-inventory .iv-catalog-compact .iv-wear-indicator small { font-size:10px;line-height:13px;white-space:nowrap; }
+.mode-inventory .iv-catalog-compact .iv-wear-indicator progress { width:32px;min-width:32px;height:3px; }
+.mode-inventory .iv-catalog-compact .iv-photo-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,160px),1fr));gap:8px;align-items:start; }
+.mode-inventory .iv-catalog-compact .iv-photo-card { display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:8px;border-radius:11px; }
+.mode-inventory .iv-catalog-compact .iv-photo-card>input { top:8px;right:8px; }
+.mode-inventory .iv-catalog-compact .iv-photo-card .iv-item-name { flex-direction:row;align-items:flex-start;gap:6px;padding-right:18px; }
+.mode-inventory .iv-catalog-compact .iv-photo-card .iv-thumb { width:28px;height:28px; }
+.mode-inventory .iv-catalog-compact .iv-photo-card .iv-thumb .icon { width:20px;height:20px; }
+.mode-inventory .iv-catalog-compact .iv-photo-card .iv-item-name strong { display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden; }
+.mode-inventory .iv-catalog-compact .iv-photo-card.has-photo .iv-thumb { width:48px;height:48px;max-height:72px;object-fit:contain;border-radius:7px; }
+.mode-inventory .iv-catalog-compact .iv-photo-card .iv-item-meta>small { white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%; }
+.mode-inventory .iv-catalog-compact .iv-photo-card .iv-address { margin:0;font-size:10px;line-height:13px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden; }
+.mode-inventory .iv-catalog-compact .iv-photo-card .iv-prices { margin:0; }
+.mode-inventory .iv-catalog-compact .iv-photo-card .iv-actions { gap:4px;margin:0; }
+.mode-inventory .iv-categories-compact .iv-category-back { margin-bottom:8px; }
+.mode-inventory .iv-categories-compact .iv-category-tools { max-width:none;padding:10px 12px;gap:8px;margin-bottom:8px; }
+.mode-inventory .iv-categories-compact .iv-category-tools p { font-size:11px;line-height:1.4;margin-top:3px; }
+.mode-inventory .iv-categories-compact .iv-category-search { gap:8px;margin-bottom:8px; }
+.mode-inventory .iv-categories-compact :is(.iv-category-search input,.iv-category-edit-row input) { min-height:28px;height:28px;padding:4px 7px;font-size:12px; }
+.mode-inventory .iv-categories-compact .iv-category-groups { margin:8px 0;padding:4px 8px; }
+.mode-inventory .iv-categories-compact .iv-category-editor:has(.is-category-tiles) { max-width:none; }
+.mode-inventory .iv-categories-compact .iv-category-edit-row { padding:2px 0 2px var(--category-indent,0px);gap:8px; }
+.mode-inventory[data-inventory-theme=light] .iv-categories-compact .iv-category-badge { color:#376ba8; }
+.mode-inventory[data-inventory-theme=light] .iv-categories-compact .iv-category-badge:is([data-kind=food],[data-kind=pets],[data-kind=outdoor]) { color:#3b7553; }
+.mode-inventory[data-inventory-theme=light] .iv-categories-compact .iv-category-badge:is([data-kind=clothes],[data-kind=cosmetics],[data-kind=hobby]) { color:#8255a3; }
+.mode-inventory[data-inventory-theme=light] .iv-categories-compact .iv-category-badge:is([data-kind=furniture],[data-kind=tools],[data-kind=decor]) { color:#94652c; }
+.mode-inventory .iv-categories-compact .iv-category-parent { display:none; }
+.mode-inventory .iv-categories-compact .iv-category-groups.is-category-tiles { display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:8px;padding:0;border:0;background:none; }
+.iv-categories-compact .is-category-tiles .iv-category-branch { display:contents; }
+.mode-inventory .iv-categories-compact .iv-category-branch[hidden] { display:none; }
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row { display:grid;grid-template-columns:26px minmax(0,1fr);gap:6px 8px;padding:8px;border:1px solid var(--line);border-radius:11px;background:var(--glass);cursor:text; }
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row input { width:100%;max-width:100%;min-width:0; }
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-level { display:none; }
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-parent { display:block;grid-column:1/-1;width:auto;font-size:10px;line-height:13px;color:var(--muted);overflow-wrap:anywhere; }
+.mode-inventory .iv-categories-compact .iv-category-save { bottom:-18px;padding:8px 0;background:var(--iv-solid); }
+.mode-inventory .iv-categories-compact .iv-category-create { margin:8px 0; }
+.mode-inventory .iv-categories-compact .iv-category-create summary { font-size:11px;color:var(--iv-blue); }
+.mode-inventory .iv-categories-compact .iv-category-add :is(input,select) { min-height:30px;padding:5px 8px; }
+.mode-inventory .iv-categories-compact .iv-collection-section { max-width:none;margin-top:16px; }
+@media(max-width:650px) {
+  .mode-inventory .iv-catalog-compact .iv-filters select { flex:1 1 120px; }
+  .mode-inventory .iv-categories-compact .iv-category-search { flex-wrap:wrap; }
+  .mode-inventory .iv-categories-compact .iv-category-save { bottom:-12px; }
+}

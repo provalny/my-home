@@ -1,9 +1,12 @@
 import './forms.css';
+import { itemWear, resolvedWearMode } from './wear.js';
 import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import * as M from './model.js';
 import { nodeThumbnail } from './visuals.js';
 import { colorPicker } from './colors.js';
+import { EQUIPMENT_FIELDS } from './equipment.js';
+import { collectionPicker } from './category-wizard.js';
 
 const DRAFT_PREFIX = 'my-home-inventory:form-draft:v1:';
 const RECENT_KEY = 'my-home-inventory:recent-places:v1';
@@ -160,6 +163,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   const location = createLocationPicker({ getDoc, value: starting.parentId, movingId: existing?.id, required: true, label: 'Место хранения' });
   const categoryOptions = [['', 'Без категории'], ...doc.categories.slice().sort((a, b) => M.categoryName(doc, a.id).localeCompare(M.categoryName(doc, b.id), 'ru')).map(c => [c.id, M.categoryName(doc, c.id)])];
   const category = select(categoryOptions, starting.categoryId, { 'aria-label': 'Категория' });
+  const collections = collectionPicker(doc,starting.collectionIds||[]);
   const acquisition = select([['existing', 'Уже было дома'], ['purchase', 'Новая покупка']], starting.acquisition || 'existing', { 'aria-label': 'Как вещь появилась дома' });
   const purchased = input(starting.purchasedAt, { type: 'date', 'aria-label': 'Дата покупки' });
   const purchasedField = field('Дата покупки', purchased);
@@ -168,6 +172,12 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   const current = input(starting.currentCents == null ? '' : (starting.currentCents / 100).toFixed(2), { inputmode: 'decimal', placeholder: 'Не указана', 'aria-label': 'Текущая оценка, ₽' });
   const purchaseField = field('Цена покупки, ₽', purchase), currentField = field('Текущая оценка, ₽', current);
   const wear = input(starting.wear, { type: 'number', min: 0, max: 100, 'aria-label': 'Износ, %' });
+  const wearMode=select([['standard','Стандартно: от добавления, 36 месяцев'],['automatic','Своя дата покупки и срок'],['manual','Вручную']],resolvedWearMode(starting),{'aria-label':'Режим износа'});
+  const usefulLife=input(starting.usefulLifeMonths??'',{type:'number',min:1,max:1200,step:1,'aria-label':'Срок полезного использования, месяцев'});
+  const wearPreview=h('p.iv-muted');
+  function refreshWear(){wear.disabled=wearMode.value!=='manual';usefulLife.disabled=wearMode.value!=='automatic';const value=itemWear({...starting,createdAt:starting.createdAt||new Date().toISOString(),wearMode:wearMode.value,wear:wear.value===''?null:Number(wear.value),purchasedAt:purchased.value,usefulLifeMonths:Number(usefulLife.value)});wearPreview.textContent=value==null?'Укажите дату покупки и срок службы.':'Износ: '+value+'%'+(wearMode.value==='standard'?' · от даты добавления за 36 месяцев':'');}
+  for(const control of [wearMode,usefulLife,purchased,wear])control.addEventListener('input',refreshWear);
+  refreshWear();
   const fill = input(starting.fill, { type: 'number', min: 0, max: 100, 'aria-label': 'Заполненность места, %' });
   const condition = select(M.CONDITIONS.map(v => [v, v]), starting.condition || 'Хорошее', { 'aria-label': 'Состояние' });
   const expiry = input(starting.expiry, { type: 'date', 'aria-label': 'Срок годности' });
@@ -220,7 +230,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   const categoryField=field('Категория',category),kindField=field('Тип места',kind),fillField=field('Заполненность, %',fill);
   const basic = h('div.if-form-basic', family==='storage'?h('p.if-storage-hint','Полка, ящик, коробка или мебель, внутри которых хранятся вещи'):null,
     h('div.if-name-photo',field('Название *',name),photo),storageBasics,
-    h('div.iv-field',h('span',family==='item'?'Место хранения *':'Где находится *'),location),primaryGrid,attrs);
+    h('div.iv-field',h('span',family==='item'?'Место хранения *':'Где находится *'),location),primaryGrid,attrs,collections);
   scroll.append(restoreNote,basic,extra,error);
   form.append(closePrompt, scroll, footer);
   dialog.append(h('div.iv-dialog-title', heading, closeButton), form);
@@ -231,11 +241,14 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     captureAttributes(); attrInputs = {};
     const categoryType = categoryKind(), structural = ['shelf', 'drawer'].includes(kind.value), isStorage = family==='storage';
     const batch = CONSUMABLES.has(categoryType) && kind.value === 'item';
-    const keys = structural && !category.value ? [] : M.CATEGORY_FIELDS[categoryType] || (kind.value === 'furniture' && !category.value ? M.CATEGORY_FIELDS.furniture : M.CATEGORY_FIELDS.default);
+    const equipment=EQUIPMENT_FIELDS[starting.modelType]||{};
+    const baseKeys = structural && !category.value ? [] : M.CATEGORY_FIELDS[categoryType] || (kind.value === 'furniture' && !category.value ? M.CATEGORY_FIELDS.furniture : M.CATEGORY_FIELDS.default);
+    const keys=[...new Set([...baseKeys,...Object.keys(equipment),...Object.keys(allFields)])];
     const priority=PRIMARY_FIELDS[categoryType]||keys,main=[],secondary=[];
     for(const key of keys.filter(key=>key!=='Цвет').concat(keys.includes('Цвет')?['Цвет']:[])){
       const el=key==='Цвет'?colorPicker(allFields[key]||''):input(allFields[key]||'',{'aria-label':key});attrInputs[key]=el;
-      (priority.includes(key)?main:secondary).push(field(key,el,key==='Цвет'?'if-color-field':''));
+      if(equipment[key]){const listId='spec-'+key.replace(/[^a-zа-я0-9]/gi,'')+'-'+dialog.id;el.setAttribute('list',listId);el.placeholder='Выберите или введите своё';main.push(h('datalist',{id:listId},equipment[key].map(value=>h('option',{value}))));}
+      (priority.includes(key)||equipment[key]?main:secondary).push(field(key,el,key==='Цвет'?'if-color-field':''));
     }
     attrs.replaceChildren(...main);secondaryAttrs.replaceChildren(...secondary);
     purchaseField.querySelector('label').textContent = batch ? 'Цена покупки партии, ₽' : 'Цена покупки, ₽';
@@ -247,7 +260,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     if(EXPIRING.has(categoryType)||starting.expiry)primary.push(field('Срок годности',expiry));
     if(['electronics','furniture','tools','sport'].includes(categoryType)||starting.warranty)primary.push(field('Гарантия до',warranty));
     // Category attributes are immediately available; occasional accounting fields stay folded.
-    if(!structural)extras.push(field('Ручной износ, %',wear));
+    if(!structural)extras.push(field('Режим износа',wearMode),field('Ручной износ, %',wear),field('Срок полезного использования, месяцев',usefulLife),wearPreview);
     if(isStorage){extras.push(field('Как появилось дома',acquisition));}
     else extras.push(field('Как вещь появилась дома',acquisition));
     if(acquisition.value==='purchase'){
@@ -262,9 +275,9 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   renderFields();
   function state() {
     captureAttributes();
-    return { name: name.value, kind: kind.value, parentId: location.value, categoryId: category.value, acquisition: acquisition.value,
+    return { name: name.value, kind: kind.value, parentId: location.value, categoryId: category.value, collectionIds:collections.value, acquisition: acquisition.value,
       fields: { ...allFields }, photo: photoValue, purchaseText: purchase.value, currentText: current.value,
-      wear: wear.value, fill: fill.value, condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: quantity.value, unit: unit.value, notes: notes.value };
+      wearMode:wearMode.value,usefulLifeMonths:usefulLife.value,wear: wear.value, fill: fill.value, condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: quantity.value, unit: unit.value, notes: notes.value };
   }
   // Drafts keep raw money input so even incomplete typing such as "120," survives a restart.
   if (savedDraft) { if (savedDraft.purchaseText != null) purchase.value = savedDraft.purchaseText; if (savedDraft.currentText != null) current.value = savedDraft.currentText; }
@@ -273,12 +286,14 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   function resetToBase() {
     if (saving || photoLoading) return;
     starting = structuredClone(base); allFields = { ...(base.fields || {}) }; attrInputs = {}; photoValue = base.photo || null;
+    collections.value=base.collectionIds||[];
     name.value = base.name || ''; kind.value = base.kind || 'item'; location.value = base.parentId || ''; category.value = base.categoryId || '';
     acquisition.value = base.acquisition || 'existing'; purchased.value = base.purchasedAt || ''; condition.value = base.condition || 'Хорошее';
     purchase.value = base.purchaseCents == null ? '' : (base.purchaseCents / 100).toFixed(2); current.value = base.currentCents == null ? '' : (base.currentCents / 100).toFixed(2);
+    wearMode.value=resolvedWearMode(base);usefulLife.value=base.usefulLifeMonths??'';
     wear.value = base.wear ?? ''; fill.value = base.fill ?? ''; expiry.value = base.expiry || ''; warranty.value = base.warranty || '';
     quantity.value = base.quantity || 1; unit.value = base.unit || 'шт.'; notes.value = base.notes || '';
-    renderFields(); renderPhoto(); restoreNote.hidden = true; closePrompt.hidden = true; error.textContent = ''; draftNote.textContent = '';
+    refreshWear();renderFields(); renderPhoto(); restoreNote.hidden = true; closePrompt.hidden = true; error.textContent = ''; draftNote.textContent = '';
     restoredDirty = false; dirty = false; cleanState = JSON.stringify(state()); removeDraft(); name.focus();
   }
   function removeDraft() { try { localStorage.removeItem(draftKey); if(legacy===prior)localStorage.removeItem(DRAFT_PREFIX+'new'); } catch { /* nothing to discard */ } }
@@ -317,9 +332,9 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
       if (acquisition.value === 'purchase' && !purchased.value) { purchased.focus(); throw Error('Для новой покупки укажите дату покупки.'); }
       if (!form.reportValidity()) return;
       captureAttributes();
-      const props = { name: name.value.trim(), kind: kind.value, parentId: location.value, categoryId: category.value, acquisition: acquisition.value,
+      const props = { name: name.value.trim(), kind: kind.value, parentId: location.value, categoryId: category.value, collectionIds:collections.value, acquisition: acquisition.value,
         fields: Object.fromEntries(Object.entries(allFields).map(([key, value]) => [key, String(value).trim()]).filter(([, value]) => value)), photo: photoValue,
-        purchaseCents: M.parseMoney(purchase.value), currentCents: M.parseMoney(current.value), wear: wear.value === '' ? null : Number(wear.value), fill: fill.value === '' ? null : Number(fill.value),
+        purchaseCents: M.parseMoney(purchase.value), currentCents: M.parseMoney(current.value), wearMode:wearMode.value,usefulLifeMonths:usefulLife.value===''?null:Number(usefulLife.value), wear: wear.value === '' ? null : Number(wear.value), fill: fill.value === '' ? null : Number(fill.value),
         condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: Number(quantity.value), unit: unit.value, notes: notes.value.trim() };
       let nodeId = existing?.id;
       saving = true; setSavingState();

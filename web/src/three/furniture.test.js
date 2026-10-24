@@ -8,8 +8,8 @@ import {readFileSync} from 'node:fs';
 
 const bounds=item=>new THREE.Box3().setFromObject(buildFurniture([{id:'test-model',pos:[0,0],...item}]));
 const near=(actual,expected)=>assert.ok(Math.abs(actual-expected)<0.00001,`${actual} != ${expected}`);
-test('all fifteen new models render finite geometry on the floor and match their plan footprint',()=>{
-  assert.equal(Object.keys(EXTRA_MODEL_INFO).length,15);
+test('all catalog models render finite geometry on the floor and match their plan footprint',()=>{
+  assert.equal(Object.keys(EXTRA_MODEL_INFO).length,32);
   for(const [type,info]of Object.entries(EXTRA_MODEL_INFO)){
     assert.ok(FURNITURE_TYPES.includes(type));
     const root=buildFurniture([{id:'sample',type,pos:[0,0]}]),box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3());
@@ -21,7 +21,8 @@ test('all fifteen new models render finite geometry on the floor and match their
 test('new model width, height, depth, rotation and elevation survive geometry construction',()=>{
   for(const type of Object.keys(EXTRA_MODEL_INFO)){
     const b=bounds({type,width:1.3,height:1.7,depth:0.8,rot:90,y:0.6}),size=b.getSize(new THREE.Vector3());
-    near(size.x,0.8);near(size.z,1.3);near(size.y,1.7);near(b.min.y,0.6);
+    const dims=EXTRA_MODEL_INFO[type].fixedSize?EXTRA_MODEL_INFO[type].size:[1.3,1.7,.8];
+    near(size.x,dims[2]);near(size.z,dims[0]);near(size.y,dims[1]);near(b.min.y,0.6);
   }
 });
 test('four tires support a vertical stack and an upright row with different occupied footprints',()=>{
@@ -46,7 +47,63 @@ test('placing new models assigns their real category and preserves variants thro
   const d=M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8'))),room=d.plan.rooms[0],plan=structuredClone(d.plan);
   for(const type of ['washingMachine','tireStack','crossover','metalRack'])plan.furniture.push({id:'new-'+type,type,pos:[room.rect[0]+0.6,room.rect[1]+0.6],layout:'row',width:0.9,height:1.1,depth:0.4});
   M.syncPlan(d,plan);M.validate(d);const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.validate(copy);
-  for(const [type,category]of [['washingMachine','electronics'],['tireStack','other'],['crossover','other'],['metalRack','furniture']]){
+  for(const [type,category]of [['washingMachine','appliances'],['tireStack','decor'],['crossover','other'],['metalRack','furniture']]){
     assert.equal(copy.nodes.find(n=>n.furnitureId==='new-'+type).categoryId,category);assert.equal(copy.plan.furniture.find(f=>f.id==='new-'+type).layout,'row');
   }
+});
+
+test('equipment specifications round-trip in cards and cockpit storage is idempotent',()=>{
+  const d=M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8'))),room=d.plan.rooms[0],plan=structuredClone(d.plan);
+  for(const type of ['pcCase','macBook','simCockpit'])plan.furniture.push({id:'equipment-'+type,type,pos:[room.rect[0]+.6,room.rect[1]+.6],equipmentFields:type==='simCockpit'?{'База руля':'Моя база DD','КПП':'Секвентальная'}:{'Процессор':'Мой процессор','ОЗУ':'32 ГБ','Накопитель':'SSD 2 ТБ'}});
+  M.syncPlan(d,plan);M.initializeStorage(d);M.initializeStorage(d);M.validate(d);
+  const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.validate(copy);
+  for(const type of ['pcCase','macBook','simCockpit']){
+    const card=copy.nodes.find(n=>n.furnitureId==='equipment-'+type);assert.equal(card.categoryId,'electronics');
+    assert.equal(card.fields[type==='simCockpit'?'База руля':'Процессор'],type==='simCockpit'?'Моя база DD':'Мой процессор');
+    assert.equal(copy.plan.furniture.find(f=>f.id===card.furnitureId).equipmentFields,undefined);
+    if(type==='simCockpit'){const storage=copy.nodes.filter(n=>n.parentId===card.id&&n.equipmentStorage);assert.equal(storage.length,1);assert.equal(storage[0].name,'Внутреннее хранилище');const stored=M.newNode(copy,{name:'Перчатки',parentId:storage[0].id,categoryId:'electronics'});assert.equal(stored.parentId,storage[0].id);}
+    card.fields['ОЗУ']='64 ГБ';
+  }
+  M.syncPlan(copy,structuredClone(copy.plan));assert.equal(copy.nodes.find(n=>n.furnitureId==='equipment-pcCase').fields['ОЗУ'],'64 ГБ');
+});
+
+test('PC has a transparent side wall, emissive components and real interior light',()=>{
+  let panel=false,emissive=0,lights=0;
+  buildFurniture([{id:'pc',type:'pcCase',pos:[0,0]}]).traverse(n=>{if(n.userData.sidePanel)panel=n.material.transparent&&n.material.opacity<1;if(n.isPointLight)lights++;if(n.isMesh&&n.material.emissive?.getHex())emissive++;});
+  assert.ok(panel);assert.ok(emissive>3);assert.equal(lights,1);
+});
+
+test('cockpit storage opens its own lid and keeps the seat intact', async()=>{
+  const {buildFurnitureInterior}=await import('./furniture-interior.js');
+  const view=buildFurnitureInterior({id:'cockpit',type:'simCockpit',pos:[0,0]},[{nodeId:'storage',name:'Внутреннее хранилище',kind:'compartment',rect:[0,0,1,1]}]);
+  let lid;view.root.traverse(n=>{if(n.userData.storageLid)lid=n;});assert.ok(lid);
+  const y=lid.position.y;view.animate(1);assert.ok(lid.position.y>y);view.animate(0);near(lid.position.y,y);
+  assert.equal(view.hits.length,1);assert.equal(view.hits[0].userData.id,'storage');assert.equal(view.labels[0].nodeId,'storage');
+});
+
+test('triple cockpit has exactly three monitors, specifications and one storage compartment',()=>{
+  const model=buildFurniture([{id:'triple',type:'simCockpitTriple',pos:[0,0]}]);let monitors=0;model.traverse(n=>{if(n.userData.monitor)monitors++;});assert.equal(monitors,3);
+  const d=M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8'))),room=d.plan.rooms[0],plan=structuredClone(d.plan);
+  plan.furniture.push({id:'triple',type:'simCockpitTriple',pos:[room.rect[0]+1,room.rect[1]+1],equipmentFields:{'База руля':'Direct Drive','Руль':'GT'}});
+  M.syncPlan(d,plan);M.initializeStorage(d);M.validate(d);const card=d.nodes.find(n=>n.furnitureId==='triple');assert.equal(card.fields['Руль'],'GT');assert.equal(d.nodes.filter(n=>n.parentId===card.id&&n.equipmentStorage).length,1);
+});
+test('printer cabinet matches both printer footprints and preserves shelf contents on reload',()=>{
+  for(const type of ['printer3dOpen','printer3dEnclosed'])assert.deepEqual(footprint({type}),footprint({type:'printerCabinet'}));
+  const d=M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8'))),room=d.plan.rooms[0],plan=structuredClone(d.plan);
+  plan.furniture.push({id:'print-cabinet',type:'printerCabinet',pos:[room.rect[0]+1,room.rect[1]+1]});M.syncPlan(d,plan);
+  const card=d.nodes.find(n=>n.furnitureId==='print-cabinet'),shelves=d.nodes.filter(n=>n.parentId===card.id);assert.equal(shelves.length,2);
+  const item=M.newNode(d,{name:'Пластик',parentId:shelves[0].id,categoryId:'electronics'});
+  M.migrate(d);M.validate(d);assert.equal(d.nodes.filter(n=>n.parentId===card.id).length,2);assert.equal(M.getNode(d,item.id).parentId,shelves[0].id);
+});
+test('PC default name migrates while custom names stay unchanged',()=>{
+  const d=M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8'))),room=d.plan.rooms[0],plan=structuredClone(d.plan);
+  for(const [id,name]of [['default-pc','Корпус ПК с подсветкой'],['custom-pc','Мой компьютер']])plan.furniture.push({id,type:'pcCase',name,pos:[room.rect[0]+1,room.rect[1]+1]});
+  M.syncPlan(d,plan);M.migrate(d);assert.equal(d.nodes.find(n=>n.furnitureId==='default-pc').name,'Корпус ПК');assert.equal(d.nodes.find(n=>n.furnitureId==='custom-pc').name,'Мой компьютер');assert.equal(d.plan.furniture.find(f=>f.id==='default-pc').name,'Корпус ПК');
+});
+
+test('bookcase models create usable shelves and preserve their stored objects',()=>{
+ const d=M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8'))),room=d.plan.rooms[0],plan=structuredClone(d.plan);
+ for(const type of ['bookcaseTall','bookcaseMedium'])plan.furniture.push({id:type,type,pos:[room.rect[0]+1,room.rect[1]+1]});M.syncPlan(d,plan);
+ for(const [type,count]of [['bookcaseTall',6],['bookcaseMedium',3]]){const card=d.nodes.find(n=>n.furnitureId===type),shelves=d.nodes.filter(n=>n.parentId===card.id);assert.equal(shelves.length,count);M.newNode(d,{name:'Книга '+type,parentId:shelves[0].id,categoryId:'books'});}
+ const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.validate(copy);assert.equal(copy.nodes.filter(n=>n.name.startsWith('Книга bookcase')).length,2);
 });

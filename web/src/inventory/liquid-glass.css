@@ -1,0 +1,84 @@
+/* Liquid Glass is the existing glass preference; matte and glow stay independent. */
+html.mode-inventory[data-inventory-material=glass] {
+  --iv-panel:linear-gradient(135deg,#c2dcff13,transparent 48%,#c2dcff06),#12243a70;
+  --iv-sidebar:#101e328f;--iv-backdrop:blur(28px) saturate(155%);
+  --iv-edge:#c1ddff55;--iv-field:#07162b4d;
+  --iv-shadow:0 12px 36px #020b1c29,inset 0 1px 0 #e0f1ff24,inset 0 -1px 0 #c3e4ff09;
+  --liquid-rim:linear-gradient(135deg,#e7f4ff80,#c9e4ff16 32%,#b6d7ff12 65%,#d9edff50);
+  --liquid-shine:#e3f2ff24;--liquid-tile:linear-gradient(135deg,#d1e7ff12,#c6dfff03 48%,#b7d7ff07);
+}
+html.mode-inventory[data-inventory-material=glass][data-inventory-theme=light] {
+  --iv-panel:linear-gradient(135deg,#ffffff9c,#ffffff40 48%,#ffffff66),#dbeaff30;
+  --iv-sidebar:#eff6ff80;--iv-edge:#ffffffb5;--iv-field:#ffffff6b;
+  --iv-shadow:0 10px 32px #304e7d13,inset 0 1px 0 #fff,inset 0 -1px 0 #ffffff70;
+  --liquid-rim:linear-gradient(135deg,#fff,#ffffff55 32%,#6a8bb622 65%,#ffffffdd);
+  --liquid-shine:#ffffff85;--liquid-tile:linear-gradient(135deg,#ffffff99,#ffffff1a 48%,#ffffff40);
+}
+.mode-inventory[data-inventory-material=glass] .iv-shell {
+  background:radial-gradient(ellipse 65% 75% at 18% 3%,#418bcb3d,transparent 80%),radial-gradient(ellipse 45% 65% at 96% 38%,#5487bb30,transparent 75%),radial-gradient(ellipse 55% 60% at 72% 100%,#d99f5e22,transparent 75%),var(--bg);
+}
+.mode-inventory[data-inventory-material=glass][data-inventory-theme=light] .iv-shell {
+  background:radial-gradient(ellipse 65% 75% at 18% 3%,#8ecbff77,transparent 80%),radial-gradient(ellipse 45% 65% at 96% 38%,#aacbfa66,transparent 75%),radial-gradient(ellipse 55% 60% at 72% 100%,#f7ca9d55,transparent 75%),var(--bg);
+}
+.mode-inventory[data-inventory-material=glass] :is(.iv-card,.iv-storage,.iv-tree,.iv-metric,.iv-photo-card,.iv-scene,.iv-sidebar,.iv-topbar,.iv-search) { position:relative; }
+.mode-inventory[data-inventory-material=glass] :is(.iv-card,.iv-storage,.iv-tree,.iv-metric,.iv-photo-card,.iv-scene,.iv-sidebar,.iv-topbar,.iv-search,.iv-dialog)::before {
+  content:'';position:absolute;inset:0;z-index:2;pointer-events:none;border-radius:inherit;padding:1px;background:var(--liquid-rim);
+  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+}
+.mode-inventory[data-inventory-material=glass] .iv-sidebar::before { border-radius:0;opacity:.5; }
+.mode-inventory[data-inventory-material=glass] .iv-topbar::before { border-radius:0;opacity:.35; }
+.mode-inventory[data-inventory-material=glass] :is(.iv-btn:not(.iv-storage-reorder),.iv-appearance-choice,.iv-storage-row) { position:relative;isolation:isolate; }
+.mode-inventory[data-inventory-material=glass] :is(.iv-appearance-choice,.iv-storage-list>.iv-storage-row) {
+  background:var(--liquid-tile),var(--glass);border-color:var(--line);
+  box-shadow:inset 0 1px #e2f2ff26,inset 1px 0 #e2f2ff0a,0 3px 10px #09162e09;
+}
+.mode-inventory[data-inventory-material=glass] :is(.iv-btn,.iv-appearance-choice,.iv-storage-row)::after {
+  content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;
+  background:radial-gradient(ellipse 150px 90px at var(--liquid-x,50%) var(--liquid-y,0%),var(--liquid-shine),transparent 75%);
+  opacity:0;transition:opacity .25s;
+}
+.mode-inventory[data-inventory-material=glass] :is(.iv-btn,.iv-appearance-choice,.iv-storage-row)[data-liquid-hover]::after,
+.mode-inventory[data-inventory-material=glass] :is(.iv-btn,.iv-appearance-choice):focus-visible::after { opacity:1; }
+.mode-inventory[data-inventory-material=glass] .iv-btn {
+  background:var(--liquid-tile),var(--glass);border-color:var(--line);
+  box-shadow:inset 0 1px #e6f4ff26,inset 0 -1px #0a173215,0 2px 6px #020a1810;
+  transition:background .2s,border-color .2s,box-shadow .2s,transform .32s var(--spring);
+}
+.mode-inventory[data-inventory-material=glass] .iv-btn:hover:not(:disabled) { border-color:var(--iv-edge);box-shadow:inset 0 1px #e6f4ff44,0 4px 14px #1b4b841c; }
+.mode-inventory[data-inventory-material=glass] .iv-btn:active:not(:disabled) { transform:scale(.96);box-shadow:inset 0 1px 5px #07152828; }
+.mode-inventory[data-inventory-material=glass] .iv-btn.primary {
+  color:#fff;background:linear-gradient(165deg,#8bcaff55,transparent 52%),linear-gradient(180deg,#3a9bffed,#2176e9ed);
+  border-color:#b0d8ff80;box-shadow:inset 0 1px #e3f4ff77,inset 0 -1px #1655a85c,0 4px 14px #1c77e539;
+}
+.mode-inventory[data-inventory-material=glass] .iv-btn.primary:hover:not(:disabled) { background:linear-gradient(165deg,#a5d8ff66,transparent 52%),linear-gradient(180deg,#4ca6ff,#2d85f3);box-shadow:inset 0 1px #e3f4ff99,0 6px 20px #1c77e550; }
+.mode-inventory[data-inventory-material=glass] .iv-btn.danger { color:var(--iv-danger);background:linear-gradient(135deg,#eeb1b110,transparent),#db515112; }
+.mode-inventory[data-inventory-material=glass] .iv-nav .iv-btn { background:transparent;box-shadow:none;border-color:transparent; }
+.mode-inventory[data-inventory-material=glass] .iv-nav .iv-btn:hover { background:var(--glass); }
+.mode-inventory[data-inventory-material=glass] :is(.iv-nav .iv-btn.active,.iv-actions .active,.iv-room-tabs .active,.iv-appearance-choice[aria-pressed=true]) {
+  background:linear-gradient(135deg,#a6d9ff16,transparent),var(--iv-selected);border-color:var(--iv-edge);box-shadow:inset 0 1px #d5edff38,0 2px 7px #0f56a414;
+}
+.mode-inventory[data-inventory-material=glass] .iv-room-tabs .iv-btn { border-radius:999px; }
+.mode-inventory[data-inventory-material=glass] :is(.iv-breadcrumbs>.iv-btn,.iv-recent>.iv-btn,.iv-sidebar-toggle,.iv-wear-caption) { background:transparent;border-color:transparent;box-shadow:none; }
+.mode-inventory[data-inventory-material=glass] .iv-scene-title>span:first-child,
+.mode-inventory[data-inventory-material=glass] .iv-scene-hint { box-shadow:inset 0 1px #dbedff2b,0 3px 10px #00000010; }
+.mode-inventory[data-inventory-material=glass] :is(.iv-dialog-title,.if-form-footer,.cw-footer) { background:var(--iv-sidebar); }
+.mode-inventory[data-inventory-material=glass] .iv-search:focus-within { border-color:var(--accent);box-shadow:0 0 0 3px #3b8df21b,inset 0 1px #ffffff50; }
+.mode-inventory[data-inventory-material=glass][data-inventory-theme=light] :is(.iv-btn,.iv-appearance-choice,.iv-storage-row) { box-shadow:inset 0 1px #ffffffcc,inset 0 -1px #6480a313,0 3px 10px #304e7d0a; }
+.mode-inventory[data-inventory-material=glass][data-inventory-theme=light] .iv-btn.primary { box-shadow:inset 0 1px #ffffff80,0 4px 14px #1c77e530; }
+.mode-inventory[data-inventory-material=glass][data-inventory-theme=light] .iv-nav .iv-btn:not(.active) { box-shadow:none;border-color:transparent;background:transparent; }
+.mode-inventory[data-inventory-material=glass][data-inventory-theme=light] :is(.iv-breadcrumbs>.iv-btn,.iv-recent>.iv-btn,.iv-sidebar-toggle,.iv-wear-caption) { box-shadow:none; }
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
+  html.mode-inventory[data-inventory-material=glass] { --iv-panel:var(--iv-solid);--iv-sidebar:var(--iv-solid); }
+}
+@supports not ((mask-composite:exclude) or (-webkit-mask-composite:xor)) {
+  .mode-inventory[data-inventory-material=glass] :is(.iv-card,.iv-storage,.iv-tree,.iv-metric,.iv-photo-card,.iv-scene,.iv-sidebar,.iv-topbar,.iv-search,.iv-dialog)::before { display:none; }
+}
+@media(prefers-reduced-transparency:reduce) {
+  html.mode-inventory[data-inventory-material=glass] { --iv-panel:var(--iv-solid);--iv-sidebar:var(--iv-solid);--iv-backdrop:none; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .mode-inventory[data-inventory-material=glass] [data-liquid-hover]::after { opacity:0; }
+}
+.mode-inventory[data-inventory-motion=off] [data-liquid-hover]::after { opacity:0; }

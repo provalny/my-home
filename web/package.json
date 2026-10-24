@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test src/inventory/model.test.js src/inventory/storage.test.js src/three/furniture.test.js"
+    "test": "node --test src/inventory/model.test.js src/inventory/wear.test.js src/inventory/storage.test.js src/inventory/action-history.test.js src/inventory/category-presets.test.js src/three/furniture.test.js src/three/surface-attachment.test.js src/three/wall-attachment.test.js src/three/storage-clutter.test.js"
   },
   "dependencies": {
     "lucide": "^0.544.0",

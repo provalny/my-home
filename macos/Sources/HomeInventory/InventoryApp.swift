@@ -80,6 +80,7 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
     @objc func show() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); host?.call("shown") }
     @objc func quit() { NSApp.terminate(nil) }
     @objc func undoInventory() { host.call("inventoryUndo") }
+    @objc func redoInventory() { host.call("inventoryRedo") }
     @objc func checkForUpdates() { do { try updates.check() } catch { let alert = NSAlert(); alert.messageText = "Обновления"; alert.informativeText = error.localizedDescription; alert.runModal() } }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { show(); return false }
@@ -92,6 +93,8 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
         appMenu.addItem(withTitle: "Выйти из Life Assistant", action: #selector(quit), keyEquivalent: "q").target = self
         let edit = NSMenu(title: "Правка"); let editItem = NSMenuItem(title: "Правка", action: nil, keyEquivalent: ""); editItem.submenu = edit; menu.addItem(editItem)
         edit.addItem(withTitle: "Отменить", action: #selector(undoInventory), keyEquivalent: "z").target = self
+        let redo = edit.addItem(withTitle: "Повторить", action: #selector(redoInventory), keyEquivalent: "z")
+        redo.target = self; redo.keyEquivalentModifierMask = [.command, .shift]
         for (title, selector, key) in [("Вырезать", "cut:", "x"), ("Скопировать", "copy:", "c"), ("Вставить", "paste:", "v"), ("Выбрать всё", "selectAll:", "a")] { edit.addItem(withTitle: title, action: Selector(selector), keyEquivalent: key) }
         NSApp.mainMenu = menu
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)

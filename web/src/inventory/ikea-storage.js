@@ -17,6 +17,18 @@ export const IKEA_STORAGE = {
   island:{series:'METOD',size:[1.8,.92,.6],columns:.6,rows:3},
 };
 export const SECTION_KINDS=[['shelf','Полка'],['drawer','Ящик'],['compartment','Отсек'],['box','Контейнер']];
+export const KITCHEN_MODULE_TYPES={
+  cabinet:{name:'Шкаф',short:'Шкаф',tiers:['base','upper'],storage:true,glyph:'folder',shelves:3},
+  hood:{name:'Вытяжка',short:'Выт.',tiers:['upper'],storage:false,glyph:'fan'},
+  stove:{name:'Плита с духовкой',short:'Плита',tiers:['base'],storage:false,glyph:'stove'},
+  washingMachine:{name:'Стиральная машина',short:'Стир.',tiers:['base'],storage:false,glyph:'washer'},
+  dishwasher:{name:'Посудомоечная машина',short:'Посуд.',tiers:['base'],storage:false,glyph:'dishes'},
+  dryer:{name:'Сушильная машина',short:'Сушка',tiers:['base'],storage:false,glyph:'dry'},
+  dishDrainer:{name:'Шкаф с сушилкой для посуды',short:'Посуда',tiers:['upper'],storage:true,glyph:'dishes',shelves:2},
+};
+export const kitchenTypeOptions=tier=>Object.entries(KITCHEN_MODULE_TYPES).filter(([,v])=>v.tiers.includes(tier)).map(([id,v])=>[id,v.name]);
+export const kitchenModuleName=(key,type='cabinet')=>(type==='cabinet'?(key.startsWith('base:')?'Нижний шкаф':'Верхний шкаф'):KITCHEN_MODULE_TYPES[type].name)+' '+(Number(key.split(':')[1])+1);
+export function validateKitchenTypes(shape){if(shape.moduleTypes==null)return;if(typeof shape.moduleTypes!=='object'||Array.isArray(shape.moduleTypes)||Object.keys(shape.moduleTypes).length>150)throw Error('Некорректные типы кухонных модулей');for(const [key,type]of Object.entries(shape.moduleTypes))if(!/^(base|upper):\d{1,2}$/.test(key)||!KITCHEN_MODULE_TYPES[type]?.tiers?.includes(key.split(':')[0]))throw Error('Тип техники не подходит для этого ряда кухни');}
 export const sectionName=(kind,index)=>(SECTION_KINDS.find(([id])=>id===kind)?.[1]||'Секция')+' '+index;
 export const isBasicSection=n=>['shelf','drawer','compartment'].includes(n?.kind);
 export const isSection=n=>isBasicSection(n)||n?.autoSection===true;
@@ -30,6 +42,6 @@ export function kitchenModules(shape={}) {
   let used=cm;while(used>0&&!dp[used])used--;
   const widths=dp[used]||[],filler=width-used/100,modules=[];
   const scaleY=(shape.height||2.28)/2.28,scaleZ=(shape.depth||.6)/.6;
-  for(const tier of shape.upper===false?['base']:['base','upper']){let x=-width/2+filler;for(let i=0;i<widths.length;i++){const w=widths[i]/100;modules.push({key:tier+':'+i,tier,index:i,width:w,height:.8*scaleY,depth:(tier==='base'?.6:.37)*scaleZ,x:x+w/2,y:(tier==='base'?.08:1.48)*scaleY,z:tier==='base'?0:-.115*scaleZ,shelves:3});x+=w;}}
+  for(const tier of shape.upper===false?['base']:['base','upper']){let x=-width/2+filler;for(let i=0;i<widths.length;i++){const w=widths[i]/100,key=tier+':'+i,type=KITCHEN_MODULE_TYPES[shape.moduleTypes?.[key]]?.tiers?.includes(tier)?shape.moduleTypes[key]:'cabinet';modules.push({key,type,tier,index:i,width:w,height:.8*scaleY,depth:(tier==='base'?.6:.37)*scaleZ,x:x+w/2,y:(tier==='base'?.08:1.48)*scaleY,z:tier==='base'?0:-.115*scaleZ,shelves:KITCHEN_MODULE_TYPES[type].shelves||0});x+=w;}}
   return {width,height:(shape.upper===false?.92:2.28)*scaleY,depth:.6*scaleZ,scaleY,scaleZ,filler,modules};
 }

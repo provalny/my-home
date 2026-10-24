@@ -21,7 +21,7 @@ function stage(canvas) {
     clear();model=buildFurniture([{id:'preview',type,pos:[0,0],...options}]);
     const bounds=new THREE.Box3().setFromObject(model),size=bounds.getSize(new THREE.Vector3()),scale=2.2/Math.max(size.x,size.y,size.z);
     model.scale.setScalar(scale);scene.add(model);
-    const height=size.y*scale;camera.position.set(3.25,2.25,3.75);camera.lookAt(0,height*0.45,0);return height;
+    const height=size.y*scale;camera.position.set(3.25,2.25,type==='simCockpitTriple'?-3.75:3.75);camera.lookAt(0,height*0.45,0);return height;
   }
   function resize(width,height){renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();}
   return {renderer,scene,camera,show,resize,render:()=>renderer.render(scene,camera),dispose(){clear();floor.geometry.dispose();floor.material.dispose();renderer.dispose();renderer.forceContextLoss();}};
@@ -34,13 +34,13 @@ export function openModelGallery({root=null,onChoose=null}={}) {
   const types=Object.keys(EXTRA_MODEL_INFO),buttons=new Map();let type=types[0],viewer=null,controls=null,frame=null,observer=null,closed=false;
   const close=()=>{if(closed)return;closed=true;window.removeEventListener('pagehide',close);cancelAnimationFrame(frame);observer?.disconnect();controls?.dispose();viewer?.dispose();if(!standalone)host.close();host.remove();};
   const add=h('button.mg-btn.primary',{type:'button',onclick:()=>{const selected=type,options=type==='tireStack'?{layout:selectLayout.value}:{};close();onChoose?.(selected,options);}},'Разместить на плане');add.hidden=!onChoose;
-  function select(next){type=next;const info=EXTRA_MODEL_INFO[type];name.textContent=info.name;note.textContent=type==='crossover'?'Универсальный кроссовер без марки. Модель для будущего раздела автомобиля.':'Модель для редактора квартиры. Размеры и цвет можно изменить.';selectLayout.hidden=type!=='tireStack';
+  function select(next){type=next;const info=EXTRA_MODEL_INFO[type];name.textContent=info.name;note.textContent=type==='neonPorsche'?'Сине-розовый свет. В редакторе привязывается к ближайшей стене; высоту можно задать вручную.':type==='gamingDesktop'?'Единый RGB-комплект с привязкой к поверхности. Размер коврика — 80 × 35 см.':type==='ikeaFloorLamp'?'Высокий светящийся торшер в стиле IKEA, высота 160 см.':type==='printerCabinet'?'Столешница 50 × 50 см, по ширине обеих моделей принтера. Высота — 76 см. Внутри две полки.':['printer3dOpen','printer3dEnclosed'].includes(type)?'Ширина и глубина — 50 см. Установите на тумбочку высотой 76 см; для пола задайте высоту размещения 0.':info.fixedSize?'Один размер корпуса. Характеристики доступны в редакторе и карточке.':['simCockpit','simCockpitTriple'].includes(type)?'Кокпит без ПК, с внутренним хранилищем. Комплектация не меняет внешний вид.':type==='crossover'?'Универсальный кроссовер без марки. Модель для будущего раздела автомобиля.':'Модель для редактора квартиры. Размеры и цвет можно изменить.';selectLayout.hidden=type!=='tireStack';
     const dims=extraDimensions({type,layout:selectLayout.value});dimensions.textContent=`${dims.map(n=>Math.round(n*100)).join(' × ')} см · ширина × высота × глубина`;
     for(const [key,b]of buttons)b.setAttribute('aria-pressed',String(key===type));
     if(viewer){const height=viewer.show(type,{layout:selectLayout.value});controls.target.set(0,height*0.45,0);controls.update();viewer.render();}
   }
   selectLayout.onchange=()=>select(type);
-  host.append(h('header.mg-header',h('div',h('h1','Новые 3D-модели'),h('p','15 предметов · мебель, техника, хранение и кроссовер')),standalone?null:h('button.mg-btn',{type:'button',onclick:close},'Закрыть')),
+  host.append(h('header.mg-header',h('div',h('h1','Новые 3D-модели'),h('p',`${types.length} предметов · мебель, техника, хранение и симрейсинг`)),standalone?null:h('button.mg-btn',{type:'button',onclick:close},'Закрыть')),
     h('div.mg-layout',cards,h('section.mg-inspector',viewport,h('div.mg-info',name,dimensions,selectLayout,note,h('p.mg-hint','Перетаскивайте модель для вращения · колесо для масштаба'),add))));
   if(standalone)root.replaceChildren(host);else{document.body.append(host);host.showModal();host.addEventListener('cancel',e=>{e.preventDefault();close();});}
   try{

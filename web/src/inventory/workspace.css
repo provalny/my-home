@@ -1,15 +1,27 @@
 /* Compact desktop inventory workspace, retaining the House Control palette. */
+html.mode-inventory,html.mode-inventory body,html.mode-inventory #app { overflow:clip; }
 .iv-shell { grid-template-columns:195px minmax(0,1fr); }
 .iv-sidebar { padding:20px 10px 14px; }
 .iv-brand { margin:0 7px 24px; }
 .iv-nav { gap:3px;scrollbar-width:thin;scrollbar-color:#819ecc44 transparent; }
 .iv-nav .iv-btn { padding:9px 10px; }
 .iv-sidebar-bottom { padding-top:16px; }
-.iv-topbar { min-height:60px;padding:0 20px;gap:10px;flex-shrink:0; }
-.iv-topbar>.iv-btn { padding:7px 9px; }
-.iv-body { display:flex;flex:1;min-height:0;min-width:0;overflow:hidden; }
+.iv-secondary-nav { flex:none;overflow:visible;gap:3px;margin:0 -8px 10px; }
+.iv-workspace { overflow:clip; }
+.iv-topbar { min-height:60px;padding:8px 20px;gap:10px;flex-shrink:0;flex-wrap:wrap; }
+.iv-topbar>.iv-btn { padding:7px 9px;flex-shrink:0;max-width:100%;white-space:normal; }
+.iv-search { flex:1 1 180px;min-width:0; }
+.iv-search input { min-width:0;flex:1; }
+.iv-history-controls { flex:0 1 260px;min-width:205px;display:flex;flex-direction:column;gap:3px; }
+.iv-history-buttons { display:flex;gap:5px;flex-wrap:wrap; }
+.iv-history-buttons .iv-btn { min-height:27px;padding:4px 8px;font-size:11px;white-space:normal; }
+.iv-history-next { font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.iv-body { position:relative;display:flex;flex:1;min-height:0;min-width:0;overflow:clip; }
 .iv-content { padding:20px;min-width:0; }
-.iv-heading { margin-bottom:16px;gap:12px; }
+.iv-heading { margin-bottom:16px;gap:12px;flex-wrap:wrap;align-items:flex-start; }
+.iv-heading>div:first-child { flex:1 1 240px;min-width:0;overflow-wrap:anywhere; }
+.iv-heading>.iv-actions { max-width:100%;margin:0; }
+.iv-heading .iv-btn { max-width:100%;white-space:normal;overflow-wrap:anywhere; }
 .iv-heading h1 { font-size:25px; }
 .iv-heading p { margin-top:6px; }
 .iv-actions { margin-bottom:9px; }
@@ -84,6 +96,15 @@
 .iv-detail-panel .iv-detail-hero small { display:block;line-height:1.6; }
 .iv-detail-panel .iv-details { margin:18px 0;grid-template-columns:minmax(100px,.85fr) minmax(0,1fr);gap:12px; }
 .iv-detail-panel h3 { margin:20px 0 8px;font-size:14px; }
+.iv-locate-action { display:grid;gap:7px;margin:0 0 12px; }
+.iv-locate-action>.iv-btn { width:100%;color:#b9d5ff;border-color:#72a9ff66;background:#3d8bff18; }
+.iv-locate-action>small { font-size:11px;line-height:1.5; }
+.iv-location-result { display:flex;gap:9px;align-items:flex-start;padding:11px;margin-bottom:14px;border:1px solid #72a9ff88;border-radius:10px;background:#3d8bff18;color:#cfe4ff; }
+.iv-location-result>.icon { flex-shrink:0;margin-top:2px; }
+.iv-location-result strong,.iv-location-result small { display:block;overflow-wrap:anywhere; }
+.iv-location-result strong { font-size:13px; }
+.iv-location-result small { font-size:11px;line-height:1.5;margin-top:5px;color:var(--muted); }
+.iv-storage-row.is-located { border-color:#72a9ff;background:#3d8bff22;box-shadow:inset 3px 0 #72a9ff; }
 .iv-alert { display:flex;gap:12px;align-items:center;justify-content:space-between;padding:9px 20px;background:#542f3b;color:#ffd9d9;font-size:12px;flex-shrink:0; }
 .iv-alert[hidden] { display:none; }
 .iv-toast { display:flex;align-items:center;gap:12px;pointer-events:auto; }
@@ -92,13 +113,46 @@
 .iv-history { max-width:950px; }
 .iv-history-filter { margin-bottom:12px; }
 @media(max-width:1100px){.iv-shell{grid-template-columns:175px minmax(0,1fr)}.iv-content{padding:16px}.iv-topbar{padding:0 16px}.iv-save{display:inline;max-width:115px}.iv-overview-grid{grid-template-columns:1fr 1fr}.iv-metric strong{font-size:18px}.iv-detail-panel{width:310px;min-width:280px}.iv-home-grid{grid-template-columns:minmax(220px,1fr) minmax(300px,1fr)}.iv-home-grid.iv-tree-mode{grid-template-columns:210px minmax(300px,1fr)}.iv-home-grid:has(.iv-storage){overflow:auto}}
-@media(max-width:850px){.iv-overview-grid{grid-template-columns:1fr}.iv-topbar>.iv-btn{font-size:11px}.iv-save{display:none}.iv-detail-panel{position:fixed;right:0;top:60px;bottom:0;max-width:calc(100vw - 175px);width:340px;z-index:30;box-shadow:-15px 0 50px #0008}.iv-home-grid,.iv-home-grid.iv-tree-mode{grid-template-columns:1fr;height:auto}.iv-tree{max-height:300px}.iv-storage{min-height:350px}.iv-scene{height:350px}}
+@media(max-width:950px){
+  .iv-topbar { display:grid;grid-template-columns:minmax(0,1fr) auto; }
+  .iv-search { grid-column:1/-1;max-width:none;width:100%; }
+  .iv-save { display:none; }
+  .iv-history-controls { min-width:0;max-width:100%; }
+  .iv-topbar>.iv-btn { justify-self:end; }
+}
+@media(max-width:850px){.iv-overview-grid{grid-template-columns:1fr}.iv-topbar>.iv-btn{font-size:11px}.iv-save{display:none}.iv-detail-panel{position:absolute;right:0;top:0;bottom:0;min-width:0;max-width:100%;width:340px;z-index:30;box-shadow:-15px 0 50px #0008}.iv-home-grid,.iv-home-grid.iv-tree-mode{grid-template-columns:1fr;height:auto}.iv-tree{max-height:300px}.iv-storage{min-height:350px}.iv-scene{height:350px}}
+@media(max-width:650px){
+  .iv-shell { grid-template-columns:150px minmax(0,1fr); }
+  .iv-sidebar { padding:16px 8px 12px; }
+  .iv-brand { margin:0 4px 16px;gap:8px; }
+  .iv-brand strong { font-size:16px; }
+  .iv-brand small { display:none; }
+  .iv-nav .iv-btn { font-size:11px;padding:8px; }
+  .iv-sidebar-bottom { padding:12px 4px 0; }
+  .iv-topbar { padding:8px 12px; }
+  .iv-history-controls,.iv-topbar>.iv-btn { grid-column:1/-1;width:100%; }
+  .iv-topbar>.iv-btn { justify-self:stretch; }
+  .iv-history-buttons .iv-btn { flex:1 1 85px; }
+  .iv-content { padding:14px 12px; }
+}
 
 /* Visible occupancy in the apartment list, including not-yet-measured places. */
 .iv-storage-has-fill { flex-wrap:wrap; }
 .iv-storage-has-fill>.iv-storage-open { flex-basis:calc(100% - 85px); }
 .iv-fill-mini { flex-basis:100%;margin:0 7px 6px 49px;font-size:11px; }
 .iv-fill-mini progress { height:6px; }
+.iv-storage-list { display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,110px),1fr));grid-auto-rows:max-content;gap:8px;align-content:start;align-items:stretch; }
+.iv-storage-list>.iv-empty { grid-column:1/-1; }
+.iv-storage-list>.iv-storage-row { position:relative;display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:4px;width:100%;max-width:none;aspect-ratio:1;min-width:0;min-height:0;padding:8px;overflow:hidden; }
+.iv-storage-list>.iv-storage-row>.iv-storage-open { display:flex;flex-direction:column;align-items:flex-start;gap:4px;flex:0 1 auto;min-height:0;width:100%;padding:0;overflow:hidden; }
+.iv-storage-open>.iv-thumb { width:20px;height:20px; }
+.iv-storage-open>.iv-row-copy { flex:none;min-height:0;width:100%;overflow:hidden; }
+.iv-storage-open>.iv-row-copy strong { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3; }
+.iv-storage-open>.iv-row-copy small { display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;font-size:10px;line-height:1.3;margin-top:4px;overflow:hidden;white-space:normal; }
+.iv-storage-open>.iv-row-price { font-size:11px;line-height:1.3;white-space:normal;overflow-wrap:anywhere; }
+.iv-storage-row>.iv-storage-reorder { position:absolute;top:8px;right:8px;min-height:26px;height:26px;width:24px;padding:3px; }
+.iv-storage-row>.iv-fill-mini { flex:none;width:100%;margin:0;font-size:10px;line-height:1.3; }
+.iv-storage-row>.iv-fill-mini progress { height:4px;margin-top:4px; }
 .iv-fill progress { appearance:none;-webkit-appearance:none;border:0;border-radius:5px;overflow:hidden;background:#ffffff16; }
 .iv-fill progress::-webkit-progress-bar { background:#ffffff16;border-radius:5px; }
 .iv-fill progress::-webkit-progress-value { background:#70bd99;border-radius:5px; }
@@ -237,3 +291,61 @@
 .iv-auto-cabinet { border:1px solid #91a1c122;border-radius:8px;padding:8px; }
 .iv-auto-cabinet summary { cursor:pointer;font-size:12px;font-weight:600; }
 .iv-auto-cabinet[open] summary { margin-bottom:6px; }
+.iv-zone-label { flex-direction:row;gap:5px;border-style:solid;background:#101a27cc;border-color:#a7b7cc66; }
+.iv-zone-label svg { flex-shrink:0;width:14px;height:14px; }
+.iv-cabinet-label { border-radius:16px;font-size:11px;white-space:nowrap; }
+.iv-cabinet-label.is-narrow svg { display:none; }
+.iv-grid-controls { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0; }
+.iv-grid-preview { position:relative;width:min(100%,300px);margin:14px auto;background:#0a1422;border:1px solid #91a1c155;border-radius:6px;overflow:hidden; }
+.iv-grid-preview span { position:absolute;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:1px solid #91a1c155;font-size:11px;color:#b9cce4; }
+.iv-kitchen-module-row { display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid #91a1c122; }
+.iv-kitchen-module-row strong { font-size:12px; }
+.iv-kitchen-module-row select { min-width:0;width:100%; }
+@media(max-width:600px){.iv-kitchen-module-row{grid-template-columns:minmax(0,1fr) auto}.iv-kitchen-module-row strong{grid-column:1/-1}}
+
+.iv-show-furniture { display:inline-flex;align-items:center;gap:8px;cursor:pointer;min-height:36px;padding:0 6px; }
+.iv-show-furniture input { width:16px;height:16px;margin:0;accent-color:var(--accent,#3d8bff);cursor:pointer; }
+
+/* Explicit shrink boundaries avoid WebKit's intrinsic flex/grid width expansion. */
+html.mode-inventory,html.mode-inventory body,html.mode-inventory #app { width:100%;max-width:100%;min-width:0; }
+.iv-shell { max-width:100%;min-width:0;overflow:hidden; }
+.iv-workspace { width:100%;max-width:100%;min-width:0;min-height:0; }
+.iv-body { width:100%;max-width:100%;min-width:0;overflow:hidden; }
+.iv-content { flex:1 1 0%;width:0;max-width:100%;min-width:0;overflow-x:hidden;overflow-y:auto; }
+.iv-topbar { width:100%;min-width:0;max-width:100%;box-sizing:border-box; }
+.iv-topbar>* { min-width:0;max-width:100%; }
+.iv-topbar .iv-search { min-width:0;flex:1 1 220px; }
+.iv-topbar .iv-history-controls { flex:0 1 260px;min-width:0; }
+.iv-topbar .iv-save { flex:0 1 auto;overflow-wrap:anywhere; }
+.iv-heading { flex-wrap:wrap;min-width:0; }
+.iv-heading .iv-actions { max-width:100%; }
+.iv-heading .iv-btn { white-space:normal;max-width:100%; }
+.iv-overview-grid { grid-template-columns:repeat(2,minmax(0,1fr));min-width:0; }
+.iv-metrics { grid-template-columns:repeat(auto-fit,minmax(min(100%,185px),1fr)); }
+.iv-room-summary { grid-template-columns:repeat(auto-fit,minmax(min(100%,175px),1fr)); }
+.iv-recent>* { min-width:0;overflow-wrap:anywhere; }
+.iv-recent>.iv-btn { white-space:normal;text-align:left;justify-content:flex-start; }
+.iv-storage-list { grid-template-columns:repeat(auto-fill,minmax(min(100%,120px),1fr)); }
+.iv-storage-list>.iv-storage-row { box-sizing:border-box;aspect-ratio:auto;min-height:120px;height:auto; }
+.iv-storage-open { min-width:0;max-width:100%; }
+.iv-storage-list .iv-row-copy { min-width:0;max-width:100%; }
+.iv-storage-list .iv-row-copy strong { max-width:100%; }
+.iv-photo-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,185px),1fr)); }
+.iv-photo-card>* { min-width:0;max-width:100%; }
+.iv-wear { display:flex;flex-direction:column;gap:2px;min-width:0;width:100%;margin-top:5px; }
+.iv-wear-caption { min-height:18px;padding:0;justify-content:flex-start;border:0;background:none;text-align:left;font-size:10px;white-space:normal;line-height:1.25; }
+.iv-wear input[type=range] { display:block;width:100%;min-width:0;max-width:100%;height:18px;padding:0;margin:0;accent-color:#80baff;cursor:pointer;touch-action:pan-y; }
+
+.iv-table .iv-wear { max-width:110px; }
+.iv-table .iv-wear-caption { font-size:10px; }
+.iv-detail-panel .iv-wear { margin:14px 0; }
+@media(max-width:850px){.iv-overview-grid{grid-template-columns:minmax(0,1fr)}}
+
+/* Outside the detail card wear is informational, never an editable slider. */
+.iv-wear-indicator { display:flex;flex-direction:column;gap:4px;width:100%;min-width:0;margin-top:6px; }
+.iv-wear-indicator small { font-size:10px;line-height:1.3;color:var(--muted); }
+.iv-wear-indicator progress { display:block;width:100%;height:5px;appearance:none;-webkit-appearance:none;border:0;border-radius:5px;overflow:hidden;background:#ffffff16; }
+.iv-wear-indicator progress::-webkit-progress-bar { background:#ffffff16;border-radius:5px; }
+.iv-wear-indicator progress::-webkit-progress-value { background:#80baff;border-radius:5px; }
+.iv-wear-indicator progress::-moz-progress-bar { background:#80baff;border-radius:5px; }
+.iv-table .iv-wear-indicator { max-width:110px; }

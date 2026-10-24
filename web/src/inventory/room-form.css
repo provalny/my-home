@@ -1,8 +1,8 @@
 .iv-room-form { display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px; }
-.iv-room-form .iv-field { display:flex;flex-direction:column;gap:5px;font-size:11px;color:#a7b2c5;min-width:0; }
-.iv-room-form .iv-field input,.iv-room-form .iv-field select { width:100%;min-width:0;box-sizing:border-box;border:1px solid #91a1c133;border-radius:7px;background:#d1ddf009;color:#e8eef8;padding:7px;font-size:12px; }
+.iv-room-form .iv-field { display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--muted);min-width:0; }
+.iv-room-form .iv-field input,.iv-room-form .iv-field select { width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;background:var(--iv-field,#d1ddf009);color:var(--text);padding:7px;font-size:12px; }
 .iv-room-form .iv-field input[type=color] { height:33px;padding:3px; }
-.iv-room-form .iv-muted { grid-column:1/-1;color:#9aa8bd;font-size:11px;line-height:1.5;margin:0; }
+.iv-room-form .iv-muted { grid-column:1/-1;color:var(--muted);font-size:11px;line-height:1.5;margin:0; }
 .iv-room-form [hidden] { display:none!important; }
 .iv-room-color-auto { display:flex;align-items:center;gap:6px;font-size:11px; }
 .iv-room-form .iv-room-color-auto input { width:auto; }

@@ -2,9 +2,12 @@
 // centred on its footprint and facing +z; the plan's "rot" turns it from there.
 import * as THREE from 'three';
 import { box, cyl, mat, at, rng } from './kit.js';
+import { WORKSPACE_BUILDERS } from './workspace-models.js';
+import { EQUIPMENT_BUILDERS } from './equipment.js';
 import { EXTRA_BUILDERS } from './furniture-extra.js';
 import { extraDimensions } from './furniture-info.js';
 import { buildKitchen } from './kitchen.js';
+import { buildFridge } from './fridge.js';
 import { IKEA_STORAGE } from '../inventory/ikea-storage.js';
 
 const WOOD = '#a98459';
@@ -68,6 +71,8 @@ function doorLines(width, height, y, z, count, material) {
 
 const builders = {
   ...EXTRA_BUILDERS,
+  ...EQUIPMENT_BUILDERS,
+  ...WORKSPACE_BUILDERS,
   rug({ size = [2, 1.4], color = '#3b4a66' }) {
     const g = group(
       at(box(size[0], 0.016, size[1], mat(color, { rough: 1 }), { r: 0.006 }), 0, 0, 0),
@@ -166,15 +171,7 @@ const builders = {
 
   kitchen(shape) { return buildKitchen(shape).root; },
 
-  fridge() {
-    const body = mat('#c5c9d0', { rough: 0.35, metal: 0.5 });
-    return group(
-      at(box(0.7, 1.92, 0.68, body, { r: 0.025 }), 0, 0, 0),
-      at(box(0.66, 0.008, 0.005, mat('#7c8088'), { r: 0 }), 0, 1.25, 0.34),
-      at(box(0.02, 0.5, 0.03, mat('#70747c', { metal: 0.7, rough: 0.3 }), { r: 0.008 }), -0.26, 1.34, 0.35),
-      at(box(0.02, 0.4, 0.03, mat('#70747c', { metal: 0.7, rough: 0.3 }), { r: 0.008 }), -0.26, 0.76, 0.35),
-    );
-  },
+  fridge(shape) {return buildFridge(shape).root;},
 
   bed({ width = 1.6, color = '#7f8fb5' }) {
     const depth = 2.1;
@@ -356,7 +353,7 @@ export function buildFurniture(items) {
     g.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = !flat; o.receiveShadow = true;
-        if (item.id) o.userData = { kind: 'furniture', id: item.id };
+        if (item.id) o.userData = { ...o.userData, kind: 'furniture', id: item.id };
       }
     });
     root.add(g);
