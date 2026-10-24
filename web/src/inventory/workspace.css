@@ -349,3 +349,17 @@ html.mode-inventory,html.mode-inventory body,html.mode-inventory #app { width:10
 .iv-wear-indicator progress::-webkit-progress-value { background:#80baff;border-radius:5px; }
 .iv-wear-indicator progress::-moz-progress-bar { background:#80baff;border-radius:5px; }
 .iv-table .iv-wear-indicator { max-width:110px; }
+
+/* Space selection and compact, explicit create/delete controls. */
+.iv-space-switcher { gap:8px;margin:0 0 12px;flex-wrap:wrap; }
+.iv-space-switcher select { flex:1 1 160px;max-width:340px;min-width:0; }
+.iv-category-editor [hidden],.iv-delete-options [hidden] { display:none!important; }
+.iv-delete-options .iv-check { display:flex;align-items:center;gap:8px;cursor:pointer; }
+.iv-delete-options input[type=checkbox] { width:16px;height:16px;min-height:0;flex:none; }
+.iv-delete-options>p { margin:8px 0; }
+.iv-search-places { margin:8px 0 12px; }
+.iv-search-places h2 { font-size:13px;margin:0 0 8px; }
+.iv-search-places .iv-btn { text-align:left;overflow-wrap:anywhere;max-width:100%; }
+.iv-space-nav { display:flex;flex-direction:column;gap:3px;margin:0 0 4px 15px;padding-left:8px;border-left:1px solid var(--line); }
+.iv-space-nav .iv-btn { justify-content:flex-start;min-height:28px;padding:5px 8px;font-size:11px;min-width:0;white-space:normal;text-align:left;overflow-wrap:anywhere; }
+.is-sidebar-collapsed .iv-space-nav { display:none; }

@@ -1,3 +1,4 @@
+import { randomID } from '../uuid.js';
 // Shared identities let overlapping work/hobby packs extend the same tree.
 const roots = [
   ['clothes','Одежда','clothes'], ['accessories','Аксессуары','key'],
@@ -124,7 +125,7 @@ export function applyCategoryPacks(doc,packIds,{excludedCategories=[],excludedCo
     let target=doc.categories.find(x=>x.id===c.existingId);
     if(!target){
       let id=c.parentKey?'preset:'+c.key:c.legacyId;
-      if(doc.categories.some(x=>x.id===id))id=crypto.randomUUID();
+      if(doc.categories.some(x=>x.id===id))id=randomID();
       target={id,name:c.name,parentId:c.parentKey?ids.get(c.parentKey):null,kind:c.kind||'default',...(c.icon?{icon:c.icon}:{})};
       doc.categories.push(target);addedCategories++;
     }
@@ -133,7 +134,7 @@ export function applyCategoryPacks(doc,packIds,{excludedCategories=[],excludedCo
   doc.collections??=[];
   for(const c of preview.collections.filter(c=>!omitCollections.has(c.key)||c.existingId)){
     let target=doc.collections.find(x=>x.id===c.existingId);
-    if(!target){target={id:crypto.randomUUID(),name:c.name};doc.collections.push(target);addedCollections++;}
+    if(!target){target={id:randomID(),name:c.name};doc.collections.push(target);addedCollections++;}
     target.presetKey=c.key;
   }
   doc.settings.categorySetup={version:1,status:'completed',packIds:CATEGORY_PACKS.filter(p=>packIds.includes(p.id)).map(p=>p.id),excludedCategories:[...excluded],excludedCollections:[...omitCollections]};

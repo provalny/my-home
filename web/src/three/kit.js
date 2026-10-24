@@ -1,5 +1,6 @@
 // Small modelling kit: cached materials, primitive helpers and procedural floor textures.
 import * as THREE from 'three';
+import { roomPoints } from '../geometry/room.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const materials = new Map();
@@ -157,14 +158,18 @@ export function floorMaterial(kind) {
 }
 
 // Floor quad whose UVs are in world metres, so every room shares one texture scale.
-export function floorMesh(room, kind) {
-  const geo = new THREE.PlaneGeometry(room.w, room.d);
+export function floorGeometry(room) {
+  const shape = new THREE.Shape(roomPoints(room).map(([x,z])=>new THREE.Vector2(x,-z)));
+  const geo = new THREE.ShapeGeometry(shape);
   geo.rotateX(-Math.PI / 2);
-  geo.translate(room.x + room.w / 2, 0, room.z + room.d / 2);
   const pos = geo.attributes.position;
   const uv = geo.attributes.uv;
   for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / TILE, pos.getZ(i) / TILE);
-  const mesh = new THREE.Mesh(geo, floorMaterial(kind));
+  return geo;
+}
+
+export function floorMesh(room, kind) {
+  const mesh = new THREE.Mesh(floorGeometry(room), floorMaterial(kind));
   mesh.receiveShadow = true;
   return mesh;
 }

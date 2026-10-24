@@ -37,8 +37,8 @@ function safeAreaTop() {
 function fatal(title, error) {
   console.error(error);
   app.replaceChildren(h('div.fatal', h('h1', title),
-    'The floor plan could not be loaded. Fix the file and reload, or pick another plan from the menu bar icon.',
-    h('code', String(error?.message || error))));
+    window.__HOUSE_LAN__?'Проверьте подключение к домашнему Wi-Fi. На Mac откройте Life Assistant → Настройки → Доступ с телефона.':'Не удалось загрузить данные. Проверьте сообщение ниже и повторите открытие.',
+    h('code', String(error?.message || error)),h('button',{type:'button',onclick:()=>location.reload()},'Повторить')));
   post('ready', { error: String(error?.message || error) });
 }
 

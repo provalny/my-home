@@ -1,6 +1,12 @@
 // Dimensions are metres: width (X), height (Y), depth (Z). IDs stay stable in saved plans.
 import { IKEA_STORAGE } from '../inventory/ikea-storage.js';
 export const EXTRA_MODEL_INFO = {
+  woodShelfLow:{name:'Деревянный стеллаж · 120 см, 3 полки',size:[.89,1.2,.30],category:'furniture',color:'#d5b78b',area:'Хранение'},
+  parrotCage:{name:'Клетка с попугаями',size:[.64,.82,.45],category:'decor',color:'#526b72'},
+  kallaxShelf:{name:'Стеллаж IKEA KALLAX · 4 × 4',size:[1.47,1.465,.39],category:'furniture',color:'#eeeae1',area:'Хранение'},
+  ivarRack:{name:'Деревянный стеллаж IKEA IVAR',size:[.89,1.79,.30],category:'furniture',color:'#d5b78b',area:'Хранение'},
+  kitchenBase:{name:'Кухня без верхних шкафчиков',size:[3,1.16,.6],category:'furniture',color:'#e4e1da'},
+  hoodCabinet:{name:'Шкаф со встроенной вытяжкой',size:[.6,.8,.37],category:'furniture',color:'#e4e1da',defaultY:1.48},
   officeChair:{name:'Офисное кресло',size:[.65,1.05,.65],category:'furniture',color:'#444b57'},
   gamingDesktop:{name:'Игровая клавиатура, мышь и коврик RGB',size:[.8,.045,.35],category:'electronics',color:'#202530',defaultY:.75},
   monitorStand:{name:'Монитор на стойке',size:[.62,1.3,.4],category:'electronics',color:'#202530'},

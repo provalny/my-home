@@ -1,6 +1,7 @@
 import AppKit
 import WebKit
 import UserNotifications
+import UniformTypeIdentifiers
 
 @MainActor
 final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelegate, UNUserNotificationCenterDelegate {
@@ -14,6 +15,45 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
     private var notificationGeneration = 0
     private var pendingNotificationNode: String?
     private var updates: UpdateManager!
+    private let storeQueue = DispatchQueue(label: "local.myhome.inventory.storage", qos: .userInitiated)
+    private var pendingStoreTasks = 0
+    private var waitingToQuit = false
+    private var phoneAccess: InventoryLANServer!
+    private var phoneStatus: [String: Any] = ["state": "off", "enabled": false, "links": []]
+
+    // One writer preserves revision checks and backup ordering without blocking the UI.
+    private func storeTask(replyTo message: [String: Any]? = nil, success: (() -> Void)? = nil, _ work: @escaping (InventoryStore) throws -> Any) {
+        pendingStoreTasks += 1
+        let storage = store!
+        storeQueue.async {
+            let result = Result { try work(storage) }
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let value):
+                    success?()
+                    if let message { self.host.reply(to: message, value) }
+                case .failure(let error):
+                    if let message {
+                        var detail: [String: Any] = ["error": error.localizedDescription]
+                        if case InventoryError.conflict = error { detail["code"] = "revision_conflict" }
+                        self.host.reply(to: message, detail)
+                    }
+                    if self.waitingToQuit {
+                        self.waitingToQuit = false
+                        NSApp.reply(toApplicationShouldTerminate: false)
+                        self.show()
+                    }
+                }
+                self.pendingStoreTasks -= 1
+                if self.waitingToQuit && self.pendingStoreTasks == 0 { NSApp.reply(toApplicationShouldTerminate: true) }
+            }
+        }
+    }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard pendingStoreTasks > 0 else { return .terminateNow }
+        waitingToQuit = true
+        return .terminateLater
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do { store = try InventoryStore() }
@@ -21,6 +61,13 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
             let alert = NSAlert(); alert.messageText = "Не удалось открыть данные"; alert.informativeText = error.localizedDescription + "\nФайлы не изменены."; alert.runModal(); NSApp.terminate(nil); return
         }
         updates = UpdateManager()
+        phoneAccess = InventoryLANServer(store: store, root: WebHost.assetRoot, queue: storeQueue)
+        phoneAccess.onStatus = { [weak self] status in DispatchQueue.main.async {
+            self?.phoneStatus = status; self?.pushSettings()
+        } }
+        phoneAccess.onRemoteSave = { [weak self] in DispatchQueue.main.async {
+            self?.host.call("inventoryRemoteChanged"); self?.scheduleNotifications()
+        } }
         try? ApplicationIcon.apply(store.settings["appIcon"] as? String ?? "aurora")
         host = WebHost(mode: "inventory", transparent: false, boot: { [weak self] in
             guard let self else { return [:] }
@@ -30,8 +77,8 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
         })
         host.webView.uiDelegate = self
         host.onMessage = { [weak self] m in self?.receive(m) }
-        store.backupFailure = { [weak self] error in self?.host.call("backupError", error) }
-        store.settingsChanged = { [weak self] in self?.pushSettings() }
+        store.backupFailure = { [weak self] error in DispatchQueue.main.async { self?.host.call("backupError", error) } }
+        store.settingsChanged = { [weak self] in DispatchQueue.main.async { self?.pushSettings() } }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1380, height: 920), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Life Assistant"; window.minSize = NSSize(width: 1000, height: 700)
         window.isReleasedWhenClosed = false; window.delegate = self
@@ -40,9 +87,9 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
         buildMenus()
         let center = UNUserNotificationCenter.current(); center.delegate = self
         host.load(); show()
-        store.autoBackupIfDue(); refreshSystemStatus(); scheduleNotifications()
+        storeTask { $0.autoBackupIfDue(); return NSNull() }; refreshSystemStatus(); scheduleNotifications()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.store.autoBackupIfDue(); self?.scheduleNotifications() }
+            MainActor.assumeIsolated { self?.storeTask { $0.autoBackupIfDue(); return NSNull() }; self?.scheduleNotifications() }
         }
         LoginItem.followMove()
         if let path = ProcessInfo.processInfo.environment["HOUSE_SNAPSHOT_DIR"] {
@@ -54,11 +101,13 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
         var s = store.publicSettings; s["login"] = LoginItem.state.rawValue
         s["reduceMotion"] = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         s["notificationAuthorization"] = notificationAuthorization; s["notificationAlerts"] = notificationAlerts
+        s["phoneAccess"] = phoneStatus
         s.merge(updates?.settings ?? [:]) { _, new in new }
         return s
     }
     private func pushSettings() { host?.call("inventorySettings", publicSettings) }
     private func refreshSystemStatus(replyTo message: [String: Any]? = nil) {
+        phoneAccess?.refresh()
         UNUserNotificationCenter.current().getNotificationSettings { status in
             let auth: String
             switch status.authorizationStatus {
@@ -105,37 +154,61 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
     func receive(_ m: [String: Any]) {
         do {
             switch m["type"] as? String {
+            case "inventoryPhoneAccess":
+                if m["action"] as? String == "renew" { phoneAccess.renew() }
+                else if m["on"] as? Bool == true { phoneAccess.start() }
+                else { phoneAccess.stop() }
+                host.reply(to: m, ["ok": true])
+            case "inventorySnapshot":
+                storeTask(replyTo: m) { storage in ["document": storage.document as Any? ?? NSNull()] }
             case "inventoryAppIcon":
                 let name = m["icon"] as? String ?? ""
                 _ = try ApplicationIcon.image(name)
-                try store.setApplicationIcon(name)
-                try ApplicationIcon.apply(name)
-                pushSettings(); host.reply(to: m, publicSettings)
+                storeTask(replyTo: m, success: { try? ApplicationIcon.apply(name); self.pushSettings() }) { storage in
+                    try storage.setApplicationIcon(name); return storage.publicSettings
+                }
             case "inventoryCheckUpdates": try updates.check(); host.reply(to: m, ["ok": true])
             case "inventoryAutomaticUpdates": updates.setAutomaticChecks(m["on"] as? Bool ?? false); host.reply(to: m, publicSettings)
             case "saveInventory":
                 guard let d = m["document"] as? [String: Any], let revision = m["expectedRevision"] as? Int else { throw InventoryError.message("Нет данных для сохранения") }
-                try store.save(d, expected: revision, restoring: m["restore"] as? Bool ?? false)
-                host.reply(to: m, ["ok": true]); scheduleNotifications()
+                storeTask(replyTo: m, success: { self.scheduleNotifications() }) { storage in
+                    try storage.save(d, expected: revision, restoring: m["restore"] as? Bool ?? false)
+                    return ["ok": true]
+                }
             case "inventoryBackupFolder":
                 let p = NSOpenPanel(); p.canChooseFiles = false; p.canChooseDirectories = true; p.canCreateDirectories = true; p.prompt = "Выбрать папку"
-                if p.runModal() == .OK, let url = p.url { try store.chooseBackupFolder(url) }
-                host.reply(to: m, publicSettings)
-            case "inventoryBackupNow": try store.backup(); host.reply(to: m, publicSettings)
+                if p.runModal() == .OK, let url = p.url {
+                    storeTask(replyTo: m) { storage in try storage.chooseBackupFolder(url); return storage.publicSettings }
+                } else { host.reply(to: m, publicSettings) }
+            case "inventoryBackupNow": storeTask(replyTo: m) { storage in try storage.backup(); return storage.publicSettings }
             case "inventorySystemStatus": refreshSystemStatus(replyTo: m)
             case "inventoryExport":
                 let p = NSSavePanel(); p.nameFieldStringValue = "Life-Assistant-\(InventoryStore.day()).json"; p.allowedContentTypes = [.json]
                 if p.runModal() == .OK, let url = p.url {
-                    guard let d = store.document else { throw InventoryError.message("Нет данных для экспорта") }
-                    try InventoryStore.encode(d).write(to: url, options: .atomic)
-                    host.reply(to: m, ["ok": true])
+                    storeTask(replyTo: m) { storage in
+                        guard let d = storage.document else { throw InventoryError.message("Нет данных для экспорта") }
+                        try InventoryStore.encode(d).write(to: url, options: .atomic)
+                        return ["ok": true]
+                    }
+                } else { host.reply(to: m, ["cancelled": true]) }
+            case "inventoryExportExcel":
+                guard let encoded = m["base64"] as? String, encoded.count <= 140 * 1024 * 1024,
+                      let data = Data(base64Encoded: encoded), data.starts(with: [0x50, 0x4b, 0x03, 0x04]) else {
+                    throw InventoryError.message("Некорректный файл Excel")
+                }
+                let p = NSSavePanel(); p.nameFieldStringValue = "Life-Assistant-\(InventoryStore.day()).xlsx"
+                p.allowedContentTypes = [UTType(filenameExtension: "xlsx") ?? .data]
+                if p.runModal() == .OK, let url = p.url {
+                    storeTask(replyTo: m) { _ in try data.write(to: url, options: .atomic); return ["ok": true] }
                 } else { host.reply(to: m, ["cancelled": true]) }
             case "inventoryImport":
                 let p = NSOpenPanel(); p.allowedContentTypes = [.json]; p.allowsMultipleSelection = false
                 if p.runModal() == .OK, let url = p.url {
-                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                    guard size <= 100 * 1024 * 1024 else { throw InventoryError.message("Копия больше 100 МБ") }
-                    host.reply(to: m, ["document": try InventoryStore.decode(Data(contentsOf: url))])
+                    storeTask(replyTo: m) { _ in
+                        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                        guard size <= 100 * 1024 * 1024 else { throw InventoryError.message("Копия больше 100 МБ") }
+                        return ["document": try InventoryStore.decode(Data(contentsOf: url))]
+                    }
                 } else { host.reply(to: m, ["cancelled": true]) }
             case "inventoryLogin":
                 try LoginItem.set(m["on"] as? Bool ?? false); host.reply(to: m, publicSettings)
@@ -145,11 +218,18 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
                 }
             case "exportPlan":
                 let p = NSSavePanel(); p.nameFieldStringValue = "План-квартиры.json"; p.allowedContentTypes = [.json]
-                if p.runModal() == .OK, let url = p.url, let config = m["config"] as? [String: Any] { try InventoryStore.encode(config).write(to: url, options: .atomic) }
-                host.reply(to: m, ["ok": true])
+                if p.runModal() == .OK, let url = p.url, let config = m["config"] as? [String: Any] {
+                    storeTask(replyTo: m) { _ in try InventoryStore.encode(config).write(to: url, options: .atomic);return ["ok": true] }
+                } else { host.reply(to: m, ["cancelled": true]) }
             case "importPlan":
                 let p = NSOpenPanel(); p.allowedContentTypes = [.json]
-                if p.runModal() == .OK, let url = p.url { host.reply(to: m, ["config": try JSONSerialization.jsonObject(with: Data(contentsOf: url))]) }
+                if p.runModal() == .OK, let url = p.url {
+                    storeTask(replyTo: m) { _ in
+                        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                        guard size <= 100 * 1024 * 1024 else { throw InventoryError.message("План больше 100 МБ") }
+                        return ["config": try JSONSerialization.jsonObject(with: Data(contentsOf: url))]
+                    }
+                }
                 else { host.reply(to: m, ["cancelled": true]) }
             case "ready":
                 host.call("shown"); pushSettings()
@@ -164,7 +244,7 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
         let center = UNUserNotificationCenter.current()
         guard let d = store.document, let prefs = d["settings"] as? [String: Any] else { return }
         guard prefs["notifications"] as? Bool == true else {
-            center.removeAllPendingNotificationRequests(); store.reconcileNotificationSchedules(active: [], now: Date()); return
+            center.removeAllPendingNotificationRequests(); storeTask { $0.reconcileNotificationSchedules(active: [], now: Date()); return NSNull() }; return
         }
         // Read existing banners before rebuilding the schedule; a delivered reminder is not repeated.
         center.getDeliveredNotifications { delivered in
@@ -212,14 +292,14 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
                     guard error == nil else { return }
                     DispatchQueue.main.async {
                         guard generation == self.notificationGeneration else { return }
-                        self.store.rememberNotificationSchedule(identifier, fire: max(fire, now))
+                        self.storeTask { $0.rememberNotificationSchedule(identifier, fire: max(fire, now)); return NSNull() }
                     }
                 }
             }
         }
         let obsolete = pending.filter { $0.identifier.hasPrefix("inventory.") && !active.contains($0.identifier) }.map(\.identifier)
         if !obsolete.isEmpty { center.removePendingNotificationRequests(withIdentifiers: obsolete) }
-        store.reconcileNotificationSchedules(active: active, now: now)
+        storeTask { $0.reconcileNotificationSchedules(active: active, now: now); return NSNull() }
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler handler: @escaping (UNNotificationPresentationOptions) -> Void) { handler([.banner, .sound]) }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler handler: @escaping () -> Void) {

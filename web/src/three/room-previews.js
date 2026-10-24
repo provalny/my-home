@@ -1,15 +1,17 @@
+import { roomContains } from '../geometry/room.js';
 import * as THREE from 'three';
 import { normalize } from '../config.js';
 import { buildHouse } from './house.js';
 import { buildFurniture } from './furniture.js';
 import { isSharedMaterial } from './kit.js';
+import { disposeObject } from './storage-interior.js';
 
 // One transient renderer for all thumbnails; cached images never hold WebGL contexts.
 const cache=new Map();
 export function roomPreviewPlan(plan,roomId,excludedIds=[]) {
   const room=plan.rooms.find(r=>r.id===roomId);if(!room)return null;
   const [x,z,w,d]=room.rect,excluded=new Set(excludedIds);
-  const furniture=(plan.furniture||[]).filter(f=>!excluded.has(f.id)&&f.pos[0]>=x&&f.pos[0]<=x+w&&f.pos[1]>=z&&f.pos[1]<=z+d);
+  const furniture=(plan.furniture||[]).filter(f=>!excluded.has(f.id)&&roomContains(room,f.pos));
   return {...plan,rooms:[room],furniture,lights:[],acs:[],scenes:[]};
 }
 export function renderRoomPreviews(plan,roomIds,excludedIds=[]) {
@@ -39,7 +41,7 @@ export function renderRoomPreviews(plan,roomIds,excludedIds=[]) {
       }
       camera.position.copy(center).addScaledVector(direction,distance*.74);camera.lookAt(center);
       try{renderer.render(scene,camera);const src=renderer.domElement.toDataURL('image/jpeg',.85);cache.set(key,src);result.set(id,src);}
-      finally{const geometries=new Set(),materials=new Set();scene.traverse(o=>{o.shadow?.map?.dispose();if(o.geometry)geometries.add(o.geometry);if(o.isInstancedMesh)o.dispose();for(const m of (Array.isArray(o.material)?o.material:[o.material]))if(m&&!isSharedMaterial(m))materials.add(m);});geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());}
+      finally{scene.traverse(o=>o.shadow?.map?.dispose());disposeObject(scene);}
     }
     while(cache.size>40)cache.delete(cache.keys().next().value);
   }catch(error){console.warn('Не удалось создать фон комнат',error);}

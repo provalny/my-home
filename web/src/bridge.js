@@ -28,11 +28,14 @@ let nextId = 1;
 const pending = new Map();
 
 export function call(type, payload = {}) {
+  // Embedded editors share the top frame's request IDs and reply destination.
+  if (window.parent && window.parent !== window && window.parent.house?.requestFromFrame) return window.parent.house.requestFromFrame(type,payload);
   if (!handler) return Promise.reject(new Error('Доступно только в приложении'));
   return new Promise((resolve, reject) => {
     const id = nextId++;
     pending.set(id, { resolve, reject });
-    handler.postMessage({ type, callId: id, ...payload });
+    try { handler.postMessage({ type, callId: id, ...payload }); }
+    catch (error) { pending.delete(id);reject(error); }
   });
 }
 
@@ -43,3 +46,6 @@ incoming.reply = (id, result) => {
   if (result && result.error) p.reject(Object.assign(new Error(result.error), { detail: result }));
   else p.resolve(result);
 };
+
+// Replies from WKWebView arrive in the main frame. Forward calls there before sending.
+incoming.requestFromFrame = call;

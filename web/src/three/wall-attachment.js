@@ -1,29 +1,31 @@
 import {extraDimensions} from './furniture-info.js';
+import {roomPoints,contourArea} from '../geometry/room.js';
 const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
-const precise=n=>Math.round(n*1e6)/1e6;
+const precise=n=>Math.round(n*1e6)/1e6||0;
 export function updateWallAttachments(items,rooms,{movingId=null}={}){
  for(const item of items){
   if(item.type!=='neonPorsche')continue;
   if(item.wallSnap===false){delete item.wallAttachment;continue;}
-  const [width,,depth]=extraDimensions(item),gap=depth/2+.015;
-  const candidates=[];
+  const [width,,depth]=extraDimensions(item),gap=depth/2+.015,candidates=[];
   for(const room of rooms){
-   const [x,z,w,d]=room.rect;
-   for(const [wall,length,distance]of [['north',w,Math.abs(item.pos[1]-z)],['south',w,Math.abs(item.pos[1]-z-d)],['west',d,Math.abs(item.pos[0]-x)],['east',d,Math.abs(item.pos[0]-x-w)]]){
-    if(width>length)continue;
-    const horizontal=wall==='north'||wall==='south',offset=clamp((horizontal?item.pos[0]-x:item.pos[1]-z),width/2,length-width/2);
-    const outside=horizontal?Math.max(x-item.pos[0],0,item.pos[0]-x-w):Math.max(z-item.pos[1],0,item.pos[1]-z-d);
-    candidates.push({room,wall,offset,distance:Math.hypot(distance,outside)});
+   const ps=roomPoints(room),sign=Math.sign(contourArea(ps));
+   for(let i=0;i<ps.length;i++){
+    const a=ps[i],b=ps[(i+1)%ps.length],dx=b[0]-a[0],dz=b[1]-a[1],length=Math.hypot(dx,dz);if(width>length)continue;
+    const ux=dx/length,uz=dz/length,nx=-uz*sign,nz=ux*sign;
+    const wall=room.contour?'edge:'+i:['north','east','south','west'][i];
+    const reverse=!room.contour&&(i===2||i===3);
+    const projection=(item.pos[0]-a[0])*ux+(item.pos[1]-a[1])*uz;
+    let offset=clamp(projection,width/2,length-width/2);
+    const old=item.wallAttachment;
+    if(old?.roomId===room.id&&old.wall===wall&&item.id!==movingId&&Number.isFinite(old.offset))offset=clamp(reverse?length-old.offset:old.offset,width/2,length-width/2);
+    const pos=[a[0]+ux*offset+nx*gap,a[1]+uz*offset+nz*gap];
+    candidates.push({room,wall,offset:reverse?length-offset:offset,pos,rot:Math.atan2(nx,nz)*180/Math.PI,distance:Math.hypot(item.pos[0]-pos[0],item.pos[1]-pos[1])});
    }
   }
   const old=item.wallAttachment;
-  let chosen=old&&item.id!==movingId?candidates.find(c=>c.room.id===old.roomId&&c.wall===old.wall):null;
-  if(chosen&&Number.isFinite(old.offset)){const length=['north','south'].includes(chosen.wall)?chosen.room.rect[2]:chosen.room.rect[3];chosen.offset=clamp(old.offset,width/2,length-width/2);}
-  else chosen=candidates.sort((a,b)=>a.distance-b.distance)[0];
+  const chosen=(old&&item.id!==movingId?candidates.find(c=>c.room.id===old.roomId&&c.wall===old.wall):null)||candidates.sort((a,b)=>a.distance-b.distance)[0];
   if(!chosen){delete item.wallAttachment;continue;}
-  const {room,wall,offset}=chosen,[x,z,w,d]=room.rect;
-  item.pos=wall==='north'?[x+offset,z+gap]:wall==='south'?[x+offset,z+d-gap]:wall==='west'?[x+gap,z+offset]:[x+w-gap,z+offset];
-  item.pos=item.pos.map(precise);item.rot={north:0,south:180,west:90,east:-90}[wall];item.y??=1.35;
-  item.wallAttachment={roomId:room.id,wall,offset};
+  item.pos=chosen.pos.map(precise);item.rot=precise(chosen.rot)===-180?180:precise(chosen.rot);item.y??=1.35;
+  item.wallAttachment={roomId:chosen.room.id,wall:chosen.wall,offset:chosen.offset};
  }
 }

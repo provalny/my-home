@@ -10,6 +10,11 @@ import Foundation
         let backupFolder = dir.appendingPathComponent("copies")
         try fm.createDirectory(at: backupFolder, withIntermediateDirectories: true)
         let sample: [String: Any] = ["format":"my-home-inventory","version":1,"revision":1,"nodes":[],"categories":[],"events":[],"settings":["reminderDays":3],"plan":["rooms":[]]]
+        // Optional spaces must round-trip untouched in the same version-1 document.
+        var shared = sample
+        shared["spaces"] = [["id":"garage", "name":"Гараж", "type":"garage", "plan":["rooms":[], "furniture":[]]]]
+        let decodedShared = try InventoryStore.decode(InventoryStore.encode(shared))
+        precondition((decodedShared["spaces"] as? [[String: Any]])?.first?["name"] as? String == "Гараж")
         let store = try InventoryStore(folder: folder)
         try store.save(sample, expected: 0, restoring: false)
         let reopened = try InventoryStore(folder: folder)
@@ -67,6 +72,20 @@ import Foundation
         precondition(iconReopened.publicSettings["appIcon"] as? String == "orbit", "Icon selection survives relaunch")
         do { try store.setApplicationIcon("unknown"); fatalError("Unknown icon accepted") } catch {}
         precondition(store.publicSettings["appIcon"] as? String == "orbit", "Invalid icon cannot replace saved choice")
+        // Two background writers with the same revision must not both succeed.
+        let concurrent = try InventoryStore(folder: dir.appendingPathComponent("concurrent"))
+        let resultsLock = NSLock()
+        var successfulWriters = 0
+        DispatchQueue.concurrentPerform(iterations: 2) { _ in
+            do {
+                try concurrent.save(sample, expected: 0, restoring: false)
+                resultsLock.lock(); successfulWriters += 1; resultsLock.unlock()
+            } catch {}
+        }
+        precondition(successfulWriters == 1 && concurrent.revision == 1, "Only one concurrent writer may commit a revision")
+        var malformed = sample; malformed["nodes"] = "invalid"
+        do { try concurrent.save(malformed, expected: 1, restoring: false); fatalError("Malformed save accepted") } catch {}
+        precondition(concurrent.revision == 1, "Rejected save cannot replace the stored document")
         print("PASS: icon preference, backup health, failure recovery, reminder receipts; atomic save, relaunch, revision conflict, 5-copy rotation, unrelated files, daily backup, pre-restore protection, invalid data")
     }
 }

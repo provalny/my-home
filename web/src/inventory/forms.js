@@ -3,10 +3,11 @@ import { itemWear, resolvedWearMode } from './wear.js';
 import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import * as M from './model.js';
-import { nodeThumbnail } from './visuals.js';
+import { nodeThumbnail, rarityBadge } from './visuals.js';
 import { colorPicker } from './colors.js';
 import { EQUIPMENT_FIELDS } from './equipment.js';
 import { collectionPicker } from './category-wizard.js';
+import { RARITIES, hasRarity, itemRarity } from './rarity.js';
 
 const DRAFT_PREFIX = 'my-home-inventory:form-draft:v1:';
 const RECENT_KEY = 'my-home-inventory:recent-places:v1';
@@ -63,7 +64,7 @@ export function createLocationPicker({ getDoc, value = '', excludeIds = [], movi
     const doc = getDoc();
     const el = h('button.if-location-option', { type: 'button', role: 'treeitem', 'aria-level': level + 1, 'aria-selected': String(n.id === current), onclick: () => choose(n) },
       nodeThumbnail(doc,n,15),
-      h('span', h('strong', n.name), full ? h('small', M.address(doc, n)) : null), n.id === current ? icon('check', 14) : null);
+      h('span', h('strong', n.kind==='room'&&!n.virtual?M.address(doc,n):n.name), full ? h('small', M.address(doc, n)) : null), n.id === current ? icon('check', 14) : null);
     el.style.setProperty('--depth', String(level));
     el.addEventListener('keydown', e => {
       const rows = Array.from(tree.querySelectorAll('.if-location-option')).filter(x => x.getClientRects().length);
@@ -163,6 +164,17 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   const location = createLocationPicker({ getDoc, value: starting.parentId, movingId: existing?.id, required: true, label: 'Место хранения' });
   const categoryOptions = [['', 'Без категории'], ...doc.categories.slice().sort((a, b) => M.categoryName(doc, a.id).localeCompare(M.categoryName(doc, b.id), 'ru')).map(c => [c.id, M.categoryName(doc, c.id)])];
   const category = select(categoryOptions, starting.categoryId, { 'aria-label': 'Категория' });
+  const rarity = select([['','Автоматически'],...RARITIES.map(r=>[r.id,r.name])],starting.rarity||'',{'aria-label':'Редкость'});
+  const rarityHelp=h('p.if-rarity-help'),rarityPreview=h('div.if-rarity-preview',{'aria-live':'polite'}),rarityField=field('Редкость',rarity,'if-rarity-field');
+  rarityField.append(rarityPreview,rarityHelp);
+  function refreshRarity() {
+    captureAttributes();
+    const candidate={...starting,name:name.value,kind:kind.value,categoryId:category.value,fields:allFields,rarity:rarity.value||null};
+    rarityPreview.replaceChildren(...[rarityBadge(getDoc(),candidate)].filter(Boolean));
+    rarityHelp.textContent='Автоматически — по словам в названии предмета. Ручной выбор имеет приоритет.';
+    const effective=itemRarity(getDoc(),candidate);
+    if(effective)rarityField.dataset.rarity=effective.id;else delete rarityField.dataset.rarity;
+  }
   const collections = collectionPicker(doc,starting.collectionIds||[]);
   const acquisition = select([['existing', 'Уже было дома'], ['purchase', 'Новая покупка']], starting.acquisition || 'existing', { 'aria-label': 'Как вещь появилась дома' });
   const purchased = input(starting.purchasedAt, { type: 'date', 'aria-label': 'Дата покупки' });
@@ -256,6 +268,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     const primary=[], extras=[purchaseField,currentField];
     if(isStorage){storageBasics.replaceChildren(kindField,fillField);extras.push(categoryField,field('Состояние',condition));}
     else{storageBasics.replaceChildren(categoryField,field('Состояние',condition));}
+    if(hasRarity({...starting,kind:kind.value}))storageBasics.append(rarityField);
     if(batch||Number(starting.quantity)>1)primary.push(field('Количество',quantity),field('Единица',unit));
     if(EXPIRING.has(categoryType)||starting.expiry)primary.push(field('Срок годности',expiry));
     if(['electronics','furniture','tools','sport'].includes(categoryType)||starting.warranty)primary.push(field('Гарантия до',warranty));
@@ -271,11 +284,12 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     heading.textContent=family==='item'?title:kind.value==='furniture'?(existing?'Редактировать мебель или технику':'Добавить мебель или технику'):title;
     dialog.setAttribute('aria-label',heading.textContent);
     submit.textContent=existing?'Сохранить':family==='item'?'Создать вещь':'Создать место';
+    refreshRarity();
   }
   renderFields();
   function state() {
     captureAttributes();
-    return { name: name.value, kind: kind.value, parentId: location.value, categoryId: category.value, collectionIds:collections.value, acquisition: acquisition.value,
+    return { name: name.value, kind: kind.value, parentId: location.value, categoryId: category.value, rarity:rarity.value||null, collectionIds:collections.value, acquisition: acquisition.value,
       fields: { ...allFields }, photo: photoValue, purchaseText: purchase.value, currentText: current.value,
       wearMode:wearMode.value,usefulLifeMonths:usefulLife.value,wear: wear.value, fill: fill.value, condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: quantity.value, unit: unit.value, notes: notes.value };
   }
@@ -288,6 +302,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     starting = structuredClone(base); allFields = { ...(base.fields || {}) }; attrInputs = {}; photoValue = base.photo || null;
     collections.value=base.collectionIds||[];
     name.value = base.name || ''; kind.value = base.kind || 'item'; location.value = base.parentId || ''; category.value = base.categoryId || '';
+    rarity.value=base.rarity||'';
     acquisition.value = base.acquisition || 'existing'; purchased.value = base.purchasedAt || ''; condition.value = base.condition || 'Хорошее';
     purchase.value = base.purchaseCents == null ? '' : (base.purchaseCents / 100).toFixed(2); current.value = base.currentCents == null ? '' : (base.currentCents / 100).toFixed(2);
     wearMode.value=resolvedWearMode(base);usefulLife.value=base.usefulLifeMonths??'';
@@ -315,8 +330,8 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     if (!dirty) { finishClose(); return; }
     closePrompt.hidden = false; continueButton.focus();
   }
-  form.addEventListener('input', track);
-  form.addEventListener('change', track);
+  form.addEventListener('input', () => {refreshRarity();track();});
+  form.addEventListener('change', () => {refreshRarity();track();});
   category.addEventListener('change', () => { renderFields(); track(); });
   kind.addEventListener('change', () => { renderFields(); track(); });
   acquisition.addEventListener('change', () => { renderFields(); track(); });
@@ -332,7 +347,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
       if (acquisition.value === 'purchase' && !purchased.value) { purchased.focus(); throw Error('Для новой покупки укажите дату покупки.'); }
       if (!form.reportValidity()) return;
       captureAttributes();
-      const props = { name: name.value.trim(), kind: kind.value, parentId: location.value, categoryId: category.value, collectionIds:collections.value, acquisition: acquisition.value,
+      const props = { name: name.value.trim(), kind: kind.value, parentId: location.value, categoryId: category.value, rarity:hasRarity({...starting,kind:kind.value})?rarity.value||null:null, collectionIds:collections.value, acquisition: acquisition.value,
         fields: Object.fromEntries(Object.entries(allFields).map(([key, value]) => [key, String(value).trim()]).filter(([, value]) => value)), photo: photoValue,
         purchaseCents: M.parseMoney(purchase.value), currentCents: M.parseMoney(current.value), wearMode:wearMode.value,usefulLifeMonths:usefulLife.value===''?null:Number(usefulLife.value), wear: wear.value === '' ? null : Number(wear.value), fill: fill.value === '' ? null : Number(fill.value),
         condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: Number(quantity.value), unit: unit.value, notes: notes.value.trim() };

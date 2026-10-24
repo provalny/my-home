@@ -46,7 +46,7 @@ test('global total counts furniture and each descendant exactly once',()=>{
 });
 test('move entire subtree updates every address and records movement for each live node',()=>{
   const d=seed();const box=find(d,'Коробка с аксессуарами');const belt=find(d,'Ремень');const room=d.nodes.find(n=>n.kind==='room'&&n.id!==box.parentId);
-  M.move(d,box.id,room.id);assert.equal(box.parentId,room.id);assert.ok(M.address(d,belt).startsWith(room.name+' → '));
+  M.move(d,box.id,room.id);assert.equal(box.parentId,room.id);assert.ok(M.address(d,belt).startsWith(M.address(d,room)+' → '));
   assert.equal(d.events.filter(e=>e.type==='move').length,2);M.validate(d);
 });
 test('cannot create a cycle or move into a plain item or archived destination',()=>{
@@ -64,23 +64,17 @@ test('archive container while relocating content preserves content as active',()
   M.archive(d,box.id,{reason:'Выброшено',date:M.today(),together:false,destination:shelf.id});
   assert.equal(belt.parentId,shelf.id);assert.equal(belt.archived,null);assert.ok(box.archived);M.validate(d);
 });
-test('archiving only a container relocates independently archived contents without changing their archive metadata',()=>{
-  const d=seed(),wardrobe=find(d,'Шкаф в спальне'),shelf=find(d,'Полка 1'),belt=find(d,'Ремень');
+test('archiving furniture preserves actual possessions elsewhere and retains built-in structure with its owner',()=>{
+  const d=seed(),wardrobe=find(d,'Шкаф в спальне'),shelf=find(d,'Полка 1'),belt=find(d,'Ремень'),shirt=find(d,'Футболка Nike');
   const target=d.nodes.find(n=>n.roomId&&n.id!==wardrobe.parentId);
-  M.archive(d,shelf.id,{reason:'Подарено',date:'2026-09-01'});
+  assert.throws(()=>M.archive(d,shelf.id,{reason:'Другое',date:M.today()}),/секции/);
   M.archive(d,belt.id,{reason:'Продано',date:'2026-09-02',saleCents:50000});
-  const nested=M.descendants(d,wardrobe.id),before=new Map(nested.map(n=>[n.id,M.address(d,n)]));
-  const archiveInfo=new Map(nested.map(n=>[n.id,structuredClone(n.archived)]));
-  const parentId=belt.parentId,eventsBefore=d.events.length;
+  const archived=structuredClone(belt.archived),parentId=belt.parentId;
   M.archive(d,wardrobe.id,{reason:'Выброшено',date:'2026-10-23',together:false,destination:target.id});
-  assert.equal(shelf.parentId,target.id);assert.equal(belt.parentId,parentId);
-  assert.ok(wardrobe.archived);
-  for(const n of nested){
-    assert.deepEqual(n.archived,archiveInfo.get(n.id));
-    assert.ok(M.address(d,n).startsWith(target.name+' → '));
-    assert.ok(d.events.slice(eventsBefore).some(e=>e.type==='move'&&e.nodeId===n.id&&e.from===before.get(n.id)&&e.to===M.address(d,n)));
-  }
-  assert.equal(belt.archived.saleCents,50000);M.validate(d);
+  assert.equal(shelf.parentId,wardrobe.id);assert.equal(shelf.archived.rootId,wardrobe.id);
+  assert.equal(shirt.parentId,target.id);assert.equal(shirt.archived,null);
+  assert.equal(belt.parentId,parentId);assert.deepEqual(belt.archived,archived);
+  assert.ok(M.address(d,belt).startsWith(M.address(d,target)+' → '));M.validate(d);
 });
 test('restoring one archive group leaves independently archived descendants archived',()=>{
   const d=seed();const box=find(d,'Коробка с аксессуарами');const belt=find(d,'Ремень');
@@ -145,11 +139,14 @@ test('deleting furniture with its subtree removes its geometry and recovery rest
   M.recover(d,entry.id,parent);
   assert.ok(expectedIds.every(i=>M.getNode(d,i)));assert.ok(d.plan.furniture.some(f=>f.id===wardrobe.furnitureId));assert.deepEqual(M.totals(d),before);assert.equal(d.trash.length,0);M.validate(d);
 });
-test('delete furniture while moving all contents, including archived children, elsewhere',()=>{
-  const d=seed();const wardrobe=find(d,'Шкаф в спальне');const belt=find(d,'Ремень');const shelf=find(d,'Полка 1');const room=d.nodes.find(n=>n.kind==='room'&&n.id!==wardrobe.parentId);
-  M.archive(d,shelf.id,{reason:'Другое',date:M.today()});
-  const entry=M.remove(d,wardrobe.id,{together:false,destination:room.id});
-  assert.equal(entry.nodes.length,1);assert.equal(shelf.parentId,room.id);assert.ok(shelf.archived);assert.ok(M.address(d,belt).startsWith(room.name+' → '));M.validate(d);
+test('deleting furniture preserves possessions and archived contents without loose built-in shelves',()=>{
+  const d=seed(),wardrobe=find(d,'Шкаф в спальне'),belt=find(d,'Ремень'),shelf=find(d,'Полка 1'),shirt=find(d,'Футболка Nike');
+  M.archive(d,belt.id,{reason:'Другое',date:M.today()});const archived=structuredClone(belt.archived);
+  const entry=M.remove(d,wardrobe.id,{together:false,destination:M.UNPLACED_ID});
+  assert.ok(entry.nodes.some(n=>n.id===shelf.id));assert.equal(M.getNode(d,shelf.id),undefined);
+  assert.equal(shirt.parentId,M.UNPLACED_ID);assert.deepEqual(belt.archived,archived);
+  assert.ok(M.address(d,belt).startsWith('Без места → '));assert.ok(M.children(d,M.UNPLACED_ID).every(n=>!['shelf','drawer','compartment'].includes(n.kind)));
+  M.validate(d);M.recover(d,entry.id,M.UNPLACED_ID);M.validate(d);assert.equal(shirt.parentId,M.UNPLACED_ID);
 });
 test('invalid delete destination and attempts to delete a room do not modify the document',()=>{
   const d=seed();const wardrobe=find(d,'Шкаф в спальне');const before=JSON.stringify(d);
@@ -284,8 +281,8 @@ test('things and storage counts exclude rooms and count each price once, with fu
   M.newNode(d,{name:'Ремень',parentId:box.id,purchaseCents:10000});
   const total=M.totals(d);
   assert.equal(total.count,5);assert.equal(total.items,2);assert.equal(total.storage,4);assert.equal(total.purchase,515000);
-  M.archive(d,shelf.id,{reason:'Другое',date:M.today()});
-  assert.equal(M.totals(d).storage,3);M.validate(d);
+  assert.throws(()=>M.archive(d,shelf.id,{reason:'Другое',date:M.today()}),/секции/);
+  M.remove(d,shelf.id);assert.equal(M.totals(d).storage,3);M.validate(d);
 });
 
 test('legacy migration preserves explicit purchases and turns undated catalogue imports into additions, including trash',()=>{
@@ -436,4 +433,57 @@ test('legacy appliance category retains its ID, items and children as a separate
   assert.equal(d.categories.find(c=>c.id==='legacy-kitchen').parentId,'legacy-appliances');
   assert.equal(n.categoryId,'legacy-appliances');
   assert.equal(d.categories.filter(c=>c.name==='Бытовая техника').length,1);
+});
+
+test('read index preserves search and totals across moves, archives and independent snapshots',()=>{
+ const d=seed(),index=M.createReadIndex(d),wardrobe=find(d,'Шкаф в спальне'),belt=find(d,'Ремень');
+ for(const n of d.nodes){assert.equal(index.address(n),M.address(d,n));assert.deepEqual(index.totals(n.id),M.totals(d,n.id));}
+ assert.deepEqual(index.search('Ремень').map(n=>n.id),[belt.id]);assert.deepEqual(index.search('Шкаф аксессуарами').map(n=>n.id),M.search(d,'Шкаф аксессуарами').map(n=>n.id));
+ const next=structuredClone(d);M.archive(next,wardrobe.id,{reason:'Подарено',date:M.today()});const updated=M.createReadIndex(next);
+ assert.equal(updated.search('Ремень').length,0);assert.equal(updated.search('Ремень',true).length,1);assert.equal(index.search('Ремень').length,1);
+ assert.ok(updated.totals().purchase<index.totals().purchase);
+});
+
+test('spaces share inventory and categories while plans, rooms and geometry remain independent',()=>{
+  const d=seed(),before=structuredClone(d.plan),count=d.nodes.length,spaceId=M.addSpace(d,{name:'Гараж',type:'garage'}),garage=M.getSpace(d,spaceId);
+  assert.deepEqual(d.plan,before);assert.equal(d.nodes.length,count+1);assert.equal(M.listSpaces(d).length,2);
+  const room=d.nodes.find(n=>n.spaceId===spaceId),tool=M.newNode(d,{name:'Торцевой ключ',parentId:room.id,categoryId:'tools',purchaseCents:12345});
+  assert.equal(M.spaceForNode(d,tool).id,spaceId);assert.ok(M.address(d,tool).startsWith('Гараж → '));assert.equal(M.search(d,'Гараж ключ')[0].id,tool.id);
+  const shared=M.totals(d).purchase;M.updateSpace(d,spaceId,{name:'Мастерская',type:'work'});assert.equal(M.search(d,'Мастерская ключ')[0].id,tool.id);assert.equal(M.totals(d).purchase,shared);
+  const plan=structuredClone(garage.plan);plan.rooms[0].name='Ремонтная зона';M.syncPlan(d,plan,{spaceId});assert.deepEqual(d.plan,before);assert.equal(room.name,'Ремонтная зона');
+  M.validate(d);const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.validate(copy);assert.deepEqual(copy.spaces,d.spaces);assert.equal(M.spaceForNode(copy,tool.id).name,'Мастерская');
+});
+test('moving furniture across spaces transfers one drawing and its full contents, unplaced detaches it',()=>{
+  const d=seed(),spaceId=M.addSpace(d,{name:'Работа',type:'work'}),room=d.nodes.find(n=>n.spaceId===spaceId),wardrobe=find(d,'Шкаф в спальне'),shirt=find(d,'Футболка Nike'),shapeId=wardrobe.furnitureId,total=M.totals(d);
+  M.move(d,wardrobe.id,room.id);assert.ok(!d.plan.furniture.some(f=>f.id===shapeId));assert.equal(M.getSpace(d,spaceId).plan.furniture.filter(f=>f.id===shapeId).length,1);
+  assert.equal(M.spaceForNode(d,shirt).id,spaceId);assert.deepEqual(M.totals(d),total);M.validate(d);
+  M.syncPlan(d,structuredClone(d.plan));assert.equal(wardrobe.furnitureId,shapeId);M.validate(d);
+  const entry=M.remove(d,wardrobe.id);assert.equal(entry.furniture[0].id,shapeId);M.validate(d);M.recover(d,entry.id,room.id);M.validate(d);
+  M.move(d,wardrobe.id,M.UNPLACED_ID);assert.equal(M.getNode(d,wardrobe.id).furnitureId,undefined);assert.equal(M.getSpace(d,spaceId).plan.furniture.length,0);M.validate(d);
+});
+test('editing or clearing one space cannot displace other spaces or the shared unplaced items',()=>{
+  const d=seed(),spaceId=M.addSpace(d,{name:'Работа',type:'work'}),room=d.nodes.find(n=>n.spaceId===spaceId),primary=structuredClone(d.plan),oldIds=d.nodes.filter(n=>n.roomId&&n.spaceId!==spaceId).map(n=>n.id);
+  const own=M.newNode(d,{name:'Рабочая вещь',parentId:room.id}),loose=M.newNode(d,{name:'Ожидает места',parentId:M.UNPLACED_ID});
+  M.clearApartment(d,{spaceId});assert.deepEqual(d.plan,primary);assert.ok(oldIds.every(id=>M.getNode(d,id)));assert.equal(own.parentId,M.UNPLACED_ID);assert.equal(loose.parentId,M.UNPLACED_ID);M.validate(d);
+});
+test('global place search includes rooms and structural sections without adding them to the normal catalog',()=>{
+  const d=seed(),spaceId=M.addSpace(d,{name:'Гараж',type:'garage'}),room=d.nodes.find(n=>n.spaceId===spaceId),index=M.createReadIndex(d);
+  assert.ok(index.search('Гараж Комната',false,true).some(n=>n.id===room.id));assert.ok(!M.catalogItems(d).some(n=>n.id===room.id));
+  assert.ok(index.search('Полка',false,true).some(n=>n.kind==='shelf'));assert.ok(!M.catalogItems(d,'Полка').some(n=>n.kind==='shelf'));
+});
+test('invalid space IDs, duplicate drawing IDs and dangling space references are rejected',()=>{
+  const d=seed(),spaceId=M.addSpace(d,{name:'Гараж',type:'garage'}),space=M.getSpace(d,spaceId);
+  const copy=structuredClone(d);copy.spaces.push(structuredClone(copy.spaces[0]));assert.throws(()=>M.validate(copy));
+  space.plan.rooms[0].id=d.plan.rooms[0].id;assert.throws(()=>M.validate(d));
+});
+test('migration repairs explicitly marked built-in items without guessing from names or archiving possessions',()=>{
+  const d=seed(),shelf=find(d,'Полка 1'),shirt=find(d,'Футболка Nike'),ordinary=M.newNode(d,{name:'Полка для фото',parentId:M.UNPLACED_ID});
+  shelf.autoSection=true;shelf.kind='item';assert.throws(()=>M.validate(d));M.migrate(d);M.validate(d);
+  assert.equal(shelf.kind,'shelf');assert.equal(shirt.parentId,shelf.id);assert.equal(ordinary.kind,'item');assert.equal(shirt.archived,null);
+  assert.throws(()=>M.updateNode(d,shelf.id,{kind:'item'}),/не может/);
+});
+test('room icon updates use the owning space after cross-space moves',()=>{
+  const d=seed(),spaceId=M.addSpace(d,{name:'Гараж',type:'garage'}),room=d.nodes.find(n=>n.spaceId===spaceId),wardrobe=find(d,'Шкаф в спальне');
+  M.move(d,wardrobe.id,room.id);setRoomIcon(d,room.id,'car');assert.equal(M.getSpace(d,spaceId).plan.rooms[0].icon,'car');
+  const primary=JSON.stringify(d.plan);M.syncPlan(d,structuredClone(M.getSpace(d,spaceId).plan),{spaceId});assert.equal(JSON.stringify(d.plan),primary);M.validate(d);
 });

@@ -11,7 +11,15 @@ export function buildKitchenAppliance(m){
   const disc=(radius,depth,x,y,z,material,parent=root)=>{const p=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,depth,32),material);p.rotation.x=Math.PI/2;p.position.set(x,y,z);parent.add(p);return p;};
   const ring=(radius,x,y,z,material,parent=root)=>{const p=new THREE.Mesh(new THREE.TorusGeometry(radius,.009,8,36),material);p.position.set(x,y,z);parent.add(p);return p;};
   let moving=null,axis='x',angle=Math.PI*.47;
-  if(m.type==='hood'){
+  if(m.type==='hoodCabinet'){
+    part(w,.10*h,d,0,0,0,steel);
+    part(w*.88,.008,d*.78,0,.002,0,dark);
+    for(let i=0;i<6;i++)part(w*.10,.006,d*.63,(i-2.5)*w*.125,.001,0,steel);
+    part(w*.65,.025,.012,0,h*.075,front+.005,dark);
+    part(w*.6,.006,.012,0,h*.105,front-.04,mat('#fff0c4',{emissive:'#ffe0a6',emissiveIntensity:.6}));
+    for(let i=0;i<3;i++)part(.012,.012,.009,(i-1)*w*.055,h*.079,front+.014,steel);
+    part(w*.24,h*.12,d*.4,0,h*.10,-d*.12,steel);
+  }else if(m.type==='hood'){
     part(w,.1*h,d,0,.04*h,0,steel);part(w*.86,.012,d*.8,0,.04*h-.012,0,dark);
     const canopy=new THREE.Mesh(new THREE.CylinderGeometry(.23,.5,.22,4),steel);canopy.rotation.y=Math.PI/4;canopy.scale.set(w/Math.SQRT1_2,h,d/Math.SQRT1_2);canopy.position.set(0,h*.25,0);root.add(canopy);
     part(w*.3,h*.52,d*.6,0,h*.37,-d*.1,steel);

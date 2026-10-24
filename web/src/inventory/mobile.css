@@ -1,0 +1,48 @@
+.iv-mobile-menu,.iv-mobile-backdrop { display:none; }
+.iv-phone-access { min-width:0; }
+.iv-phone-code { display:grid;justify-items:center;gap:12px;margin:16px 0; }
+.iv-phone-code img { display:block;box-sizing:content-box;width:232px;max-width:calc(100% - 32px);height:auto;background:#fff;padding:16px;border-radius:12px;image-rendering:pixelated; }
+.iv-phone-code p { margin:0;text-align:center; }
+.iv-phone-code .iv-field { width:100%;min-width:0; }
+.iv-phone-code input { box-sizing:border-box;width:100%;font-size:12px; }
+.iv-phone-state { color:var(--accent,#5ba5fa);font-weight:600; }
+@media(max-width:700px){
+  html.mode-inventory,html.mode-inventory body,html.mode-inventory #app { height:100%;height:100dvh;overflow:hidden; }
+  .mode-inventory .iv-shell,.mode-inventory .iv-shell.is-sidebar-collapsed,.mode-inventory .iv-shell:not(.is-sidebar-collapsed) { grid-template-columns:minmax(0,1fr);position:relative; }
+  .mode-inventory .iv-sidebar { display:none; }
+  .mode-inventory .is-mobile-menu-open .iv-sidebar { display:flex;position:absolute;inset:0 auto 0 0;width:min(290px,82vw);z-index:101;box-sizing:border-box;padding:calc(18px + env(safe-area-inset-top,0px)) 14px calc(14px + env(safe-area-inset-bottom,0px));background:var(--iv-solid,#111a2a);overflow:auto; }
+  .mode-inventory .is-sidebar-collapsed .iv-brand strong,.mode-inventory .is-sidebar-collapsed .iv-nav .iv-btn { font-size:13px; }
+  .mode-inventory .is-sidebar-collapsed .iv-brand>div,.mode-inventory .is-sidebar-collapsed .iv-version-number,.mode-inventory .is-sidebar-collapsed .iv-local-status { display:block; }
+  .mode-inventory .is-sidebar-collapsed .iv-sidebar-heading { flex-direction:row; }
+  .mode-inventory .is-sidebar-collapsed .iv-nav .iv-btn,.mode-inventory .is-sidebar-collapsed .iv-whats-new { font-size:13px;justify-content:flex-start;padding:10px;gap:8px; }
+  .mode-inventory .is-sidebar-collapsed .iv-space-nav { display:flex; }
+  .mode-inventory .iv-sidebar-toggle { display:none; }
+  .mode-inventory .iv-nav { flex:1 0 auto;overflow:visible; }
+  .mode-inventory .iv-sidebar-bottom { margin-top:16px; }
+  .mode-inventory .iv-nav .iv-btn { min-height:44px;padding:10px; }
+  .mode-inventory .iv-mobile-menu { display:inline-flex;grid-column:1;grid-row:1;width:auto;justify-self:start; }
+  .mode-inventory .is-mobile-menu-open .iv-mobile-backdrop { display:block;position:absolute;inset:0;z-index:100;background:#0008;border:0;border-radius:0;color:transparent; }
+  .mode-inventory .iv-topbar { display:grid;grid-template-columns:1fr auto;gap:8px;height:auto;min-height:0;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px; }
+  .mode-inventory .iv-topbar .iv-search { grid-column:1/-1;grid-row:2;width:100%;box-sizing:border-box; }
+  .mode-inventory .iv-topbar .iv-theme-toggle { grid-column:2;grid-row:1;width:44px;justify-self:end; }
+  .mode-inventory .iv-topbar>.primary { grid-column:1/-1;grid-row:3;width:100%; }
+  .mode-inventory .iv-history-controls { grid-column:1/-1;grid-row:4;width:100%;max-width:none; }
+  .mode-inventory .iv-history-next { display:none; }
+  .mode-inventory .iv-history-buttons { width:100%; }
+  .mode-inventory .iv-history-buttons .iv-btn { flex:1; }
+  .mode-inventory .iv-save { display:none; }
+  .mode-inventory .iv-content { padding:16px 12px calc(20px + env(safe-area-inset-bottom,0px)); }
+  .mode-inventory .iv-heading { gap:12px; }
+  .mode-inventory .iv-heading h1 { font-size:23px; }
+  .mode-inventory .iv-heading .iv-actions { flex-wrap:wrap; }
+  .mode-inventory .iv-detail-panel { width:100%;max-width:100%;box-sizing:border-box;padding:16px 16px calc(20px + env(safe-area-inset-bottom,0px)); }
+  .mode-inventory .iv-btn { min-height:42px; }
+  .mode-inventory input:not([type=checkbox]):not([type=radio]):not([type=range]),.mode-inventory textarea,.mode-inventory select { font-size:16px;max-width:100%;box-sizing:border-box; }
+  .mode-inventory .iv-form-grid,.mode-inventory .iv-room-form { grid-template-columns:minmax(0,1fr); }
+  .mode-inventory .iv-dialog { max-width:calc(100vw - 16px);max-height:calc(100dvh - 20px);margin:auto;box-sizing:border-box; }
+  .mode-inventory .iv-dialog-title { padding:14px 16px;gap:10px; }
+  .mode-inventory .iv-dialog-body { padding:16px; }
+  .mode-inventory .iv-alert { flex-wrap:wrap;font-size:12px; }
+  .mode-inventory .iv-toast { max-width:calc(100vw - 24px);box-sizing:border-box;bottom:calc(12px + env(safe-area-inset-bottom,0px)); }
+  .mode-inventory .iv-photo-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,160px),1fr)); }
+}

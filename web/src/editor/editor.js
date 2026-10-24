@@ -1,9 +1,12 @@
+import { randomID } from '../uuid.js';
 // Home editor (a window on the Mac, full screen on the iPhone): a top-down plan you can drag
 // things around on, an inspector for the selected item, a live 3D preview and the links to
 // real devices. On a phone the same pieces are laid out for a finger: the plan fills the
 // screen, the inspector is a sheet from the bottom, pinch zooms and drag pans.
 import './editor.css';
-import { normalize, loadRawConfig, LIGHT_KINDS, FLOOR_KINDS, isLinked } from '../config.js';
+import { roomPoints, roomContains, roomInteriorPoint } from '../geometry/room.js';
+import { roomContourForm } from './room-contour.js';
+import { normalize, loadRawConfig, LIGHT_KINDS, LIGHT_INTENSITY_DEFAULTS, FLOOR_KINDS, isLinked } from '../config.js';
 import { createWorld } from '../three/world.js';
 import { updateWallAttachments } from '../three/wall-attachment.js';
 import { updateSurfaceAttachments, SURFACE_ITEMS } from '../three/surface-attachment.js';
@@ -63,7 +66,9 @@ export async function bootEditor(root, options = {}) {
       : at === 'tuya' ? { kind: 'service', service: 'smartlife' } : { kind: 'home' });
   let sel = sectionSel(window.__HOUSE_BOOT__?.section || new URLSearchParams(location.search).get('section') || '');
   let dirty = false;
-  let world = null;
+  let world = null,previewResize = null;
+  const layoutObservers=[];
+  function disposePreview(){clearTimeout(previewTimer);previewResize?.disconnect();previewResize=null;world?.dispose();world=null;}
   let phone = null; // the iPhone's layout and gestures, set up by buildPhoneLayout()
   let previewLights = true;
   let deletingFurniture = false;
@@ -95,7 +100,7 @@ export async function bootEditor(root, options = {}) {
 
   /* ---------- layout ---------- */
 
-  const nameInput = h('input.title-input', { value: doc.name || 'Квартира', spellcheck: 'false', 'aria-label': 'Название квартиры' });
+  const nameInput = h('input.title-input', { value: doc.name || 'Квартира', spellcheck: 'false', 'aria-label': inventory?'Название пространства':'Название квартиры' });
   nameInput.addEventListener('input', () => { snapshot('name'); doc.name = nameInput.value; touch({ inspector: sel.kind === 'home' }); });
   const status = h('div.status');
   const saveBtn = h('button.btn.primary', { onclick: save }, icon('check', 15, 2.4), 'Сохранить план');
@@ -123,7 +128,7 @@ export async function bootEditor(root, options = {}) {
     h('header.bar',
       h('div.bar-title', icon('home', 17), nameInput,inventory?h('button.btn.danger',{onclick:clearAll},icon('trash',15),'Удалить всё'):null),
       h('div.bar-actions',
-        sideToggle, inspectorToggle,
+        inventory?h('button.btn',{onclick:searchInventory,title:'Поиск по всем пространствам. Текущие изменения плана сохранятся.'},icon('search',15),'Найти вещь'):null,sideToggle, inspectorToggle,
         undoBtn, redoBtn,
         h('button.btn', { onclick: importPlan }, 'Импорт…'),
         h('button.btn', { onclick: exportPlan }, 'Экспорт…'),
@@ -171,7 +176,7 @@ export async function bootEditor(root, options = {}) {
     handle.addEventListener('keydown', e => { if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); layout[`${which}Closed`] = false; setLayout(which, clamp((Number(layout[which]) || 260) + (e.key === 'ArrowRight' ? 20 : -20) * (which === 'side' ? 1 : -1), which === 'side' ? 170 : 260, 520)); });
     return handle;
   }
-  if (!isPhone) new ResizeObserver(applyLayout).observe(root);
+  if (!isPhone) {const observer=new ResizeObserver(applyLayout);observer.observe(root);layoutObservers.push(observer);}
   applyLayout();
 
   /* ---------- history ---------- */
@@ -233,7 +238,7 @@ export async function bootEditor(root, options = {}) {
   function validate() {
     try {
       if (inventory) {
-        const outside = doc.furniture.find(f => !doc.rooms.some(r => f.pos[0] >= r.rect[0] && f.pos[0] <= r.rect[0] + r.rect[2] && f.pos[1] >= r.rect[1] && f.pos[1] <= r.rect[1] + r.rect[3]));
+        const outside = doc.furniture.find(f => !doc.rooms.some(r => roomContains(r,f.pos)));
         if (outside) throw Error(`«${outside.name || FURNITURE_NAMES[outside.type] || 'Мебель'}» находится вне комнат. Переместите её в комнату или уберите с плана.`);
       }
       valid = normalize(structuredClone(doc));
@@ -266,11 +271,10 @@ export async function bootEditor(root, options = {}) {
 
   function buildPreview() {
     previewToggle.replaceChildren(icon(previewLights ? 'bright' : 'moon', 14), previewLights ? 'Свет включён' : 'Свет выключен');
-    if (!valid) return;
-    if (!isPhone && (layout.previewClosed || layout.rightClosed)) { world?.dispose(); world = null; previewHost.replaceChildren(); return; }
-    if (isPhone && !phone.show3D) { world?.dispose(); world = null; previewHost.replaceChildren(); return; }
-    world?.dispose();
-    world = null;
+    if (!valid) {disposePreview();previewHost.replaceChildren();return;}
+    if (!isPhone && (layout.previewClosed || layout.rightClosed)) { disposePreview(); previewHost.replaceChildren(); return; }
+    if (isPhone && !phone.show3D) { disposePreview(); previewHost.replaceChildren(); return; }
+    disposePreview();
     const canvas = h('canvas');
     previewHost.replaceChildren(canvas);
     try {
@@ -285,8 +289,9 @@ export async function bootEditor(root, options = {}) {
       world.setInsets(isPhone ? 20 : 6, isPhone ? 20 : 6);
       world.setRunning(true);
       const w = world;
-      new ResizeObserver(() => { if (world === w) w.resize(); }).observe(canvas);
+      previewResize=new ResizeObserver(() => { if (world === w) w.resize(); });previewResize.observe(canvas);
     } catch (e) {
+      disposePreview();
       previewHost.replaceChildren(h('div.preview-error', String(e.message || e)));
     }
   }
@@ -303,11 +308,11 @@ export async function bootEditor(root, options = {}) {
   }
 
   const roomName = (id) => doc.rooms.find((r) => r.id === id)?.name || id || '';
-  const roomAt = ([x, z]) => doc.rooms.find((r) => x >= r.rect[0] && x <= r.rect[0] + r.rect[2] && z >= r.rect[1] && z <= r.rect[1] + r.rect[3]);
+  const roomAt = ([x, z]) => doc.rooms.find(r => roomContains(r,[x,z]));
 
   function renderSidebar() {
     const nodes = [h(`button.row.home-row${sel.kind === 'home' ? '.active' : ''}`, { onclick: () => select({ kind: 'home' }) },
-      icon('home', 15), h('span.row-name', 'Настройки квартиры')),
+      icon('home', 15), h('span.row-name', inventory?'Настройки пространства':'Настройки квартиры')),
     inventory ? null : links.sidebarRow(sel.kind === 'connections' || sel.kind === 'service', () => select({ kind: 'connections' }))];
     const groups=Object.keys(KEYS).flatMap(k=>k==='furniture'?Object.keys(OBJECT_SECTIONS):[k]);
     const kinds=groups.filter(k=>!inventory||k!=='scene'),allClosed=kinds.every(k=>collapsedGroups.has(k));
@@ -347,7 +352,7 @@ export async function bootEditor(root, options = {}) {
     if (inventory && ['furniture', 'light', 'ac'].includes(kind)) return showCatalog(kind);
     snapshot();
     const room = (sel.kind === 'room' && doc.rooms[sel.index]) || doc.rooms.find((r) => r.id === doc[KEYS[sel.kind]]?.[sel.index]?.room) || doc.rooms[0];
-    const center = room ? [fix(room.rect[0] + room.rect[2] / 2), fix(room.rect[1] + room.rect[3] / 2)] : [1, 1];
+    const center = room ? roomInteriorPoint(room).map(fix) : [1, 1];
     const list = doc[KEYS[kind]];
     if (kind === 'room') {
       const maxX = Math.max(0, ...doc.rooms.map((r) => r.rect[0] + r.rect[2]));
@@ -360,7 +365,7 @@ export async function bootEditor(root, options = {}) {
       if (!room) return toast('Сначала добавьте комнату', true);
       list.push({ id: uniqueId(`${room.id}.ac`), name: `${room.name} — кондиционер`, room: room.id, wall: 'north', pos: [center[0], room.rect[1]], y: 2.2 });
     } else if (kind === 'furniture') {
-      list.push({ id: crypto.randomUUID(), type: 'sofa', pos: center, rot: 0 });
+      list.push({ id: randomID(), type: 'sofa', pos: center, rot: 0 });
     } else if (kind === 'opening') {
       if (!room) return toast('Сначала добавьте комнату', true);
       const z = room.rect[1] + room.rect[3];
@@ -385,11 +390,11 @@ export async function bootEditor(root, options = {}) {
       const room = doc.rooms.find(r => r.id === choice.roomId);
       if (!room) return;
       snapshot();
-      const center = [fix(room.rect[0] + room.rect[2] / 2), fix(room.rect[1] + room.rect[3] / 2)];
+      const center = roomInteriorPoint(room).map(fix);
       let entry;
       if (choice.kind === 'furniture') {
         const node = (inventoryData().furniture || []).find(n => n.id === choice.nodeId);
-        entry = { id: node?.furnitureId || crypto.randomUUID(), type: choice.type, name: node?.name || choice.name, pos: center, rot: 0 };
+        entry = { id: node?.furnitureId || randomID(), type: choice.type, name: node?.name || choice.name, pos: center, rot: 0 };
         if (EXTRA_MODEL_INFO[choice.type]?.defaultY) entry.y = EXTRA_MODEL_INFO[choice.type].defaultY;
         if (choice.type === 'tireStack' && choice.layout) entry.layout = choice.layout;
         if (node) entry.inventoryNodeId = node.id;
@@ -410,7 +415,7 @@ export async function bootEditor(root, options = {}) {
       for (let k = 0; k < Math.max(1, ring * 6); k++) {
         const a = (k / Math.max(1, ring * 6)) * Math.PI * 2;
         const p = [fix(round(center[0] + Math.cos(a) * ring * 0.6)), fix(round(center[1] + Math.sin(a) * ring * 0.6))];
-        if (p[0] > x + 0.2 && p[0] < x + w - 0.2 && p[1] > z + 0.2 && p[1] < z + d - 0.2 && !taken(p)) return p;
+        if (roomContains(room,p) && p[0] > x + 0.2 && p[0] < x + w - 0.2 && p[1] > z + 0.2 && p[1] < z + d - 0.2 && !taken(p)) return p;
       }
     }
     return center;
@@ -496,7 +501,7 @@ export async function bootEditor(root, options = {}) {
     doc.rooms.forEach((r, i) => {
       const [x, z, w, d] = r.rect;
       const g = sv('g', { class: `p-room${isSel('room', i) ? ' sel' : ''}`, 'data-kind': 'room', 'data-index': i },
-        sv('rect', { x, y: z, width: w, height: d, fill: FLOOR_FILL[r.floor] || FLOOR_FILL.oak }),
+        sv('polygon', { points:roomPoints(r).map(p=>p.join(',')).join(' '), fill: FLOOR_FILL[r.floor] || FLOOR_FILL.oak }),
         sv('text', { x: x + w / 2, y: z + d / 2 - 0.02, class: 'p-label' }, document.createTextNode(r.name || r.id)),
         sv('text', { x: x + w / 2, y: z + d / 2 + 0.3, class: 'p-dim' }, document.createTextNode(`${fix(w)} × ${fix(d)}`)));
       kids.push(g);
@@ -602,7 +607,7 @@ export async function bootEditor(root, options = {}) {
     drag = { kind, index, start, moved: false };
     if (kind === 'room') {
       const [x, z, w, d] = item.rect;
-      const inside = ([px, pz]) => px >= x - 1e-6 && px <= x + w + 1e-6 && pz >= z - 1e-6 && pz <= z + d + 1e-6;
+      const inside = p => roomContains(item,p);
       drag.rect = [...item.rect];
       // Everything standing in the room travels with it.
       drag.riders = [
@@ -681,6 +686,15 @@ export async function bootEditor(root, options = {}) {
     return h('label.field', h('span', label), input);
   }
 
+  function lightIntensityControl(item){
+    const base=LIGHT_INTENSITY_DEFAULTS[item.type],percent=Math.round((item.intensity??base)/base*100);
+    const slider=h('input',{type:'range',min:0,max:Math.max(300,percent),step:1,value:percent,'aria-label':'Интенсивность света, ползунок'});
+    const value=h('input',{type:'number',min:0,max:Math.max(300,percent),step:1,value:percent,'aria-label':'Интенсивность света, %'});
+    const set=source=>{if(source.value==='')return;const parsed=Number(source.value);if(!Number.isFinite(parsed))return;const next=clamp(parsed,0,Number(value.max));snapshot('light-intensity:'+item.id);item.intensity=Number((base*next/100).toFixed(6));slider.value=next;value.value=next;touch({inspector:false});};
+    slider.oninput=()=>set(slider);value.oninput=()=>set(value);
+    return h('div',h('label.field',h('span','Интенсивность, %'),slider),h('label.field',h('span','Точное значение, %'),value),h('p.note','100% — обычная интенсивность этого типа лампы. 0% гасит свет, до 300% усиливает его. Изменение сразу видно в 3D.'));
+  }
+
   function surfaceNote(item){
     if(item.surfaceSnap===false)return 'Высоту можно задать вручную.';
     const support=doc.furniture.find(f=>f.id===item.surfaceAttachment?.supportId);
@@ -714,7 +728,7 @@ export async function bootEditor(root, options = {}) {
       : h('div.insp-head', h('h2', title), sub ? h('span', sub) : null));
 
     if (kind === 'home') {
-      head('Квартира', 'Общие настройки планировки');
+      head(inventory?'Пространство':'Квартира', 'Общие настройки планировки');
       doc.camera ||= { azimuth: 34, elevation: 47 };
       if (isPhone) nodes.push(section('Реальные устройства', links.sidebarRow(false, () => select({ kind: 'connections' }))));
       nodes.push(section('Помещение',
@@ -724,7 +738,7 @@ export async function bootEditor(root, options = {}) {
       section('Камера',
         row(bind('Поворот, °', number(1), { ...prop(doc.camera, 'azimuth', 34), parse: parseNum }),
           bind('Наклон, °', number(1), { ...prop(doc.camera, 'elevation', 47), parse: parseNum })),
-        h('p.note', 'Ближние к камере стены скрыты. Поворот камеры определяет открытые стороны квартиры.')),
+        h('p.note', inventory?'Ближние к камере стены скрыты. Поворот камеры определяет открытые стороны пространства.':'Ближние к камере стены скрыты. Поворот камеры определяет открытые стороны квартиры.')),
       section('Как пользоваться',
         h('p.note', isPhone
           ? 'Выберите объект на плане или в списке. Сохранение записывает план на iPhone и отправляет его на связанный Mac. Координаты в метрах: X — вправо, Z — вниз.'
@@ -749,7 +763,8 @@ export async function bootEditor(root, options = {}) {
       section('Положение и размеры, м',
         row(bind('X', number(0.1), { ...at(item, 'rect', 0), parse: parseNum }), bind('Z', number(0.1), { ...at(item, 'rect', 1), parse: parseNum })),
         row(bind('Ширина', number(0.1), { ...at(item, 'rect', 2), parse: parseNum }), bind('Глубина', number(0.1), { ...at(item, 'rect', 3), parse: parseNum })),
-        h('p.note', 'Между соседними комнатами стена создаётся автоматически. Для соединения добавьте дверь или открытый проём.')));
+        h('p.note', 'Между соседними комнатами стена создаётся автоматически. Для соединения добавьте дверь или открытый проём.')),
+      section('Форма комнаты: углы и выступы',roomContourForm(item,points=>{snapshot();item.contour=points;touch();toast('Форма комнаты обновлена');})));
     } else if (kind === 'light') {
       head(item.name || item.id, `ID: ${item.id}`);
       item.capabilities ||= [];
@@ -761,6 +776,7 @@ export async function bootEditor(root, options = {}) {
         bind('Название', text(), prop(item, 'name', '')),
         row(bind('Комната', choice(doc.rooms.map((r) => [r.id, r.name || r.id])), { ...prop(item, 'room'), event: 'change' }),
           bind('Тип светильника', choice(LIGHT_KINDS.map(type => [type, LIGHT_NAMES[type]])), { ...prop(item, 'type'), event: 'change' }))),
+      section('Интенсивность света',lightIntensityControl(item)),
       section('Положение, м',
         row(bind('X', number(), { ...at(item, 'pos', 0), parse: parseNum }), bind('Z', number(), { ...at(item, 'pos', 1), parse: parseNum })),
         row(bind('Высота, м (пусто — автоматически)', number(), { ...optional(item, 'y'), parse: optNum }),
@@ -811,6 +827,8 @@ export async function bootEditor(root, options = {}) {
         SURFACE_ITEMS.has(item.type)?h('p.note.surface-note',surfaceNote(item)):null,
         item.type==='neonPorsche'?bind('Привязка к стене',h('input',{type:'checkbox'}),{...prop(item,'wallSnap',true),event:'change'}):null,
         item.type==='neonPorsche'?h('p.note','Вывеска встаёт на ближайшую стену и поворачивается светящейся стороной в комнату. Высота задаётся в поле «От пола».'):null,
+        item.type === 'parrotCage' ? bind('Попугаи в клетке', choice([['1','Один попугай'],['2','Два попугая']]), {get:()=>Number(item.parrotCount)===2?'2':'1',set:value=>{item.parrotCount=Number(value);},event:'change'}) : null,
+        item.type === 'parrotCage' ? h('p.note','Попугаи прыгают между жердочками. Иногда появляются ноты, изредка — %@?$.') : null,
         item.type === 'tireStack' ? bind('Как хранить 4 шины', choice([['stack','Стопкой'],['row','В ряд']]), { ...prop(item,'layout','stack'), event:'change' }) : null,
         item.type === 'cornerSofa' ? bind('Угол дивана', choice([['right','Справа'],['left','Слева']]), { ...prop(item,'chaise','right'), event:'change' }) : null,
         bind('Цвет (hex, необязательно)', text(), optional(item, 'color')),
@@ -1015,6 +1033,11 @@ export async function bootEditor(root, options = {}) {
 
   async function clearAll(){if(saving||deletingFurniture)return;try{const next=await options.onClear?.(structuredClone(doc));if(!next)return;doc=structuredClone(next);undo.length=0;redo.length=0;lastSnapshotKey=null;savedDocument=JSON.stringify(doc);nameInput.value=doc.name||'';sel={kind:'home'};dirty=false;renderSidebar();renderPlan();renderInspector();validate();schedulePreview(0);toast('Карта очищена. Вещи сохранены в «Без места».');}catch(e){toast(e.message,true);}}
 
+  async function searchInventory(){
+    if(!inventory||saving||deletingFurniture)return;
+    if(dirty){await save();if(dirty){toast('Сначала исправьте и сохраните изменения плана.',true);return;}}
+    options.onClose?.();window.parent.__inventoryFocusSearch?.();
+  }
   async function save() {
     if (!valid || saving || deletingFurniture) return;
     if (inventory) {
@@ -1114,6 +1137,7 @@ export async function bootEditor(root, options = {}) {
     if (command && !typing) {
       ev.preventDefault();
       routeHistory(command === 'redo');
+    } else if (inventory&&(ev.metaKey||ev.ctrlKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();searchInventory();
     } else if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 's') {
       ev.preventDefault();
       save();
@@ -1269,7 +1293,7 @@ export async function bootEditor(root, options = {}) {
       const midY = pad.top + (H - pad.top - pad.bottom) / 2;
       return { x: (b.minX + b.maxX) / 2 - w / 2, y: (b.minZ + b.maxZ) / 2 - midY / scale, w, h: hh };
     }
-    new ResizeObserver(() => ui.applyView()).observe(plan);
+    const observer=new ResizeObserver(() => ui.applyView());observer.observe(plan);layoutObservers.push(observer);
 
     // One finger on what is selected drags it; anywhere else it pans, and a tap picks.
     // Two fingers pinch to zoom.
@@ -1297,7 +1321,7 @@ export async function bootEditor(root, options = {}) {
       // A selected room is grabbed anywhere inside it, even over its furniture and lamps.
       const room = sel.kind === 'room' && doc.rooms[sel.index];
       const [px, pz] = planPoint(ev);
-      const inRoom = room && px >= room.rect[0] && px <= room.rect[0] + room.rect[2] && pz >= room.rect[1] && pz <= room.rect[1] + room.rect[3];
+      const inRoom = room && roomContains(room,[px,pz]);
       if (kind === 'resize' || (kind && kind !== 'none' && isSel(kind, index)) || (inRoom && kind !== 'light' && kind !== 'ac')) {
         const what = kind === 'resize' || isSel(kind, index) ? [kind, index] : ['room', sel.index];
         // The view holds still while something is dragged past the plan's edge.
@@ -1419,6 +1443,10 @@ export async function bootEditor(root, options = {}) {
     if (index >= 0) select({ kind: 'furniture', index });
     else setTimeout(() => showCatalog('furniture', nodeId), 0);
   }
+  const disposeEditor=()=>{disposePreview();for(const observer of layoutObservers)observer.disconnect();layoutObservers.length=0;stopLoginPolling();clearTimeout(toast.timer);};
+  incoming.disposeEditor=disposeEditor;
+  window.addEventListener('pagehide',disposeEditor);
+  document.addEventListener('visibilitychange',()=>world?.setRunning(!document.hidden));
   incoming.openSection = (at) => select(sectionSel(at));
   // A plan saved on the other device (the Mac, or the paired iPhone) while this editor is open.
   incoming.planArrived = (config, from) => {

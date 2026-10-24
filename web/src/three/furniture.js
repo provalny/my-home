@@ -3,12 +3,14 @@
 import * as THREE from 'three';
 import { box, cyl, mat, at, rng } from './kit.js';
 import { WORKSPACE_BUILDERS } from './workspace-models.js';
+import { IKEA_SHELF_BUILDERS } from './ikea-shelves.js';
+import { buildParrotCage } from './parrot-cage.js';
 import { EQUIPMENT_BUILDERS } from './equipment.js';
 import { EXTRA_BUILDERS } from './furniture-extra.js';
 import { extraDimensions } from './furniture-info.js';
 import { buildKitchen } from './kitchen.js';
 import { buildFridge } from './fridge.js';
-import { IKEA_STORAGE } from '../inventory/ikea-storage.js';
+import { IKEA_STORAGE, isKitchenType } from '../inventory/ikea-storage.js';
 
 const WOOD = '#a98459';
 const DARK_WOOD = '#5a4334';
@@ -73,6 +75,8 @@ const builders = {
   ...EXTRA_BUILDERS,
   ...EQUIPMENT_BUILDERS,
   ...WORKSPACE_BUILDERS,
+  ...IKEA_SHELF_BUILDERS,
+  parrotCage:buildParrotCage,
   rug({ size = [2, 1.4], color = '#3b4a66' }) {
     const g = group(
       at(box(size[0], 0.016, size[1], mat(color, { rough: 1 }), { r: 0.006 }), 0, 0, 0),
@@ -170,6 +174,8 @@ const builders = {
   },
 
   kitchen(shape) { return buildKitchen(shape).root; },
+  kitchenBase(shape) { return buildKitchen(shape).root; },
+  hoodCabinet(shape) { return buildKitchen(shape).root; },
 
   fridge(shape) {return buildFridge(shape).root;},
 
@@ -346,13 +352,13 @@ export function buildFurniture(items) {
     }
     const g = make(item);
     const ref=IKEA_STORAGE[item.type];
-    if(ref&&item.type!=='kitchen'&&!extraDimensions(item)){const bounds=new THREE.Box3().setFromObject(g),size=bounds.getSize(new THREE.Vector3());g.scale.set((item.width||ref.size[0])/size.x,(item.height||ref.size[1])/size.y,(item.depth||ref.size[2])/size.z);}
+    if(ref&&!isKitchenType(item.type)&&!extraDimensions(item)){const bounds=new THREE.Box3().setFromObject(g),size=bounds.getSize(new THREE.Vector3());g.scale.set((item.width||ref.size[0])/size.x,(item.height||ref.size[1])/size.y,(item.depth||ref.size[2])/size.z);}
     g.position.set(item.pos[0], item.y || 0, item.pos[1]);
     g.rotation.y = THREE.MathUtils.degToRad(item.rot || 0);
     const flat = g.userData.flat;
     g.traverse((o) => {
       if (o.isMesh) {
-        o.castShadow = !flat; o.receiveShadow = true;
+        o.castShadow = !flat&&!o.userData.dynamicFurniture; o.receiveShadow = true;
         if (item.id) o.userData = { ...o.userData, kind: 'furniture', id: item.id };
       }
     });

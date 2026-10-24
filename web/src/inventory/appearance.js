@@ -1,12 +1,15 @@
+import { allFurniture } from './spaces.js';
 import { roomGlyph } from './room-icons.js';
 import { KITCHEN_MODULE_TYPES } from './ikea-storage.js';
 // One resolver for every inventory view, including location pickers.
 export const FURNITURE_GLYPHS = {
+  woodShelfLow:'rack',parrotCage:'pets',
+  kallaxShelf:'shelf',ivarRack:'rack',
   officeChair:'furniture',gamingDesktop:'games',monitorStand:'tv',desktopMonitor:'tv',smallDesk:'desk',neonPorsche:'car',ikeaFloorLamp:'bulb',whiteSpeaker:'film',bookcaseTall:'shelf',bookcaseMedium:'shelf',
   pcCase:'laptop',macBook:'laptop',simCockpit:'games',simCockpitTriple:'games',printer3dEnclosed:'box',printer3dOpen:'box',printerCabinet:'dresser',
   sofa:'sofa',armchair:'furniture',coffeeTable:'desk',desk:'desk',diningSet:'dishes',
   bed:'bed',nightstand:'dresser',wardrobe:'wardrobe',bookshelf:'shelf',sideboard:'dresser',dresser:'dresser',
-  kitchen:'stove',island:'dishes',fridge:'fridge',tv:'tv',plant:'flower',rug:'stop',
+  kitchenBase:'stove',hoodCabinet:'fan',kitchen:'stove',island:'dishes',fridge:'fridge',tv:'tv',plant:'flower',rug:'stop',
   vanity:'dry',bathtub:'bath',toilet:'toilet',metalRack:'rack',tireStack:'tire',
   washingMachine:'washer',dishwasher:'dishes',stove:'stove',microwave:'microwave',
   shoeCabinet:'shoes',hallUnit:'door',cornerSofa:'sofa',slidingWardrobe:'wardrobe',
@@ -30,10 +33,11 @@ export function categoryAppearance(doc, categoryId) {
   return { glyph:glyph || GLYPHS[kind] || 'box', kind };
 }
 export function nodeAppearance(doc, n) {
+  if(n.kind==='room'&&n.virtual)return {glyph:'unplaced',kind:'room'};
   if(n.fridgeChamber)return {glyph:n.fridgeChamber==='freezer'?'cool':n.fridgeChamber==='fresh'?'leaf':'fridge',kind:n.kind};
   if(n.kitchenModule)return {glyph:KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.glyph||'folder',kind:n.kind};
   if (n.kind === 'room') return {glyph:roomGlyph(n),kind:'room'};
-  const type = doc.plan?.furniture?.find(f=>f.id===n.furnitureId)?.type || n.modelType;
+  const type = allFurniture(doc).find(f=>f.id===n.furnitureId)?.type || n.modelType;
   if(n.kind==='furniture'&&FURNITURE_GLYPHS[type]) return {glyph:FURNITURE_GLYPHS[type],kind:categoryAppearance(doc,n.categoryId).kind};
   if(n.kind==='shelf')return {glyph:'shelf',kind:'shelf'};
   if(n.kind==='drawer')return {glyph:'dresser',kind:'drawer'};

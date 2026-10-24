@@ -4,8 +4,10 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { installWallGhost } from './wall-ghost.js';
 import { buildHouse } from './house.js';
 import { buildFurniture } from './furniture.js';
+import { collectFurnitureAnimators, animateFurniture } from './furniture-animation.js';
 import { LightUnit } from './lights.js';
 import { ACUnit } from './ac.js';
 import { buildStorageInterior, disposeObject } from './storage-interior.js';
@@ -20,8 +22,8 @@ const EL_MAX = 70;
 const ZOOM_MIN = 0.55;     // closest
 const ZOOM_MAX = 1.2;
 
-export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>{}, onZones=()=>{}, reduceMotion=false, background = STAGE_BG }) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
+export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>{}, onZones=()=>{}, reduceMotion=false, exterior=false, onBackdropMask=()=>{}, background = STAGE_BG }) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: exterior, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -30,7 +32,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
   renderer.shadowMap.autoUpdate = false; // the model is static: shadow maps are rendered once
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(background);
+  scene.background = exterior?null:new THREE.Color(background);if(exterior)renderer.setClearColor(0x000000,0);
 
   const camera = new THREE.PerspectiveCamera(24, 1, 0.5, 120);
 
@@ -46,8 +48,10 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
 
   const house = buildHouse(config, camDir);
   scene.add(house.group);
+  const wallGhost=config.inventoryPicking?installWallGhost(house.walls):null;
   const furniture = buildFurniture(config.furniture);
   scene.add(furniture);
+  const furnitureAnimators=collectFurnitureAnimators(furniture);let furnitureTime=0;
   const furnitureHits = [];
   if (config.inventoryPicking) furniture.traverse(o => { if (o.isMesh) furnitureHits.push(o); });
 
@@ -298,6 +302,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     drag = { x: ev.clientX, y: ev.clientY, az: rig.goal.az, el: rig.goal.el, moved: false };
   });
   canvas.addEventListener('pointermove', (ev) => {
+    const rect=canvas.getBoundingClientRect();if(ev.pointerType!=='touch'){wallGhost?.move((ev.clientX-rect.left)/rect.width,(ev.clientY-rect.top)/rect.height);wake();}
     if (fingers.has(ev.pointerId)) fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if (pinch) {
       if (fingers.size >= 2) {
@@ -342,7 +347,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     if (!fingers.size) pinch = null;
     drag = null;
   });
-  canvas.addEventListener('pointerleave', () => { if (!drag) setHover(null); });
+  canvas.addEventListener('pointerleave', () => {wallGhost?.leave();wake();if (!drag) setHover(null); });
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     rig.zoom = clamp(rig.zoom * Math.exp(ev.deltaY * 0.0015), ZOOM_MIN, ZOOM_MAX);
@@ -369,6 +374,8 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     let active = updateRig(dt);
+    active=wallGhost?.update(dt,reduceMotion)||active;
+    furnitureTime+=dt;active=animateFurniture(furnitureAnimators,furnitureTime,{reduceMotion})||active;
     if(storage){
       if(storageProgress<1){storageProgress=reduceMotion?1:Math.min(1,storageProgress+dt*1.3);storage.interior?.animate(THREE.MathUtils.smoothstep(storageProgress,.12,1));active=true;
         focusLight.intensity=storageProgress*.8;
@@ -380,6 +387,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     if (shadowFrames > 0) { renderer.shadowMap.needsUpdate = true; shadowFrames--; active = true; }
     if (active || awake > 0) {
       composer.render(dt);
+      if(exterior)updateBackdropMask();
       if(storage?.interior){const anchors=storage.interior.labels.map(label=>{const point=label.anchor.getWorldPosition(new THREE.Vector3()).project(camera),a=label.anchor.localToWorld(new THREE.Vector3(-label.width/2,-label.height/2,0)).project(camera),b=label.anchor.localToWorld(new THREE.Vector3(label.width/2,label.height/2,0)).project(camera);return {...label,anchor:undefined,x:(point.x*.5+.5)*width,y:(-point.y*.5+.5)*height,screenWidth:Math.abs(a.x-b.x)*width/2,screenHeight:Math.abs(a.y-b.y)*height/2,visible:storageProgress>.35&&point.z>-1&&point.z<1};});onZones(anchors);}
       awake = Math.max(0, awake - 1);
       if (hovered && active) onHover({ ...hovered, ...screenAnchor(hovered) });
@@ -395,6 +403,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     const pr = Math.min(window.devicePixelRatio || 1, 2);
     renderer.setPixelRatio(pr);
     renderer.setSize(width, height, false);
+    wallGhost?.resize(width*pr,height*pr);
     composer.setPixelRatio(pr);
     composer.setSize(width, height);
     camera.aspect = width / height;
@@ -405,6 +414,12 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     wake(3);
   }
 
+  function updateBackdropMask(){
+    const object=storage?.interior?.root||storage?.original;
+    const boxes=object?[new THREE.Box3().setFromObject(object),new THREE.Box3(new THREE.Vector3(minX,-.1,minZ),new THREE.Vector3(maxX,.02,maxZ))]:[new THREE.Box3(new THREE.Vector3(minX-.46,-.5,minZ-.46),new THREE.Vector3(maxX+.46,H,maxZ+.46))];
+    const points=[];for(const box of boxes)for(let i=0;i<8;i++){const p=new THREE.Vector3(i&1?box.max.x:box.min.x,i&2?box.max.y:box.min.y,i&4?box.max.z:box.min.z).project(camera);if(p.z>-1&&p.z<1)points.push([(p.x*.5+.5)*width,(-p.y*.5+.5)*height]);}
+    onBackdropMask(points);
+  }
   const world = {
     lights,
     acs,
@@ -423,7 +438,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     resize,
 
     focus(next) {
-      closeStorage();
+      setHover(null);closeStorage();
       rig.focus = next;
       rig.zoom = 1;
       rig.goal.az = next?.kind==='furniture'?(config.furniture.find(f=>f.id===next.id)?.rot||0)+12:baseAz + (next?.kind === 'ac' ? (WALL_SIDE[acs.get(next.id).cfg.wall] ?? 0) : 0);
@@ -433,7 +448,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     },
     openStorage({id,zones=[],openable=false,container=false,selectedId=null,moduleKey=null,chamberKey=null}){
       const shape=config.furniture.find(f=>f.id===id),original=modelFor(id);if(!shape||!original)return false;
-      closeStorage();
+      setHover(null);closeStorage();
       for(const g of furniture.children)if(g!==original&&g.visible){hidden.push(g);g.visible=false;}
       house.group.traverse(mesh=>{if(mesh.isMesh&&mesh.userData.kind!=='room'&&mesh.visible){hidden.push(mesh);mesh.visible=false;}});
       for(const unit of [...lights.values(),...acs.values()])if(unit.model?.visible){hidden.push(unit.model);unit.model.visible=false;}

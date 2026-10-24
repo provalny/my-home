@@ -51,6 +51,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>NSHighResolutionCapable</key><true/>
 <key>NSHumanReadableCopyright</key><string>Based on House Control © 0xProbability. MIT License.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSLocalNetworkUsageDescription</key><string>Life Assistant подключает телефон к вашей квартире и вещам по домашней сети Wi-Fi.</string>
 </dict></plist>
 PLIST
 python3 "$ROOT/scripts/configure-updates.py" "$APP/Contents/Info.plist" "$ROOT/distribution.json"

@@ -94,11 +94,11 @@ test('legacy copies need no collection migration; malformed collections and memb
 
 test('the whole setup and item memberships participate in one undo/redo history',()=>{
   let d=seed();const before=structuredClone(d),history=createActionHistory();
-  history.record(d,{label:'Настройка категорий',section:'categories'});applyCategoryPacks(d,photo);
+  applyCategoryPacks(d,photo);history.record(before,{label:'Настройка категорий',section:'categories'},d);
   const configured=structuredClone(d);
-  history.record(d,{label:'Подборки вещи',section:'catalog'});
   M.updateNode(d,d.nodes.find(n=>n.kind==='item').id,{collectionIds:d.collections.map(c=>c.id)});
+  history.record(configured,{label:'Подборки вещи',section:'catalog'},d);
   for(const [redo,expected] of [[false,configured],[false,before],[true,configured]]){
-    const next=structuredClone(history.peek(redo).document);history.complete(redo,d);d=next;M.validate(d);assert.deepEqual(d,expected);
+    const next=history.applyTo(structuredClone(d),redo);history.complete(redo);d=next;M.validate(d);assert.deepEqual(d,expected);
   }
 });

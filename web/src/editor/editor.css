@@ -94,9 +94,9 @@ html.mode-editor, html.mode-editor body { user-select: none; }
 .plan { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
 .hint { position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; font-size: 11.5px; color: var(--faint); pointer-events: none; }
 
-.p-room rect { stroke: #dfe3ec; stroke-width: 0.11; cursor: move; transition: fill 160ms; }
-.p-room:hover rect { filter: brightness(1.2); }
-.p-room.sel rect { stroke: #6aa6ff; stroke-width: 0.14; }
+.p-room polygon { stroke: #dfe3ec; stroke-width: 0.11; cursor: move; transition: fill 160ms; }
+.p-room:hover polygon { filter: brightness(1.2); }
+.p-room.sel polygon { stroke: #6aa6ff; stroke-width: 0.14; }
 .p-label, .p-dim { text-anchor: middle; pointer-events: none; font-family: -apple-system, system-ui, sans-serif; }
 .p-label { font-size: 0.3px; font-weight: 650; fill: rgba(255, 255, 255, 0.86); }
 .p-dim { font-size: 0.2px; fill: rgba(255, 255, 255, 0.4); }
@@ -331,8 +331,8 @@ html.ios.mode-editor body { background: var(--bg); }
 
 .editor.phone .hit { fill: transparent; stroke: none; }
 .editor.phone .p-hit { stroke: transparent; stroke-width: 0.6; }
-.editor.phone .p-room rect, .editor.phone .p-furn rect, .editor.phone .p-light, .editor.phone .p-ac rect, .editor.phone .p-open { cursor: default; }
-.editor.phone .p-room:hover rect { filter: none; }
+.editor.phone .p-room polygon, .editor.phone .p-furn rect, .editor.phone .p-light, .editor.phone .p-ac rect, .editor.phone .p-open { cursor: default; }
+.editor.phone .p-room:hover polygon { filter: none; }
 
 .p-tools {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; height: var(--tools-h);

@@ -1,3 +1,4 @@
+import { isKitchenType } from '../inventory/ikea-storage.js';
 import * as THREE from 'three';
 import { box, at, isSharedMaterial } from './kit.js';
 import { buildFurniture } from './furniture.js';
@@ -6,12 +7,12 @@ import { buildFurnitureInterior } from './furniture-interior.js';
 import { decorateStorageInterior } from './storage-clutter.js';
 import { buildFridge } from './fridge.js';
 
-export function disposeObject(root){if(!root)return;const geometries=new Set(),materials=new Set();root.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.isInstancedMesh)o.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])if(m&&!isSharedMaterial(m))materials.add(m);});geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());}
+export function disposeObject(root){if(!root)return;const geometries=new Set(),materials=new Set(),textures=new Set();root.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.isInstancedMesh)o.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])if(m&&!isSharedMaterial(m)){materials.add(m);if(m.map)textures.add(m.map);}});geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());}
 export function storageDimensions(shape,container=false){if(container)return [.72,.62,.52];const sample=buildFurniture([{...shape,pos:[0,0],y:0,rot:0}]);const size=new THREE.Box3().setFromObject(sample).getSize(new THREE.Vector3());disposeObject(sample);return [Math.max(.2,size.x),Math.max(.2,size.y),Math.max(.15,size.z)];}
 
 export function buildStorageInterior(shape,zones,{container=false,dimensions=null,moduleKey=null,chamberKey=null}={}){
   if(shape.type==='fridge'&&!container){const model=buildFridge(shape,{zones,chamberKey});model.root.position.set(shape.pos[0],shape.y||0,shape.pos[1]);model.root.rotation.y=THREE.MathUtils.degToRad(shape.rot||0);return {...model,dispose(){disposeObject(model.root);}};}
-  if(shape.type==='kitchen'&&!container){const kitchen=decorateStorageInterior(buildKitchen(shape,{zones,moduleKey}));kitchen.root.position.set(shape.pos[0],shape.y||0,shape.pos[1]);kitchen.root.rotation.y=THREE.MathUtils.degToRad(shape.rot||0);kitchen.animate(0);return {...kitchen,dispose(){disposeObject(kitchen.root);}};}
+  if(isKitchenType(shape.type)&&!container){const kitchen=decorateStorageInterior(buildKitchen(shape,{zones,moduleKey}));kitchen.root.position.set(shape.pos[0],shape.y||0,shape.pos[1]);kitchen.root.rotation.y=THREE.MathUtils.degToRad(shape.rot||0);kitchen.animate(0);return {...kitchen,dispose(){disposeObject(kitchen.root);}};}
   if(!container){const model=decorateStorageInterior(buildFurnitureInterior(shape,zones));return {...model,dispose(){disposeObject(model.root);}};}
   const [w,h,d]=dimensions||storageDimensions(shape,container),root=new THREE.Group(),hits=[],labels=[],doors=[],drawers=[],contentSlots=[];
   const lightBody=['fridge','stove','kitchen','vanity'].includes(shape.type),openShelf=['metalRack','bookshelf','wallShelf'].includes(shape.type);

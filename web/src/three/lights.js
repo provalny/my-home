@@ -1,6 +1,7 @@
 // Light fixtures: a small model, the real three.js light(s) it drives and the
 // animation that eases both towards the device state.
 import * as THREE from 'three';
+import { LIGHT_INTENSITY_DEFAULTS } from '../config.js';
 import { box, cyl, mat, at } from './kit.js';
 
 const STOPS = [
@@ -70,7 +71,7 @@ const fixtures = {
     return {
       parts: [at(cyl(0.012, 0.012, H - y - 0.05, mat(DARK), 8), 0, y + 0.05, 0)],
       glow: [at(cyl(0.27, 0.27, 0.055, glowMaterial(), 40), 0, y, 0)],
-      lights: [spot(cfg.intensity ?? 20, y - 0.02)],
+      lights: [spot(cfg.intensity ?? LIGHT_INTENSITY_DEFAULTS.ceiling, y - 0.02)],
       hit: [0.75, 0.5, 0.75, y],
     };
   },
@@ -85,7 +86,7 @@ const fixtures = {
         at(cyl(0.04, 0.05, 0.05, mat(DARK, { rough: 0.4, metal: 0.6 }), 16), 0, y + 0.14, 0),
       ],
       glow: [globe],
-      lights: [spot(cfg.intensity ?? 9, y - 0.05)],
+      lights: [spot(cfg.intensity ?? LIGHT_INTENSITY_DEFAULTS.pendant, y - 0.05)],
       hit: [0.6, 0.7, 0.6, y],
     };
   },
@@ -96,7 +97,7 @@ const fixtures = {
     return {
       parts: [at(box(0.95, 0.03, 0.05, mat(DARK, { rough: 0.5 }), { r: 0.01 }), 0, y + 0.05, 0)],
       glow,
-      lights: [spot(cfg.intensity ?? 20, y - 0.08)],
+      lights: [spot(cfg.intensity ?? LIGHT_INTENSITY_DEFAULTS.spots, y - 0.08)],
       hit: [1.1, 0.45, 0.5, y],
     };
   },
@@ -109,7 +110,7 @@ const fixtures = {
         at(cyl(0.011, 0.011, 1.3, mat(DARK, { rough: 0.4, metal: 0.5 }), 8), 0, 0.02, 0),
       ],
       glow: [at(shade, 0, 1.28, 0)],
-      lights: [point(cfg.intensity ?? 3.4, 1.46)],
+      lights: [point(cfg.intensity ?? LIGHT_INTENSITY_DEFAULTS.floor, 1.46)],
       hit: [0.6, 1.7, 0.6, 0.85],
     };
   },
@@ -122,7 +123,7 @@ const fixtures = {
         at(cyl(0.01, 0.01, 0.18, mat(DARK, { rough: 0.4, metal: 0.5 }), 8), 0, y + 0.02, 0),
       ],
       glow: [at(cyl(0.085, 0.125, 0.17, glowMaterial(), 28), 0, y + 0.18, 0)],
-      lights: [point(cfg.intensity ?? 1.5, y + 0.3)],
+      lights: [point(cfg.intensity ?? LIGHT_INTENSITY_DEFAULTS.table, y + 0.3)],
       hit: [0.5, 0.6, 0.5, y + 0.2],
     };
   },
@@ -134,7 +135,7 @@ const fixtures = {
     const lights = [];
     for (let i = 0; i < n; i++) {
       const x = -length / 2 + (length / n) * (i + 0.5);
-      lights.push(point((cfg.intensity ?? 1.6) / n, y, { shadow: false, distance: 3.2, x, z: 0.05 }));
+      lights.push(point((cfg.intensity ?? LIGHT_INTENSITY_DEFAULTS.strip) / n, y, { shadow: false, distance: 3.2, x, z: 0.05 }));
     }
     return {
       parts: [],
@@ -200,7 +201,7 @@ export class LightUnit {
 
   apply(state, { instant = false, delay = 0 } = {}) {
     const dimmable = this.cfg.capabilities.includes('brightness');
-    this.goal = state.on ? (dimmable ? state.brightness : 1) : 0;
+    this.goal = state.on && this.cfg.intensity !== 0 ? (dimmable ? state.brightness : 1) : 0;
     lightColor(state, this.goalColor);
     this.delay = delay;
     if (instant) {

@@ -1,12 +1,25 @@
 import * as THREE from 'three';
 import { box, at } from './kit.js';
 import { buildFurniture } from './furniture.js';
+import { IKEA_SHELF_BUILDERS, shelfFrame, shelfOpening } from './ikea-shelves.js';
 
 // Start with the exact furniture from the plan. Only its solid cabinet face is
 // articulated; legs, mirrors, trim, appliances and all original materials remain.
 export function buildFurnitureInterior(shape,zones) {
   const root=buildFurniture([{...shape,pos:[0,0],rot:0,y:0}]);
   root.updateMatrixWorld(true);
+  if(IKEA_SHELF_BUILDERS[shape.type]){
+    const hits=[],labels=[],contentSlots=[],{w,h,d}=shelfFrame(shape);
+    for(const zone of zones){
+      const slot=shelfOpening(shape,zone.rect),tint=new THREE.MeshBasicMaterial({color:'#8ec5ff',transparent:true,opacity:.015,depthWrite:false});
+      const hit=at(box(Math.max(.002,slot.width),Math.max(.002,slot.height),.004,tint,{r:0}),slot.centerX,slot.baseY,slot.frontZ);
+      hit.userData={kind:'section',id:zone.nodeId};root.add(hit);hits.push(hit);
+      const anchor=new THREE.Object3D();anchor.position.set(slot.centerX,slot.baseY+slot.height/2,slot.frontZ+.04);root.add(anchor);
+      labels.push({nodeId:zone.nodeId,name:zone.name,kind:zone.kind,anchor,width:slot.width,height:slot.height});contentSlots.push({zone,...slot,parent:root});
+    }
+    root.position.set(shape.pos[0],shape.y||0,shape.pos[1]);root.rotation.y=THREE.MathUtils.degToRad(shape.rot||0);
+    return {root,hits,labels,contentSlots,dimensions:[w,h,d],animate(){},highlight(id){hits.forEach(hit=>{hit.material.opacity=hit.userData.id===id?.18:.015;});}};
+  }
   if(['pcCase','macBook','simCockpit','simCockpitTriple','printer3dEnclosed','printer3dOpen','officeChair','gamingDesktop','monitorStand','desktopMonitor','smallDesk','neonPorsche','ikeaFloorLamp','whiteSpeaker'].includes(shape.type)){
     const hits=[],labels=[];let lid=null;
     root.traverse(mesh=>{if(mesh.userData.storageLid)lid=mesh;});

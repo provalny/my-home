@@ -1,0 +1,28 @@
+.mode-inventory .iv-rarity-chart { display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap; }
+.mode-inventory .iv-rarity-ring { flex:0 1 200px;width:200px;max-width:100%;height:auto;overflow:visible; }
+.mode-inventory .iv-rarity-track { stroke:var(--iv-track); }
+.mode-inventory .iv-rarity-total { fill:var(--text);font-size:30px;font-weight:650; }
+.mode-inventory .iv-rarity-total-label { fill:var(--muted);font-size:11px; }
+.mode-inventory .iv-rarity-segment:is([data-rarity=epic],[data-rarity=legendary]) { filter:drop-shadow(0 0 4px var(--rarity-color)) drop-shadow(0 0 9px color-mix(in srgb,var(--rarity-color) 65%,transparent)); }
+.mode-inventory[data-inventory-theme=light] .iv-rarity-segment[data-rarity=common] { stroke:#e4eaf3; }
+.mode-inventory .iv-rarity-legend { flex:1 1 200px;min-width:0;list-style:none;padding:0;margin:0;display:grid;gap:8px; }
+.mode-inventory .iv-rarity-legend li { display:grid;grid-template-columns:minmax(0,1fr) auto 48px;align-items:center;gap:8px; }
+.mode-inventory .iv-rarity-legend .iv-rarity-label { font-size:12px;white-space:normal; }
+.mode-inventory .iv-rarity-legend li>strong { font-size:13px;font-variant-numeric:tabular-nums; }
+.mode-inventory .iv-rarity-legend li>small { text-align:right;color:var(--muted);font-variant-numeric:tabular-nums; }
+.mode-inventory .iv-rarity-note { margin:12px 0 0;font-size:11px; }
+.mode-inventory .iv-categories-compact .iv-category-edit-row { display:grid;grid-template-columns:26px minmax(0,1fr); }
+.mode-inventory .iv-categories-compact .iv-category-edit-row>input:not([type=checkbox]) { width:100%;max-width:100%;min-width:0; }
+.mode-inventory .iv-categories-compact .iv-category-edit-row.is-selecting { grid-template-columns:18px 26px minmax(0,1fr); }
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row.is-selecting { grid-template-columns:18px 26px minmax(0,1fr); }
+.mode-inventory .iv-categories-compact .iv-category-edit-row input.iv-category-select { width:16px;height:16px;min-height:0;padding:0;margin:0;accent-color:var(--accent); }
+.mode-inventory .iv-categories-compact .iv-category-select[hidden] { display:none; }
+.mode-inventory .iv-categories-compact .iv-category-edit-row:has(.iv-category-select:checked) { background:var(--iv-selected);border-radius:8px;outline:1px solid var(--iv-edge); }
+.mode-inventory .iv-categories-compact .iv-category-delete-bar { display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0; }
+.mode-inventory .iv-categories-compact .iv-category-delete-bar[hidden] { display:none; }
+.mode-inventory .iv-categories-compact .iv-category-delete-bar .iv-actions { margin:0; }
+.mode-inventory .iv-categories-compact .iv-category-save[hidden] { display:none; }
+.mode-inventory .iv-categories-compact .iv-btn[hidden] { display:none; }
+.mode-inventory .iv-categories-compact .iv-category-add[hidden] { display:none; }
+.mode-inventory .iv-categories-compact .iv-category-parent:empty { display:none; }
+.mode-inventory .iv-category-delete-list { max-height:180px;overflow:auto;padding-left:20px; }

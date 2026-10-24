@@ -20,7 +20,12 @@ export function objectThumbnail(kind, type) {
   const line = (x1,y1,x2,y2,stroke='#d9e3f5') => svg.append(shape('line',{x1,y1,x2,y2,stroke,'stroke-width':2}));
   const circle = (cx,cy,r,fill) => svg.append(shape('circle',{cx,cy,r,fill}));
   if (kind === 'furniture' && EXTRA_MODEL_INFO[type]) {
-    if(['bookcaseTall','bookcaseMedium'].includes(type)){const top=type==='bookcaseTall'?5:22;rect(28,top,44,56-top,'#baa27f');for(let y=top+13;y<53;y+=12){rect(31,y,38,2,'#e2c69e');[35,44,53,62].forEach((x,i)=>rect(x,y-9,6,9,['#728fa8','#b77a7e','#cfb78e','#708d79'][i]));}}
+    if(type==='parrotCage'){rect(23,51,54,7,'#526b72');[28,36,44,52,60,68,74].forEach(x=>line(x,12,x,51,'#a5b8bb'));line(25,12,75,12);line(25,27,75,27,'#b7956d');line(25,42,75,42,'#b7956d');circle(43,31,6,'#76bd52');circle(44,24,4,'#e5dc54');circle(60,23,5,'#63b7df');circle(60,17,3,'#e6f2ee');}
+    else if(type==='woodShelfLow'){[27,70].forEach(x=>rect(x,10,4,47,'#d5b78b',0));[23,38,53].forEach(y=>rect(29,y,42,3,'#e2c79f',0));}
+    else if(type==='kallaxShelf'){rect(25,6,50,50,'#eeeae1',0);for(let row=0;row<4;row++)for(let col=0;col<4;col++)rect(29+col*11,10+row*11,9,9,'#344152',0);}
+    else if(type==='ivarRack'){line(30,16,70,49,'#929996');line(70,16,30,49,'#929996');[27,70].forEach(x=>rect(x,5,4,54,'#d5b78b',0));[11,22,33,44,55].forEach(y=>rect(29,y,42,3,'#e2c79f',0));}
+    else if(['kitchenBase','hoodCabinet'].includes(type)){const upper=type==='hoodCabinet';rect(20,upper?8:28,60,upper?35:28,'#d4d1c6');[40,60].forEach(x=>line(x,upper?10:30,x,53,'#9c9d95'));rect(18,upper?43:25,64,4,upper?'#a6b2bd':'#475163');if(upper){rect(24,47,52,5,'#758595');rect(32,48,36,2,'#526270');}else{circle(34,27,4,'#172033');circle(45,27,4,'#172033');}}
+    else if(['bookcaseTall','bookcaseMedium'].includes(type)){const top=type==='bookcaseTall'?5:22;rect(28,top,44,56-top,'#baa27f');for(let y=top+13;y<53;y+=12){rect(31,y,38,2,'#e2c69e');[35,44,53,62].forEach((x,i)=>rect(x,y-9,6,9,['#728fa8','#b77a7e','#cfb78e','#708d79'][i]));}}
     else if(type==='officeChair'){rect(35,8,30,25,'#566174',6);rect(32,32,36,8,'#566174');line(50,40,50,55);line(28,57,72,57);line(28,25,28,38);line(72,25,72,38);}
     else if(type==='gamingDesktop'){rect(10,20,80,30,'#222b3d');rect(12,22,76,2,'#66d4ff');rect(12,46,76,2,'#ff71d4');rect(18,28,45,14,'#7188ae');rect(73,27,9,15,'#c6a2d5',5);}
     else if(['monitorStand','desktopMonitor'].includes(type)){rect(16,8,68,36,'#1e293c');rect(20,12,60,28,'#517e9b');line(50,44,50,56);rect(35,55,30,3);}
@@ -71,10 +76,10 @@ export function objectThumbnail(kind, type) {
 
 export const FURNITURE_CATEGORIES = [
   ['Все',''], ...Object.entries(OBJECT_SECTIONS).filter(([id])=>id!=='furniture').map(([id,label])=>[label,FURNITURE_TYPES.filter(type=>objectSection(type)===id).join(' ')]), [`NEW · Новые модели (${Object.keys(EXTRA_MODEL_INFO).length})`,Object.keys(EXTRA_MODEL_INFO).join(' ')],
-  ['Хранение','wardrobe bookshelf sideboard dresser nightstand metalRack slidingWardrobe wallShelf printerCabinet bookcaseTall bookcaseMedium'],
+  ['Хранение','woodShelfLow kallaxShelf ivarRack wardrobe bookshelf sideboard dresser nightstand metalRack slidingWardrobe wallShelf printerCabinet bookcaseTall bookcaseMedium'],
   ['Гостиная','sofa armchair coffeeTable tv rug plant cornerSofa wallUnit'], ['Спальня','bed nightstand dresser wardrobe slidingWardrobe'],
   ['Прихожая','hallUnit shoeCabinet'], ['Балкон и гараж','metalRack tireStack crossover'],
-  ['Кухня','kitchen island fridge diningSet dishwasher stove microwave'], ['Работа и игры','desk bookshelf pcCase macBook simCockpit simCockpitTriple printer3dEnclosed printer3dOpen printerCabinet officeChair gamingDesktop monitorStand desktopMonitor smallDesk whiteSpeaker bookcaseTall bookcaseMedium'], ['Ванная','vanity bathtub toilet washingMachine showerCabin laundryBasket'],
+  ['Кухня','kitchen kitchenBase hoodCabinet island fridge diningSet dishwasher stove microwave'], ['Работа и игры','desk bookshelf pcCase macBook simCockpit simCockpitTriple printer3dEnclosed printer3dOpen printerCabinet officeChair gamingDesktop monitorStand desktopMonitor smallDesk whiteSpeaker bookcaseTall bookcaseMedium'], ['Ванная','vanity bathtub toilet washingMachine showerCabin laundryBasket'],
 ];
 
 export function openObjectCatalog({kind='furniture', existing=[], placeNodeId=null, rooms=[], roomId, onChoose}) {

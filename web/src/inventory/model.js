@@ -1,4 +1,11 @@
+import { randomID } from '../uuid.js';
+import { validWeatherCity } from './weather.js';
+import { roomContains, roomInteriorPoint, validateContour } from '../geometry/room.js';
+import { isKitchenType } from './ikea-storage.js';
+import { PRIMARY_SPACE_ID, listSpaces, getSpace, spaceForNode, planForNode, allFurniture, createSpaceResolver } from './spaces.js';
+export { PRIMARY_SPACE_ID, SPACE_TYPES, listSpaces, getSpace, spaceForNode, planForNode } from './spaces.js';
 import { validateWear } from './wear.js';
+import { validateRarity } from './rarity.js';
 import { rememberCategoryIcons } from './appearance.js';
 import { itemCollections, validateCollections } from './category-presets.js';
 import { modelCategoryId, migrateObjectCategories } from './object-categories.js';
@@ -25,7 +32,7 @@ export const CATEGORY_FIELDS = {
   sport: ['Бренд', 'Модель', 'Размер'], medicine: ['Производитель', 'Дозировка'],
   default: ['Бренд', 'Модель', 'Цвет', 'Вес, г'],
 };
-export const id = () => crypto.randomUUID();
+export const id = () => randomID();
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 function validDate(value) {
   if (value == null || value === '') return true;
@@ -52,13 +59,61 @@ export function apartmentFill(d) {
 }
 export const children = (d, parentId, archived = false) => d.nodes.filter(n => n.parentId === parentId && Boolean(n.archived) === archived).sort((a,b) => a.order-b.order || a.name.localeCompare(b.name,'ru'));
 export function descendants(d, nodeId) {
-  const result = []; const seen = new Set([nodeId]); const queue = [nodeId];
-  while (queue.length) { const p = queue.shift(); for (const n of d.nodes.filter(n => n.parentId === p)) { if (seen.has(n.id)) throw Error('Обнаружен цикл мест хранения'); seen.add(n.id); result.push(n); queue.push(n.id); } }
+  const byParent = new Map();
+  for (const n of d.nodes) { if (!byParent.has(n.parentId)) byParent.set(n.parentId,[]);byParent.get(n.parentId).push(n); }
+  const result = [], seen = new Set([nodeId]), queue = [nodeId];
+  for (let i=0;i<queue.length;i++) for (const n of byParent.get(queue[i]) || []) {
+    if (seen.has(n.id)) throw Error('Обнаружен цикл мест хранения');
+    seen.add(n.id);result.push(n);queue.push(n.id);
+  }
   return result;
 }
+// A read index belongs to one committed document. Mutators never reuse it.
+export function createReadIndex(d) {
+  const resolveSpace=createSpaceResolver(d);
+  const byId = new Map(d.nodes.map(n=>[n.id,n])), cats = new Map(d.categories.map(c=>[c.id,c]));
+  const byParent = new Map(), addresses = new Map(), categoryNames = new Map(), sums = new Map();
+  for (const n of d.nodes) { if (!byParent.has(n.parentId)) byParent.set(n.parentId,[]);byParent.get(n.parentId).push(n); }
+  function path(node, map, cache, separator) {
+    if (!node) return '';
+    if (cache.has(node.id)) return cache.get(node.id);
+    const chain=[],seen=new Set();let n=node;
+    while(n&&!cache.has(n.id)) { if(seen.has(n.id))throw Error('Обнаружен цикл адресов');seen.add(n.id);chain.push(n);n=map.get(n.parentId); }
+    let prefix=n?cache.get(n.id):'';
+    if(!prefix&&map===byId){const room=chain.at(-1);if(room?.kind==='room'&&!room.virtual)prefix=getSpace(d,room.spaceId||PRIMARY_SPACE_ID)?.name||'';}
+    for(const p of chain.reverse()){prefix=prefix?prefix+separator+p.name:p.name;cache.set(p.id,prefix);}
+    return cache.get(node.id);
+  }
+  const nodeAddress=n=>path(n,byId,addresses,' → '),catName=id=>path(cats.get(id),cats,categoryNames,' / ');
+  const empty=()=>({count:0,items:0,storage:0,purchase:0,current:0});
+  const add=(a,b)=>{for(const k of Object.keys(a))a[k]+=b[k];return a;};
+  function own(n) {return !n||n.kind==='room'||n.archived?empty():{count:1,items:['item','furniture'].includes(n.kind)?1:0,storage:['furniture','shelf','drawer','compartment','box'].includes(n.kind)?1:0,purchase:isSection(n)?0:n.purchaseCents??0,current:isSection(n)?0:n.currentCents??0};}
+  function sum(id) {
+    const stack=[[id,false]],visiting=new Set();
+    while(stack.length){
+      const [key,ready]=stack.pop();if(sums.has(key))continue;
+      const children=byParent.get(key)||[];
+      if(ready){const total=own(byId.get(key));for(const child of children)add(total,sums.get(child.id));sums.set(key,total);visiting.delete(key);continue;}
+      if(visiting.has(key))throw Error('Обнаружен цикл мест хранения');visiting.add(key);stack.push([key,true]);
+      for(const child of children)if(!sums.has(child.id))stack.push([child.id,false]);
+    }
+    return sums.get(id);
+  }
+  let globalTotal=null,searchRows=null;
+  return {
+    byId,address:nodeAddress,categoryName:catName,space:resolveSpace,
+    totals(id=null){if(id)return {...sum(id)};globalTotal??=d.nodes.reduce((total,n)=>add(total,own(n)),empty());return {...globalTotal};},
+    search(query='',archived=false,includePlaces=false){
+      searchRows??=d.nodes.map(n=>({node:n,text:[nodeAddress(n),catName(n.categoryId),...itemCollections(d,n).map(c=>c.name),n.notes,...Object.values(n.fields||{})].join(' ').toLocaleLowerCase('ru')}));
+      const words=query.toLocaleLowerCase('ru').trim().split(/\s+/).filter(Boolean);
+      return searchRows.filter(({node,text})=>(includePlaces||node.kind!=='room')&&Boolean(node.archived)===archived&&words.every(w=>text.includes(w))).map(row=>row.node);
+    },
+  };
+}
 export function address(d, n) {
-  const parts = []; const seen = new Set();
-  for (let p = n; p; p = getNode(d, p.parentId)) { if (seen.has(p.id)) throw Error('Цикл адресов'); seen.add(p.id); parts.unshift(p.name); }
+  const parts = []; const seen = new Set();let root=null;
+  for (let p = n; p; p = getNode(d, p.parentId)) { if (seen.has(p.id)) throw Error('Цикл адресов'); seen.add(p.id); parts.unshift(p.name);root=p; }
+  const space=root?.kind==='room'&&!root.virtual?getSpace(d,root.spaceId||PRIMARY_SPACE_ID):null;if(space)parts.unshift(space.name);
   return parts.join(' → ');
 }
 export function categoryName(d, categoryId) {
@@ -71,22 +126,9 @@ export function categoryKind(d, categoryId) {
   while (c?.parentId && !seen.has(c.id)) { seen.add(c.id); c = d.categories.find(x => x.id === c.parentId); }
   return c?.kind || 'default';
 }
-export function search(d, query, archived = false) {
-  const words = query.toLocaleLowerCase('ru').trim().split(/\s+/);
-  return d.nodes.filter(n => n.kind !== 'room' && Boolean(n.archived) === archived).filter(n => {
-    const haystack = [address(d,n), categoryName(d,n.categoryId), ...itemCollections(d,n).map(c=>c.name), n.notes, ...Object.values(n.fields || {})].join(' ').toLocaleLowerCase('ru');
-    return words.every(w => haystack.includes(w));
-  });
-}
-export const catalogItems=(d,query='',archived=false)=>search(d,query,archived).filter(n=>archived||!isSection(n));
-export function totals(d, nodeId = null) {
-  const nodes = (nodeId ? [getNode(d,nodeId), ...descendants(d,nodeId)] : d.nodes).filter(n => n && n.kind !== 'room' && !n.archived);
-  // Furniture is both a physical thing and a place of storage. These counts
-  // deliberately overlap; count retains the old number of inventory records.
-  return { count: nodes.length, items: nodes.filter(n => ['item','furniture'].includes(n.kind)).length,
-    storage: nodes.filter(n => ['furniture','shelf','drawer','compartment','box'].includes(n.kind)).length,
-    purchase: nodes.reduce((s,n) => s + (isSection(n)?0:n.purchaseCents ?? 0), 0), current: nodes.reduce((s,n) => s + (isSection(n)?0:n.currentCents ?? 0), 0) };
-}
+export function search(d, query, archived = false) { return createReadIndex(d).search(query,archived); }
+export const catalogItems=(d,query='',archived=false,index=null)=>(index||createReadIndex(d)).search(query,archived).filter(n=>!isSection(n));
+export function totals(d, nodeId = null) { return createReadIndex(d).totals(nodeId); }
 export function destinations(d, movingId) {
   const exclude = movingId ? new Set([movingId, ...descendants(d,movingId).map(n => n.id)]) : new Set();
   const moving=getNode(d,movingId);
@@ -96,17 +138,28 @@ export function record(d, type, node, extra = {}) {
   d.events.push({ id: id(), type, date: new Date().toISOString(), nodeId: node.id, name: node.name, ...extra });
 }
 function placeGeometry(d, nodes, parentId) {
-  let room = getNode(d,parentId);
-  while (room && room.kind !== 'room') room = getNode(d,room.parentId);
-  const rect = d.plan.rooms.find(r => r.id === room?.roomId)?.rect;
-  if (!rect) {
-    // A thing without a physical room must not linger on the old drawing.
-    for (const n of nodes) if (n.furnitureId) detachFurniture(d,n.id);
-    return;
+  const space=spaceForNode(d,parentId);let room=getNode(d,parentId);
+  while(room&&room.kind!=='room')room=getNode(d,room.parentId);
+  const targetRoom=space?.plan.rooms.find(r=>r.id===room?.roomId),rect=targetRoom?.rect;
+  for(const n of nodes){if(!n.furnitureId)continue;
+    const source=listSpaces(d).find(s=>s.plan.furniture.some(f=>f.id===n.furnitureId));
+    const shape=source?.plan.furniture.find(f=>f.id===n.furnitureId);if(!shape)continue;
+    if(!rect){detachFurniture(d,n.id);continue;}
+    if(source.id!==space.id){source.plan.furniture=source.plan.furniture.filter(f=>f.id!==shape.id);space.plan.furniture.push(shape);}
+    if(source.id!==space.id||!roomContains(targetRoom,shape.pos))shape.pos=roomInteriorPoint(targetRoom);
   }
-  if (rect) for (const x of nodes) {
-    const f = d.plan.furniture.find(f => f.id === x.furnitureId);
-    if (f && !(f.pos[0] >= rect[0] && f.pos[0] <= rect[0]+rect[2] && f.pos[1] >= rect[1] && f.pos[1] <= rect[1]+rect[3])) f.pos = [rect[0]+rect[2]/2,rect[1]+rect[3]/2];
+}
+// Built-in structure belongs to the deleted/archived furniture. Preserve the
+// first real possession on each branch, keeping its own complete contents.
+function preserveContents(d,nodeId,destination) {
+  const roots=[];
+  function visit(parent){for(const child of d.nodes.filter(n=>n.parentId===parent))isSection(child)?visit(child.id):roots.push(child);}
+  visit(nodeId);
+  for(const child of roots){
+    const affected=[child,...descendants(d,child.id)],before=new Map(affected.map(x=>[x.id,address(d,x)]));
+    child.parentId=destination;child.order=children(d,destination,Boolean(child.archived)).length;
+    placeGeometry(d,affected,destination);
+    for(const x of affected)record(d,'move',x,{from:before.get(x.id),to:address(d,x)});
   }
 }
 export function move(d, nodeId, parentId) {
@@ -122,22 +175,13 @@ export function move(d, nodeId, parentId) {
 }
 export function archive(d, nodeId, {reason, date, saleCents = null, together = true, destination = null}) {
   const n = getNode(d,nodeId);
-  if (!n || n.kind === 'room' || n.archived) throw Error('Нельзя архивировать этот объект');
+  if (!n || n.kind === 'room' || n.archived || isSection(n)) throw Error('Встроенные секции не архивируются отдельно');
   if (!reason || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw Error('Укажите причину и дату');
   if (!together) {
     if (!destinations(d,nodeId).some(x => x.id === destination)) throw Error('Выберите новое место содержимого');
-    for (const child of d.nodes.filter(x => x.parentId === nodeId)) {
-      // Independently archived possessions retain their archive group/reason,
-      // but still belong to the complete physical contents, at any depth.
-      const affected = [child,...descendants(d,child.id)];
-      const before = new Map(affected.map(x => [x.id,address(d,x)]));
-      child.parentId = destination;
-      child.order = children(d,destination,Boolean(child.archived)).length;
-      placeGeometry(d,affected,destination);
-      for (const x of affected) record(d,'move',x,{from:before.get(x.id),to:address(d,x)});
-    }
+    preserveContents(d,nodeId,destination);
   }
-  const group = id(); const all = together ? [n,...descendants(d,nodeId)].filter(x => !x.archived) : [n];
+  const group = id(); const all = [n,...descendants(d,nodeId)].filter(x => !x.archived);
   for (const x of all) {
     x.archived = { group, reason, date, saleCents: x === n && reason === 'Продано' ? saleCents : null, rootId: nodeId };
     record(d,'archive',x,{ reason, effectiveDate: date, saleCents: x.archived.saleCents, purchaseCents: x.purchaseCents });
@@ -159,38 +203,40 @@ export function remove(d,nodeId,{together=true,destination=null}={}) {
   const nested=descendants(d,nodeId);
   if (!together && nested.length) {
     if (!destinations(d,nodeId).some(p=>p.id===destination)) throw Error('Выберите новое место содержимого');
-    for (const child of d.nodes.filter(x=>x.parentId===nodeId)) {
-      if (!child.archived) move(d,child.id,destination);
-      else {
-        const affected=[child,...descendants(d,child.id)];
-        const before=new Map(affected.map(x=>[x.id,address(d,x)]));
-        child.parentId=destination;placeGeometry(d,affected,destination);
-        for (const x of affected) record(d,'move',x,{from:before.get(x.id),to:address(d,x)});
-      }
-    }
+    preserveContents(d,nodeId,destination);
   }
   const removed=[n,...descendants(d,nodeId)];
   const nodeIds=new Set(removed.map(x=>x.id));
   const furnitureIds=new Set(removed.map(x=>x.furnitureId).filter(Boolean));
   const entry={id:id(),rootId:nodeId,removedAt:new Date().toISOString(),
-    nodes:structuredClone(removed),furniture:structuredClone(d.plan.furniture.filter(f=>furnitureIds.has(f.id)))};
+    nodes:structuredClone(removed),furniture:structuredClone(allFurniture(d).filter(f=>furnitureIds.has(f.id)))};
   d.trash ||= [];d.trash.push(entry);
   d.nodes=d.nodes.filter(x=>!nodeIds.has(x.id));
-  d.plan.furniture=d.plan.furniture.filter(f=>!furnitureIds.has(f.id));
+  for(const space of listSpaces(d))space.plan.furniture=space.plan.furniture.filter(f=>!furnitureIds.has(f.id));
   record(d,'delete',n,{count:removed.length});
   return entry;
+}
+export function removeMany(d,nodeIds,{together=true,destination=UNPLACED_ID}={}) {
+  const ids=[...new Set(nodeIds)],byId=new Map(d.nodes.map(n=>[n.id,n]));
+  if(!ids.length||ids.some(id=>!byId.has(id)||byId.get(id).kind==='room'))throw Error('Выберите вещи для удаления');
+  if(!together){const parent=byId.get(destination),selected=new Set(ids);if(!parent||parent.archived||parent.kind==='item')throw Error('Выберите место содержимого');for(let p=parent;p;p=byId.get(p.parentId))if(selected.has(p.id))throw Error('Нельзя переносить вещи в удаляемый объект');}
+  const depth=id=>{let n=byId.get(id),count=0,seen=new Set();while(n?.parentId){if(seen.has(n.id))throw Error('Цикл мест хранения');seen.add(n.id);count++;n=byId.get(n.parentId);}return count;};
+  // Process ancestors first. When contents are preserved, explicitly selected
+  // children are still deleted rather than silently surviving the bulk action.
+  const ordered=ids.map(id=>({id,depth:depth(id)})).sort((a,b)=>a.depth-b.depth),entries=[];
+  for(const {id} of ordered)if(getNode(d,id))entries.push(remove(d,id,{together,destination}));return entries;
 }
 export function recover(d,entryId,parentId) {
   const entry=d.trash?.find(x=>x.id===entryId);
   const parent=getNode(d,parentId);
   if (!entry) throw Error('Объект не найден в корзине');
   if (!parent || parent.archived || parent.kind==='item') throw Error('Выберите действующее место хранения');
-  if (entry.nodes.some(n=>getNode(d,n.id)) || entry.furniture.some(f=>d.plan.furniture.some(x=>x.id===f.id))) throw Error('Объекты с такими идентификаторами уже существуют');
+  if (entry.nodes.some(n=>getNode(d,n.id)) || entry.furniture.some(f=>allFurniture(d).some(x=>x.id===f.id))) throw Error('Объекты с такими идентификаторами уже существуют');
   const restored=structuredClone(entry.nodes);
   const root=restored.find(n=>n.id===entry.rootId);
   if (!root) throw Error('Некорректная запись корзины');
   root.parentId=parentId;root.order=children(d,parentId).length;
-  d.nodes.push(...restored);d.plan.furniture.push(...structuredClone(entry.furniture));
+  d.nodes.push(...restored);(spaceForNode(d,parentId)?.plan||d.plan).furniture.push(...structuredClone(entry.furniture));
   placeGeometry(d,restored,parentId);
   d.trash=d.trash.filter(x=>x.id!==entryId);
   record(d,'recover',root,{count:restored.length});
@@ -207,6 +253,7 @@ export function newNode(d, props) {
   if(isSection(props)&&(props.purchaseCents!=null||props.currentCents!=null))throw Error('У встроенной секции нет собственной стоимости');
   const n = { id: id(), name: '', kind: 'item', parentId: null, categoryId: '', fields: {}, purchaseCents: null, currentCents: null, wear: null, fill: null, condition: 'Хорошее', photo: null, notes: '', acquisition:'existing', purchasedAt: '', expiry: '', warranty: '', quantity: 1, unit: 'шт.', order: d.nodes.length, archived: null, createdAt: new Date().toISOString(), ...props };
   checkAcquisition(n);
+  validateRarity(n);
   d.nodes.push(n);
   if (n.kind !== 'room'&&!isSection(n)) record(d,n.acquisition === 'purchase' ? 'purchase' : 'addition',n,{ purchaseCents:n.purchaseCents, effectiveDate:n.acquisition === 'purchase' ? n.purchasedAt : today() });
   return n;
@@ -229,7 +276,9 @@ export function updateNode(d,nodeId,props) {
   if (!n) throw Error('Вещь не найдена');
   const updated = {...n,...props,id:n.id,createdAt:n.createdAt,acquisition:props.acquisition ?? n.acquisition ?? (n.purchasedAt ? 'purchase' : 'existing')};
   if(isSection(updated)&&(updated.purchaseCents!=null||updated.currentCents!=null))throw Error('У встроенной секции нет собственной стоимости');
+  if(isSection(n)&&!SECTION_KINDS.some(([kind])=>kind===updated.kind))throw Error('Встроенная секция не может стать вещью');
   checkAcquisition(updated);
+  validateRarity(updated);
   if (updated.kind === 'room' && n.kind !== 'room' || n.kind === 'room' && updated.kind !== 'room') throw Error('Нельзя превратить вещь в комнату');
   const beforePurchase = n.purchaseCents, beforeCurrent = n.currentCents;
   if (updated.parentId !== n.parentId) move(d,n.id,updated.parentId);
@@ -241,7 +290,7 @@ export function updateNode(d,nodeId,props) {
     delete updated.furnitureId;
   }
   Object.assign(n,updated);
-  const shape = d.plan.furniture.find(f => f.id === n.furnitureId);
+  const shape = allFurniture(d).find(f => f.id === n.furnitureId);
   if (shape) { shape.name = n.name; shape.inventoryNodeId = n.id; }
   if (n.kind !== 'room'&&!isSection(n)) {
     const entries = d.events.filter(e => e.nodeId === n.id && ['purchase','addition'].includes(e.type));
@@ -260,35 +309,40 @@ export function updateNode(d,nodeId,props) {
 export function detachFurniture(d,nodeId) {
   const n = getNode(d,nodeId);
   if (!n || n.kind !== 'furniture') throw Error('Выберите мебель или технику');
-  const shape=d.plan.furniture.find(f=>f.id===n.furnitureId||f.inventoryNodeId===n.id);
+  const shape=allFurniture(d).find(f=>f.id===n.furnitureId||f.inventoryNodeId===n.id);
   if(shape)n.modelType=shape.type;
-  d.plan.furniture = d.plan.furniture.filter(f => f.id !== n.furnitureId && f.inventoryNodeId !== n.id);
+  for(const space of listSpaces(d))space.plan.furniture=space.plan.furniture.filter(f=>f.id!==n.furnitureId&&f.inventoryNodeId!==n.id);
   delete n.furnitureId;
   return n;
 }
 function containsPoint(r,pos) {
-  return Array.isArray(pos) && pos.length >= 2 && pos[0] >= r.rect[0] && pos[0] <= r.rect[0]+r.rect[2] && pos[1] >= r.rect[1] && pos[1] <= r.rect[1]+r.rect[3];
+  return roomContains(r,pos);
 }
 export function placeFurniture(d,nodeId,shape) {
   const n = getNode(d,nodeId);
   if (!n || n.kind !== 'furniture' || n.archived) throw Error('Выберите действующую карточку мебели или техники');
-  if (!shape?.type || !d.plan.rooms.some(r => containsPoint(r,shape.pos))) throw Error('Разместите мебель внутри комнаты');
-  const plan = structuredClone(d.plan);
+  if (!shape?.type || !planForNode(d,n).rooms.some(r => containsPoint(r,shape.pos))) throw Error('Разместите мебель внутри комнаты');
+  const plan = structuredClone(planForNode(d,n));
   plan.furniture = plan.furniture.filter(f => f.id !== n.furnitureId && f.inventoryNodeId !== n.id);
   plan.furniture.push({...structuredClone(shape),id:shape.id || id(),name:n.name,inventoryNodeId:n.id});
-  syncPlan(d,plan);
+  syncPlan(d,plan,{spaceId:spaceForNode(d,n)?.id});
   return n;
 }
 // Merge geometry by stable IDs, or by an explicit link to an existing card.
 // Removing a room displaces its entire inventory tree, including archived nodes.
-export function syncPlan(d, raw,{auto=true}={}) {
+export function syncPlan(d, raw,{auto=true,spaceId=PRIMARY_SPACE_ID}={}) {
+  const space=getSpace(d,spaceId);if(!space)throw Error('Пространство не найдено');
+  const belongs=n=>(n.spaceId||PRIMARY_SPACE_ID)===spaceId;
   const plan = structuredClone(raw);
   plan.furniture ||= [];
   const removedFurniture = new Set((d.trash || []).flatMap(entry => entry.furniture.map(f => f.id)));
   plan.furniture = plan.furniture.filter(f => !removedFurniture.has(f.id));
   if (!Array.isArray(plan.rooms)) throw Error('Некорректный список комнат');
   if (plan.rooms.some(r => r.id === 'unplaced')) throw Error('Имя комнаты «unplaced» зарезервировано');
-  const removedRooms = d.nodes.filter(n => n.kind === 'room' && !n.virtual && !plan.rooms.some(r => r.id === n.roomId));
+  if(plan.rooms.some(r=>listSpaces(d).some(s=>s.id!==spaceId&&s.plan.rooms.some(other=>other.id===r.id))))throw Error('Комната уже принадлежит другому пространству');
+  if(plan.furniture.some(f=>listSpaces(d).some(s=>s.id!==spaceId&&s.plan.furniture.some(other=>other.id===f.id))))throw Error('Мебель уже размещена в другом пространстве');
+  const resolveSpace=createSpaceResolver(d),scopedNodes=new Set(d.nodes.filter(n=>resolveSpace(n)?.id===spaceId).map(n=>n.id));
+  const removedRooms = d.nodes.filter(n => n.kind === 'room' && !n.virtual && belongs(n) && !plan.rooms.some(r => r.id === n.roomId));
   const displaced = removedRooms.flatMap(n => descendants(d,n.id));
   const displacedFurniture = new Set(displaced.map(n => n.furnitureId).filter(Boolean));
   plan.furniture = plan.furniture.filter(f => !displacedFurniture.has(f.id));
@@ -299,7 +353,7 @@ export function syncPlan(d, raw,{auto=true}={}) {
     ids.add(f.id);
     if (f.inventoryNodeId) {
       const card = getNode(d,f.inventoryNodeId);
-      if (!card || card.kind !== 'furniture' || card.archived && card.furnitureId !== f.id) throw Error('Выберите действующую карточку мебели');
+      if (!card || card.kind !== 'furniture' || resolveSpace(card)&&resolveSpace(card).id!==spaceId || card.archived && card.furnitureId !== f.id) throw Error('Выберите действующую карточку мебели');
       if (d.nodes.some(n => n.id !== card.id && n.furnitureId === f.id)) throw Error('У предмета уже есть карточка. Сначала уберите его с плана');
       if (links.has(card.id)) throw Error('У карточки уже есть предмет на плане');
       links.add(card.id);
@@ -307,8 +361,8 @@ export function syncPlan(d, raw,{auto=true}={}) {
   }
   const roomIds = new Set(plan.rooms.map(r => r.id));
   for (const r of plan.rooms) {
-    let n = d.nodes.find(x => x.roomId === r.id);
-    if (!n) n = newNode(d,{ id:'room:'+r.id, kind:'room', name:r.name, roomId:r.id });
+    let n = d.nodes.find(x => x.roomId === r.id&&belongs(x));
+    if (!n) n = newNode(d,{ id:'room:'+r.id, kind:'room', name:r.name, roomId:r.id, spaceId });
     n.name = r.name;
     inferRoomType(r);
     for(const key of ROOM_META){if(Object.hasOwn(r,key)){if(r[key]==null)delete n[key];else n[key]=r[key];}else if(r.roomMetaVersion===1)delete n[key];else if(n[key]!=null)r[key]=n[key];}
@@ -320,10 +374,10 @@ export function syncPlan(d, raw,{auto=true}={}) {
     n.order = children(d,noPlace.id).length;
   }
   for (const n of displaced) record(d,'move',n,{from:before.get(n.id),to:address(d,n)});
-  d.nodes = d.nodes.filter(n => n.kind !== 'room' || n.virtual || roomIds.has(n.roomId));
+  d.nodes = d.nodes.filter(n => n.kind !== 'room' || n.virtual || !belongs(n) || roomIds.has(n.roomId));
   // The new geometry is authoritative; obsolete links cannot resurrect objects.
-  for (const n of d.nodes) if (n.furnitureId && !plan.furniture.some(f => f.id === n.furnitureId)) delete n.furnitureId;
-  d.plan = plan;
+  for (const n of d.nodes) if (scopedNodes.has(n.id) && n.furnitureId && !plan.furniture.some(f => f.id === n.furnitureId)) delete n.furnitureId;
+  if(spaceId===PRIMARY_SPACE_ID){d.plan=plan;if(d.space&&plan.name?.trim())d.space.name=plan.name.trim();}else {const target=d.spaces.find(s=>s.id===spaceId);target.plan=plan;if(plan.name?.trim())target.name=plan.name.trim();}
   const linked = new Set();
   for (const f of [...plan.furniture]) {
     let n = f.inventoryNodeId ? getNode(d,f.inventoryNodeId) : d.nodes.find(n => n.furnitureId === f.id);
@@ -361,11 +415,11 @@ export function initializeStorage(d){
   // Old nested shelves move up intact; containers and their contents remain intact.
   for(const n of d.nodes.filter(isBasicSection)){let p=getNode(d,n.parentId);if(!isBasicSection(p))continue;const seen=new Set([n.id]);while(isBasicSection(p)&&!seen.has(p.id)){seen.add(p.id);p=getNode(d,p.parentId);}if(p&&!seen.has(p.id))n.parentId=p.id;}
   const add=(parent,props)=>{const n=newNode(d,{...props,parentId:parent.id,autoSection:true,...(parent.demo?{demo:true}:{})});return n;};
-  for(const shape of d.plan.furniture){const root=d.nodes.find(n=>n.furnitureId===shape.id);if(!root||root.archived)continue;
+  for(const shape of allFurniture(d)){const root=d.nodes.find(n=>n.furnitureId===shape.id);if(!root||root.archived)continue;
     if(['simCockpit','simCockpitTriple'].includes(shape.type)&&!children(d,root.id).some(n=>n.equipmentStorage))add(root,{kind:'compartment',name:'Внутреннее хранилище',equipmentStorage:true});
     if(EXTRA_MODEL_INFO[shape.type]?.storageSections&&!children(d,root.id).some(n=>n.kind!=='item'))for(let i=0;i<EXTRA_MODEL_INFO[shape.type].storageSections;i++)add(root,{kind:'shelf',name:sectionName('shelf',i+1)});
     if(shape.type==='fridge'){initializeFridge(d,shape,root);}
-    else if(shape.type==='kitchen'){
+    else if(isKitchenType(shape.type)){
       for(const m of kitchenModules(shape).modules){let cabinet=d.nodes.find(n=>n.parentId===root.id&&n.kitchenModule===m.key&&!n.archived);if(!cabinet)cabinet=add(root,{kind:'box',name:kitchenModuleName(m.key,m.type),kitchenModule:m.key});
         if(cabinet.kitchenModuleType&&cabinet.kitchenModuleType!==m.type)cabinet.name=kitchenModuleName(m.key,m.type);cabinet.kitchenModuleType=m.type;
         if(!children(d,cabinet.id).some(n=>n.kind!=='item'))for(let i=0;i<m.shelves;i++)add(cabinet,{kind:'shelf',name:sectionName('shelf',i+1)});
@@ -376,46 +430,74 @@ export function initializeStorage(d){
 }
 export function changeSectionType(d,nodeId,kind){const n=getNode(d,nodeId);if(!n||!isSection(n)||n.kitchenModule||n.fridgeChamber||!SECTION_KINDS.some(([id])=>id===kind))throw Error('Выберите полку, ящик, отсек или контейнер');updateNode(d,nodeId,{kind});n.autoSection=true;renumberSections(d,n.parentId);return n;}
 export function changeKitchenModuleType(d,nodeId,type){
-  const n=getNode(d,nodeId),parent=getNode(d,n?.parentId),shape=d.plan.furniture.find(f=>f.id===parent?.furnitureId&&f.type==='kitchen'),module=shape&&kitchenModules(shape).modules.find(m=>m.key===n?.kitchenModule);
+  const n=getNode(d,nodeId),parent=getNode(d,n?.parentId),shape=allFurniture(d).find(f=>f.id===parent?.furnitureId&&isKitchenType(f.type)),module=shape&&kitchenModules(shape).modules.find(m=>m.key===n?.kitchenModule);
   if(!n||n.archived||!module||!KITCHEN_MODULE_TYPES[type]?.tiers?.includes(module.tier))throw Error('Выберите подходящий тип кухонного модуля');
   if(module.type===type)return n;
-  for(const child of children(d,n.id))archive(d,child.id,{reason:'Изменен тип кухонного модуля',date:today(),together:true});
+  for(const child of children(d,n.id))isSection(child)?remove(d,child.id,{together:false,destination:n.id}):move(d,child.id,n.parentId);
   shape.moduleTypes={...shape.moduleTypes,[module.key]:type};n.kitchenModuleType=type;n.name=kitchenModuleName(module.key,type);delete n.storageLayout;
   for(let i=0;i<(KITCHEN_MODULE_TYPES[type].shelves||0);i++)newNode(d,{parentId:n.id,kind:'shelf',name:sectionName('shelf',i+1),autoSection:true,...(n.demo?{demo:true}:{})});
   renumberSections(d,n.id);return n;
 }
 export function configureFridge(d,nodeId,options){
-  const n=getNode(d,nodeId),shape=d.plan.furniture.find(f=>f.id===n?.furnitureId&&f.type==='fridge');if(!n||n.archived||!shape)throw Error('Выберите холодильник на плане');
+  const n=getNode(d,nodeId),shape=allFurniture(d).find(f=>f.id===n?.furnitureId&&f.type==='fridge');if(!n||n.archived||!shape)throw Error('Выберите холодильник на плане');
   const candidate={...shape,fridge:{...fridgeConfig(shape),...options}};validateFridgeConfig(candidate);const config=fridgeConfig(candidate),previous=fridgeConfig(shape);
-  if(previous.chambers!==config.chambers)for(const chamber of children(d,n.id).filter(n=>n.fridgeChamber))archive(d,chamber.id,{reason:'Изменено количество отделений холодильника',date:today(),together:true});
+  if(previous.chambers!==config.chambers)for(const chamber of children(d,n.id).filter(n=>n.fridgeChamber))remove(d,chamber.id,{together:false,destination:n.id});
   shape.fridge=config;initializeFridge(d,shape,n);return n;
 }
 export function setStorageGrid(d,nodeId,{columns,rows,template='grid',kinds=[]}={}){
   const n=getNode(d,nodeId);
-  if(!n||isBasicSection(n)||n.kitchenModule&&!KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.storage||d.plan.furniture.some(f=>f.id===n.furnitureId&&['kitchen','fridge'].includes(f.type)))throw Error('Выберите отдельный шкаф или контейнер');
+  if(!n||isBasicSection(n)||n.kitchenModule&&!KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.storage||allFurniture(d).some(f=>f.id===n.furnitureId&&(isKitchenType(f.type)||f.type==='fridge')))throw Error('Выберите отдельный шкаф или контейнер');
   const spec=arrangeStorage(d,nodeId,{columns,rows,template,replace:true});
-  const sections=[...spec.children],rects=sectionRects(template,spec.columns,spec.rows,spec.capacity);
-  if(sections.length>spec.capacity){for(const s of sections)archive(d,s.id,{reason:'Изменено количество секций',date:today(),together:true});sections.length=0;}
+  const sections=spec.children.filter(isSection),rects=sectionRects(template,spec.columns,spec.rows,spec.capacity);
+  if(sections.length>spec.capacity){for(const s of sections)remove(d,s.id,{together:false,destination:nodeId});sections.length=0;}
   while(sections.length<spec.capacity){const kind=kinds[sections.length]||sections.at(-1)?.kind||'shelf';sections.push(newNode(d,{parentId:nodeId,kind,name:sectionName(kind,sections.length+1),autoSection:true,...(n.demo?{demo:true}:{})}));}
   sections.forEach((s,i)=>{if(kinds[i]&&isSection(s))changeSectionType(d,s.id,kinds[i]);});
   n.storageLayout={template,columns:spec.columns,rows:spec.rows,zones:sections.map((s,i)=>({nodeId:s.id,rect:rects[i]}))};
   renumberSections(d,nodeId);return sections;
 }
-export function clearApartment(d){
-  const noPlace=ensureUnplaced(d),items=d.nodes.filter(n=>n.kind==='item');
-  for(const n of items){const from=address(d,n);n.parentId=noPlace.id;n.order=items.indexOf(n);record(d,'move',n,{from,to:address(d,n)});}
-  // Retain recoverable furniture/sections in trash, excluding every preserved item.
-  const removed=d.nodes.filter(n=>n.kind!=='room'&&n.kind!=='item'),ids=new Set(removed.map(n=>n.id));
-  for(const root of removed.filter(n=>!ids.has(n.parentId))){const own=[root,...descendants(d,root.id).filter(n=>ids.has(n.id))],ownIds=new Set(own.map(n=>n.furnitureId).filter(Boolean));d.trash||=[];d.trash.push({id:id(),rootId:root.id,removedAt:new Date().toISOString(),nodes:structuredClone(own),furniture:structuredClone(d.plan.furniture.filter(f=>ownIds.has(f.id)))});record(d,'delete',root,{count:own.length});}
-  d.nodes=[noPlace,...items];d.plan={...d.plan,rooms:[],furniture:[],lights:[],acs:[],openings:[],scenes:[]};d.settings.apartmentFill=null;
+export function clearApartment(d,{spaceId=PRIMARY_SPACE_ID}={}){
+  const space=getSpace(d,spaceId);if(!space)throw Error('Пространство не найдено');
+  const resolve=createSpaceResolver(d),affected=new Set(d.nodes.filter(n=>resolve(n)?.id===spaceId).map(n=>n.id));
+  const noPlace=ensureUnplaced(d),items=d.nodes.filter(n=>affected.has(n.id)&&!isSection(n)&&n.kind==='item');
+  for(const n of items){const from=address(d,n);n.parentId=noPlace.id;n.order=children(d,noPlace.id).length;record(d,'move',n,{from,to:address(d,n)});}
+  const removed=d.nodes.filter(n=>affected.has(n.id)&&n.kind!=='room'&&!items.includes(n)),ids=new Set(removed.map(n=>n.id));
+  for(const root of removed.filter(n=>!ids.has(n.parentId)))remove(d,root.id);
+  d.nodes=d.nodes.filter(n=>!affected.has(n.id)||items.includes(n));
+  const empty={...space.plan,rooms:[],furniture:[],lights:[],acs:[],openings:[],scenes:[]};
+  if(spaceId===PRIMARY_SPACE_ID)d.plan=empty;else d.spaces.find(s=>s.id===spaceId).plan=empty;
+  d.settings.apartmentFill=null;
+}
+export function addSpace(d,{name,type='other'}={}) {
+  name=String(name||'').trim();if(!name)throw Error('Введите название пространства');
+  if(!['apartment','work','garage','other'].includes(type))throw Error('Выберите тип пространства');
+  const spaceId=id(),plan={version:1,name,wallHeight:2.6,interiorWallHeight:1.25,rooms:[{id:spaceId+':main',name:'Комната',rect:[0,0,6,4],floor:'oak'}],openings:[],furniture:[],lights:[],acs:[],scenes:[]};
+  d.spaces||=[];d.spaces.push({id:spaceId,name,type,plan});syncPlan(d,plan,{spaceId});return spaceId;
+}
+export function updateSpace(d,spaceId,{name,type}) {
+  name=String(name||'').trim();if(!name||!['apartment','work','garage','other'].includes(type))throw Error('Укажите название и тип пространства');
+  const space=getSpace(d,spaceId);if(!space)throw Error('Пространство не найдено');
+  if(spaceId===PRIMARY_SPACE_ID)d.space={name,type};else Object.assign(d.spaces.find(s=>s.id===spaceId),{name,type});
+  space.plan.name=name;
+}
+function validateSpaces(d) {
+  if(d.spaces!=null&&!Array.isArray(d.spaces))throw Error('Некорректные пространства');
+  const ids=new Set(),rooms=new Set();
+  for(const space of listSpaces(d)){
+    if(typeof space.id!=='string'||!space.id||ids.has(space.id)||typeof space.name!=='string'||!space.name.trim()||!['apartment','work','garage','other'].includes(space.type)||!Array.isArray(space.plan?.rooms)||!Array.isArray(space.plan.furniture))throw Error('Некорректное пространство');
+    ids.add(space.id);
+    for(const r of space.plan.rooms){if(!r.id||rooms.has(r.id))throw Error('Повторяющийся ID комнаты');rooms.add(r.id);}
+  }
+  for(const n of d.nodes)if(n.kind==='room'&&!n.virtual&&!ids.has(n.spaceId||PRIMARY_SPACE_ID))throw Error('Пространство комнаты не найдено');
 }
 // Version 1 backups remain compatible. Explicit legacy purchase dates survive;
 // undated additions no longer count as purchases on the day of cataloguing.
 export function migrate(d) {
   rememberCategoryIcons(d);
-  for(const f of [...d.plan.furniture,...(d.trash||[]).flatMap(e=>e.furniture||[])])if(f.type==='pcCase'&&f.name==='Корпус ПК с подсветкой')f.name='Корпус ПК';
+  for(const f of [...allFurniture(d),...(d.trash||[]).flatMap(e=>e.furniture||[])])if(f.type==='pcCase'&&f.name==='Корпус ПК с подсветкой')f.name='Корпус ПК';
   const allNodes = [...d.nodes,...(d.trash || []).flatMap(e => e.nodes)];
-  for(const n of allNodes)if((n.modelType==='pcCase'||d.plan.furniture.some(f=>f.id===n.furnitureId&&f.type==='pcCase'))&&n.name==='Корпус ПК с подсветкой')n.name='Корпус ПК';
+  for(const n of allNodes)if((n.modelType==='pcCase'||allFurniture(d).some(f=>f.id===n.furnitureId&&f.type==='pcCase'))&&n.name==='Корпус ПК с подсветкой')n.name='Корпус ПК';
+  // Repair only cards explicitly marked as built-in; never infer structure from a possession's name alone.
+  for(const n of allNodes)if(n.autoSection===true&&n.kind==='item')n.kind=n.kitchenModule||n.fridgeChamber?'box':/ящик/i.test(n.name)?'drawer':/отсек/i.test(n.name)?'compartment':'shelf';
   for(const n of allNodes)if(isSection(n)){if(n.purchaseCents!=null||n.currentCents!=null)n.legacySectionPrice={purchaseCents:n.purchaseCents,currentCents:n.currentCents};n.purchaseCents=null;n.currentCents=null;}
   for (const n of allNodes) n.acquisition ??= n.purchasedAt ? 'purchase' : 'existing';
   for (const e of d.events) if (['purchase','addition'].includes(e.type)) {
@@ -426,12 +508,12 @@ export function migrate(d) {
   }
   ensureUnplaced(d);
   for (const n of d.nodes.filter(n => n.furnitureId)) {
-    const f = d.plan.furniture.find(f => f.id === n.furnitureId);
+    const f = allFurniture(d).find(f => f.id === n.furnitureId);
     if (!f) delete n.furnitureId;
     else { f.inventoryNodeId = n.id; f.name = n.name; n.modelType = f.type; }
   }
   for(const entry of d.trash||[])for(const n of entry.nodes||[]){const f=entry.furniture?.find(f=>f.id===n.furnitureId);if(f)n.modelType=f.type;}
-  for(const n of d.nodes.filter(n=>n.kind==='room'&&n.roomId)){inferRoomType(n);const r=d.plan.rooms.find(r=>r.id===n.roomId);if(r)for(const key of ROOM_META){n[key]??=r[key];if(n[key]!=null)r[key]=n[key];}}
+  for(const n of d.nodes.filter(n=>n.kind==='room'&&n.roomId)){inferRoomType(n);const r=planForNode(d,n).rooms.find(r=>r.id===n.roomId);if(r)for(const key of ROOM_META){n[key]??=r[key];if(n[key]!=null)r[key]=n[key];}}
   migrateObjectCategories(d);
   initializeStorage(d);
   return d;
@@ -450,18 +532,23 @@ export function createHome(d,{mode='empty'}={}) {
   syncPlan(next,plan);
   return validate(next);
 }
-export function validate(d) {
+export function validate(d, {limitNodes=true}={}) {
   if (!d || d.format !== FORMAT || d.version !== 1 || !Array.isArray(d.nodes) || !Array.isArray(d.categories) || !Array.isArray(d.events) || !d.settings || !Array.isArray(d.plan?.rooms) || !Array.isArray(d.plan.furniture)) throw Error('Это не резервная копия Life Assistant / «Мой дом» версии 1');
-  if (d.nodes.length > 50000 || d.events.length > 1000000) throw Error('Слишком большая копия');
+  if ((limitNodes && d.nodes.length > 50000) || d.events.length > 1000000) throw Error('Слишком большая копия');
+  validateSpaces(d);
+  for(const plan of [d.plan,...(d.spaces||[]).map(s=>s.plan)].filter(Boolean))for(const room of plan.rooms||[])if(room.contour)validateContour(room.contour);
   validateCollections(d);
   const ids = new Set(); const cats = new Set();
+  const byId = new Map(d.nodes.map(n=>[n?.id,n])), categoriesById = new Map(d.categories.map(c=>[c?.id,c]));
   for (const c of d.categories) { if (!c || typeof c.id !== 'string' || !c.id || cats.has(c.id) || typeof c.name !== 'string') throw Error('Некорректные категории'); cats.add(c.id); }
-  for (const c of d.categories) { const seen = new Set([c.id]); for (let p = c.parentId; p;) { if (!cats.has(p) || seen.has(p)) throw Error('Некорректная иерархия категорий'); seen.add(p); p = d.categories.find(x => x.id === p).parentId; } }
+  for (const c of d.categories) { const seen = new Set([c.id]); for (let p = c.parentId; p;) { if (!cats.has(p) || seen.has(p)) throw Error('Некорректная иерархия категорий'); seen.add(p); p = categoriesById.get(p).parentId; } }
   for (const n of d.nodes) {
     if (!n || typeof n.id !== 'string' || !n.id || ids.has(n.id) || typeof n.name !== 'string' || !n.name.trim() || !(n.kind in KINDS)) throw Error('Некорректная карточка или повторяющийся ID');
     ids.add(n.id);
+    if(isSection(n)&&n.kind==='item')throw Error('Встроенная секция не может быть вещью');
     validateStorageLayout(n);
     validateWear(n);
+    validateRarity(n);
     for (const key of ['purchaseCents','currentCents']) if (n[key] != null && (!Number.isSafeInteger(n[key]) || n[key] < 0)) throw Error('Некорректная стоимость');
     for (const key of ['fill','wear']) if (n[key] != null && (!Number.isFinite(n[key]) || n[key] < 0 || n[key] > 100)) throw Error('Процент должен быть от 0 до 100');
     if (n.photo && (typeof n.photo !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(n.photo) || n.photo.length > 5000000)) throw Error('Некорректная фотография');
@@ -479,34 +566,39 @@ export function validate(d) {
     for (const key of ['purchaseCents','currentCents','saleCents','beforePurchase','beforeCurrent']) if (e[key] != null && (!Number.isSafeInteger(e[key]) || e[key] < 0)) throw Error('Некорректная сумма в истории');
   }
   const furnitureIds = new Set(), linkedCards = new Set();
-  for (const f of d.plan.furniture) {
+  const geometrySpaces=new Map(listSpaces(d).flatMap(s=>s.plan.furniture.map(f=>[f.id,s.id]))),resolveSpace=createSpaceResolver(d);
+  for (const f of allFurniture(d)) {
     if(f.type==='fridge')validateFridgeConfig(f);
-    if(f.type==='kitchen')validateKitchenTypes(f);
+    if(isKitchenType(f.type))validateKitchenTypes(f);
     if (!f.id || furnitureIds.has(f.id)) throw Error('Повторяющийся ID мебели');
     furnitureIds.add(f.id);
     if (f.inventoryNodeId) {
-      const n = getNode(d,f.inventoryNodeId);
+      const n = byId.get(f.inventoryNodeId);
       if (!n || n.kind !== 'furniture' || n.furnitureId !== f.id || linkedCards.has(n.id)) throw Error('Некорректная связь мебели с карточкой');
+      if(resolveSpace(n)&&resolveSpace(n).id!==geometrySpaces.get(f.id))throw Error('Мебель связана с планом другого пространства');
       linkedCards.add(n.id);
     }
   }
-  const inventoryFurnitureLinks = new Set();
+  const inventoryFurnitureLinks = new Set(), readIndex=createReadIndex(d);
   for (const n of d.nodes) {
     if (n.furnitureId) {
       if (n.kind !== 'furniture' || inventoryFurnitureLinks.has(n.furnitureId)) throw Error('Мебель на плане связана с несколькими карточками');
       inventoryFurnitureLinks.add(n.furnitureId);
     }
-    if (n.kind !== 'room' && (!ids.has(n.parentId) || getNode(d,n.parentId).kind === 'item')) throw Error('Место хранения не найдено');
-    if (!n.archived && n.parentId && getNode(d,n.parentId)?.archived) throw Error('Действующая вещь внутри архива');
-    address(d,n);
+    if (n.kind !== 'room' && (!ids.has(n.parentId) || byId.get(n.parentId).kind === 'item')) throw Error('Место хранения не найдено');
+    if (!n.archived && n.parentId && byId.get(n.parentId)?.archived) throw Error('Действующая вещь внутри архива');
+    readIndex.address(n);
   }
+  if(d.settings.weatherLocations!=null&&(typeof d.settings.weatherLocations!=='object'||Array.isArray(d.settings.weatherLocations)||Object.values(d.settings.weatherLocations).some(c=>!validWeatherCity(c))))throw Error('Некорректный город для погоды');
   if (!Number.isInteger(d.settings.reminderDays) || d.settings.reminderDays < 0 || d.settings.reminderDays > 365) throw Error('Некорректный срок напоминаний');
   if (d.settings.apartmentFill != null && (!Number.isFinite(d.settings.apartmentFill) || d.settings.apartmentFill < 0 || d.settings.apartmentFill > 100)) throw Error('Заполненность квартиры должна быть от 0 до 100');
   if (d.trash != null && !Array.isArray(d.trash)) throw Error('Некорректная корзина');
   const trashIds=new Set(),allNodeIds=new Set(ids),allFurnitureIds=new Set(furnitureIds);
   const room=d.nodes.find(n=>n.kind==='room'&&!n.archived);
+  const trashNodes=[],trashFurniture=[];
   for (const entry of d.trash||[]) {
     if (!entry || typeof entry.id!=='string' || trashIds.has(entry.id) || typeof entry.removedAt!=='string' || Number.isNaN(Date.parse(entry.removedAt)) || !Array.isArray(entry.nodes) || !entry.nodes.length || !Array.isArray(entry.furniture)) throw Error('Некорректная запись корзины');
+    if(entry.nodes.length+d.nodes.length>50000)throw Error('Слишком большая копия');
     trashIds.add(entry.id);
     const ownIds=new Set(entry.nodes.map(n=>n.id));
     if (!ownIds.has(entry.rootId) || entry.nodes.some(n=>n.kind==='room' || allNodeIds.has(n.id) || n.id!==entry.rootId&&!ownIds.has(n.parentId))) throw Error('Некорректное содержимое корзины');
@@ -514,10 +606,11 @@ export function validate(d) {
     const ownFurniture=new Set(entry.nodes.map(n=>n.furnitureId).filter(Boolean));
     for (const f of entry.furniture) { if (allFurnitureIds.has(f.id) || !ownFurniture.has(f.id)) throw Error('Некорректная мебель в корзине');allFurnitureIds.add(f.id); }
     if (!room) throw Error('Для восстановления нужна комната');
-    const nodes=structuredClone(entry.nodes);nodes.find(n=>n.id===entry.rootId).parentId=room.id;
-    // Reuse the full card/tree validation, without recursively validating trash.
-    validate({...d,trash:[],nodes:[...d.nodes,...nodes],plan:{...d.plan,furniture:[...d.plan.furniture,...entry.furniture]}});
+    trashNodes.push(...entry.nodes.map(n=>n.id===entry.rootId?{...n,parentId:room.id}:n));
+    trashFurniture.push(...entry.furniture);
   }
+  // Validate all trash cards in one pass instead of rescanning the entire ledger per entry.
+  if(trashNodes.length)validate({...d,trash:[],nodes:[...d.nodes,...trashNodes],plan:{...d.plan,furniture:[...d.plan.furniture,...trashFurniture]}},{limitNodes:false});
   return d;
 }
 export function dueItems(d, now = today()) {

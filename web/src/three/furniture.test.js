@@ -3,13 +3,50 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {buildFurniture,footprint,FURNITURE_TYPES} from './furniture.js';
 import {EXTRA_MODEL_INFO,extraDimensions} from './furniture-info.js';
+import {shelfOpening} from './ikea-shelves.js';
+import {parrotState} from './parrot-cage.js';
+import {collectFurnitureAnimators,animateFurniture} from './furniture-animation.js';
 import * as M from '../inventory/model.js';
 import {readFileSync} from 'node:fs';
 
 const bounds=item=>new THREE.Box3().setFromObject(buildFurniture([{id:'test-model',pos:[0,0],...item}]));
 const near=(actual,expected)=>assert.ok(Math.abs(actual-expected)<0.00001,`${actual} != ${expected}`);
+test('cage count survives a backup and birds hop inside the cage with occasional speech',()=>{
+  const d=M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8'))),plan=structuredClone(d.plan),room=plan.rooms[0];
+  for(const count of [1,2])plan.furniture.push({id:'cage-'+count,type:'parrotCage',parrotCount:count,pos:[room.rect[0]+1,room.rect[1]+1]});
+  M.syncPlan(d,plan);const copy=JSON.parse(JSON.stringify(d));M.migrate(copy);M.validate(copy);
+  for(const count of [1,2]){
+    const shape=copy.plan.furniture.find(f=>f.id==='cage-'+count),model=buildFurniture([{...shape,pos:[0,0]}]),animators=collectFurnitureAnimators(model),birds=[],speech=[];
+    model.traverse(o=>{if(Number.isInteger(o.userData.parrotIndex))birds.push(o);if(o.userData.speech)speech.push(o);});
+    assert.equal(birds.length,count);assert.equal(animators.length,1);
+    animateFurniture(animators,4.65);const jumpPosition=birds[0].position.clone();assert.ok(jumpPosition.y>.26&&jumpPosition.y<.58);
+    animateFurniture(animators,5);near(birds[0].position.x,.16);near(birds[0].position.y,.46);
+    animateFurniture(animators,2.1);assert.ok(speech.some(o=>o.visible&&o.userData.speech==='music'));
+    animateFurniture(animators,92.1);assert.ok(speech.some(o=>o.visible&&o.userData.speech==='swear'));
+    for(let time=0;time<105;time+=.25){animateFurniture(animators,time);model.updateMatrixWorld(true);for(const b of birds){const bounds=new THREE.Box3().setFromObject(b);assert.ok(bounds.min.x>-.30&&bounds.max.x<.30);assert.ok(bounds.min.y>.06&&bounds.max.y<.71);assert.ok(bounds.min.z>-.205&&bounds.max.z<.205);}}
+    assert.equal(animateFurniture(animators,30,{reduceMotion:true}),false);near(birds[0].position.y,.26);assert.ok(speech.every(o=>!o.visible));
+    model.visible=false;const frozen=birds[0].position.clone();assert.equal(animateFurniture(animators,4.65),false);assert.deepEqual(birds[0].position,frozen);
+    model.visible=true;animateFurniture(animators,4.65);assert.deepEqual(birds[0].position,jumpPosition);
+  }
+  let music=0,swears=0;
+  for(let episode=0;episode<110;episode++){const state=parrotState(0,2.1+episode*9);state.speech==='swear'?swears++:music++;}
+  assert.equal(music,100);assert.equal(swears,10);
+});
+test('KALLAX has equal square openings and IVAR contents stand above each shelf board',()=>{
+  const shape={type:'kallaxShelf'},cells=[];
+  for(let row=0;row<4;row++)for(let col=0;col<4;col++){
+    const cell=shelfOpening(shape,[col/4,row/4,1/4,1/4]);cells.push(cell);
+    near(cell.width,cell.height);near(cell.width,.334);near(cell.baseY,.0375+(3-row)*.352);
+    near(cell.centerX,-1.47/2+.04+col*.352+.334/2);
+  }
+  assert.equal(new Set(cells.map(c=>[c.centerX,c.baseY].join(':'))).size,16);
+  for(let row=0;row<4;row++){
+    const cell=shelfOpening({type:'ivarRack'},[0,row/4,1,1/4]);
+    near(cell.baseY,.10+(3-row)*.41);near(cell.height,.39);near(cell.depth,.28);
+  }
+});
 test('all catalog models render finite geometry on the floor and match their plan footprint',()=>{
-  assert.equal(Object.keys(EXTRA_MODEL_INFO).length,32);
+  assert.equal(Object.keys(EXTRA_MODEL_INFO).length,38);
   for(const [type,info]of Object.entries(EXTRA_MODEL_INFO)){
     assert.ok(FURNITURE_TYPES.includes(type));
     const root=buildFurniture([{id:'sample',type,pos:[0,0]}]),box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3());

@@ -1,0 +1,12 @@
+.iv-scene>.iv-weather-canvas { position:absolute;inset:0;z-index:0;pointer-events:none;touch-action:auto; }
+.iv-scene>.iv-model-canvas { position:relative;z-index:1;background:transparent; }
+.mode-inventory .iv-scene>.iv-btn.iv-weather-chip { position:absolute;top:12px;right:14px;z-index:5;min-height:29px;padding:5px 9px;max-width:180px;font-size:13px;color:var(--iv-blue);background:var(--iv-sidebar);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px); }
+.iv-scene>.iv-weather-chip[hidden] { display:none; }
+.iv-weather-chip.is-stale { opacity:.7; }
+.iv-weather-cities { display:flex;flex-direction:column;gap:6px;margin:12px 0; }
+.iv-weather-cities .iv-btn { justify-content:flex-start;white-space:normal;text-align:left; }
+.iv-delete-selection { max-height:180px;overflow:auto;padding-left:22px; }
+.iv-dialog .iv-check { display:flex;align-items:center;gap:8px; }
+.iv-dialog .iv-check input { flex:none;width:16px;height:16px;min-height:0; }
+.iv-scene.has-weather .iv-scene-vignette { background:radial-gradient(ellipse at center,transparent 40%,#02040b44 100%); }
+.iv-scene:has(.iv-zone-label:hover)>.iv-weather-chip { visibility:hidden; }

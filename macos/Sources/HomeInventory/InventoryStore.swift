@@ -2,18 +2,44 @@ import Foundation
 
 enum InventoryError: LocalizedError {
     case message(String)
-    var errorDescription: String? { if case .message(let s) = self { return s }; return nil }
+    case conflict
+    var errorDescription: String? {
+        switch self {
+        case .message(let text): return text
+        case .conflict: return "Данные изменились на другом устройстве. Обновите их перед сохранением."
+        }
+    }
 }
 
 /// One atomic, versioned document includes geometry, photos, inventory and events.
 /// The UI sends a revision with every edit; an out-of-date writer cannot overwrite it.
-final class InventoryStore {
+// Mutation locks serialize writers; state snapshots remain readable during disk I/O.
+final class InventoryStore: @unchecked Sendable {
+    private let mutationLock = NSRecursiveLock()
     let folder: URL
     private let settingsURL: URL
-    private(set) var document: [String: Any]?
-    private(set) var settings: [String: Any] = [:]
-    var backupFailure: ((String) -> Void)?
-    var settingsChanged: (() -> Void)?
+    // Disk operations run on the app's serial storage queue; UI reads brief snapshots.
+    private let stateLock = NSLock()
+    private var storedDocument: [String: Any]?
+    private var storedSettings: [String: Any] = [:]
+    private(set) var document: [String: Any]? {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return storedDocument }
+        set { stateLock.lock(); defer { stateLock.unlock() }; storedDocument = newValue }
+    }
+    private(set) var settings: [String: Any] {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return storedSettings }
+        set { stateLock.lock(); defer { stateLock.unlock() }; storedSettings = newValue }
+    }
+    private var onBackupFailure: ((String) -> Void)?
+    private var onSettingsChanged: (() -> Void)?
+    var backupFailure: ((String) -> Void)? {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return onBackupFailure }
+        set { stateLock.lock(); defer { stateLock.unlock() }; onBackupFailure = newValue }
+    }
+    var settingsChanged: (() -> Void)? {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return onSettingsChanged }
+        set { stateLock.lock(); defer { stateLock.unlock() }; onSettingsChanged = newValue }
+    }
     private var lastAutomaticAttempt: Date?
     var revision: Int { document?["revision"] as? Int ?? 0 }
 
@@ -33,13 +59,16 @@ final class InventoryStore {
     }
     static func decode(_ data: Data) throws -> [String: Any] {
         guard data.count <= 100 * 1024 * 1024 else { throw InventoryError.message("Копия больше 100 МБ") }
-        guard let d = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              d["format"] as? String == "my-home-inventory", d["version"] as? Int == 1,
+        guard let d = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw InventoryError.message("Некорректный формат данных «Мой дом»") }
+        try validateEnvelope(d)
+        return d
+    }
+    private static func validateEnvelope(_ d: [String: Any]) throws {
+        guard d["format"] as? String == "my-home-inventory", d["version"] as? Int == 1,
               d["nodes"] is [[String: Any]], d["categories"] is [[String: Any]],
               d["events"] is [[String: Any]], d["plan"] is [String: Any], d["settings"] is [String: Any] else {
             throw InventoryError.message("Некорректный формат данных «Мой дом»")
         }
-        return d
     }
     static func encode(_ d: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: d, options: [.sortedKeys, .withoutEscapingSlashes]) }
     private func writeSettings(_ next: [String: Any], notify: Bool = true) throws {
@@ -48,9 +77,11 @@ final class InventoryStore {
         if notify { settingsChanged?() }
     }
     func save(_ next: [String: Any], expected: Int, restoring: Bool) throws {
-        guard expected == revision else { throw InventoryError.message("Данные уже изменились. Закройте и снова откройте окно.") }
+        mutationLock.lock(); defer { mutationLock.unlock() }
+        guard expected == revision else { throw InventoryError.conflict }
+        try Self.validateEnvelope(next)
         let data = try Self.encode(next)
-        _ = try Self.decode(data)
+        guard data.count <= 100 * 1024 * 1024 else { throw InventoryError.message("Копия больше 100 МБ") }
         if restoring, let old = document {
             let recovery = folder.appendingPathComponent("before-restore-\(Self.timestamp()).json")
             try Self.encode(old).write(to: recovery, options: .atomic)
@@ -66,6 +97,7 @@ final class InventoryStore {
         let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.calendar = Calendar(identifier: .gregorian); f.dateFormat = "yyyyMMdd-HHmmss-SSS"; f.timeZone = .current; return f.string(from: Date())
     }
     func chooseBackupFolder(_ url: URL) throws {
+        mutationLock.lock(); defer { mutationLock.unlock() }
         let bookmark = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
         var next = settings
         next["backupBookmark"] = bookmark.base64EncodedString(); next["backupFolder"] = url.path
@@ -74,6 +106,7 @@ final class InventoryStore {
         try backup()
     }
     func backup() throws {
+        mutationLock.lock(); defer { mutationLock.unlock() }
         do { try writeBackup() }
         catch {
             var next = settings
@@ -112,6 +145,7 @@ final class InventoryStore {
         try writeSettings(next)
     }
     func autoBackupIfDue() {
+        mutationLock.lock(); defer { mutationLock.unlock() }
         guard settings["backupBookmark"] != nil, settings["lastBackupDay"] as? String != Self.day() else { return }
         // Keep the failure visible, retry periodically, and avoid an error toast on every edit.
         if let lastAutomaticAttempt, Date().timeIntervalSince(lastAutomaticAttempt) < 15 * 60 { return }
@@ -120,11 +154,13 @@ final class InventoryStore {
         do { try backup() } catch { if previousError != error.localizedDescription { backupFailure?(error.localizedDescription) } }
     }
     var publicSettings: [String: Any] {
-        ["backupFolder": settings["backupFolder"] ?? "", "lastBackupAt": settings["lastBackupAt"] ?? "",
-         "lastBackupError": settings["lastBackupError"] ?? "", "lastBackupErrorAt": settings["lastBackupErrorAt"] ?? "",
-         "backupCount": settings["backupCount"] ?? 0, "appIcon": settings["appIcon"] ?? "aurora"]
+        let snapshot = settings
+        return ["backupFolder": snapshot["backupFolder"] ?? "", "lastBackupAt": snapshot["lastBackupAt"] ?? "",
+         "lastBackupError": snapshot["lastBackupError"] ?? "", "lastBackupErrorAt": snapshot["lastBackupErrorAt"] ?? "",
+         "backupCount": snapshot["backupCount"] ?? 0, "appIcon": snapshot["appIcon"] ?? "aurora"]
     }
     func setApplicationIcon(_ name: String) throws {
+        mutationLock.lock(); defer { mutationLock.unlock() }
         guard ["aurora", "sunset", "orbit", "forest"].contains(name) else { throw InventoryError.message("Неизвестная иконка приложения") }
         var next = settings; next["appIcon"] = name
         try writeSettings(next)
@@ -137,6 +173,7 @@ final class InventoryStore {
         return fire <= date
     }
     func reconcileNotificationSchedules(active: Set<String>, now: Date) {
+        mutationLock.lock(); defer { mutationLock.unlock() }
         guard let schedules = settings["notificationSchedules"] as? [String: String] else { return }
         let formatter = ISO8601DateFormatter()
         let nextSchedules = schedules.filter { active.contains($0.key) || (formatter.date(from: $0.value) ?? .distantFuture) <= now }
@@ -145,6 +182,7 @@ final class InventoryStore {
         try? writeSettings(next, notify: false)
     }
     func rememberNotificationSchedule(_ identifier: String, fire: Date) {
+        mutationLock.lock(); defer { mutationLock.unlock() }
         var schedules = settings["notificationSchedules"] as? [String: String] ?? [:]
         schedules[identifier] = ISO8601DateFormatter().string(from: fire)
         if schedules.count > 5000 { schedules = Dictionary(uniqueKeysWithValues: schedules.sorted { $0.value > $1.value }.prefix(5000).map { ($0.key, $0.value) }) }

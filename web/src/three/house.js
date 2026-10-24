@@ -1,5 +1,6 @@
 // Turns the rooms + openings of a plan into floors, walls and windows.
 import * as THREE from 'three';
+import { roomPoints, contourArea } from '../geometry/room.js';
 import { box, mat, at, floorMesh } from './kit.js';
 
 const EXT_T = 0.2;   // exterior wall thickness
@@ -11,62 +12,42 @@ const key = (v) => Math.round(v * 1000);
 
 // Splits every room edge into wall segments, classifying each as exterior / interior
 // and attaching the opening (door, window, ...) that covers it, if any.
-function wallSegments(config) {
-  const lines = new Map();
-  const line = (axis, c) => {
-    const k = `${axis}:${key(c)}`;
-    if (!lines.has(k)) lines.set(k, { axis, c, edges: [], openings: [] });
-    return lines.get(k);
+export function wallSegments(config) {
+  const lines=new Map();
+  const add=(from,to,edge=null,opening=null)=>{
+    let dx=to[0]-from[0],dz=to[1]-from[1],len=Math.hypot(dx,dz);if(len<EPS)return;
+    let ux=dx/len,uz=dz/len;if(ux<-EPS||Math.abs(ux)<EPS&&uz<0){ux=-ux;uz=-uz;}
+    const nx=-uz,nz=ux,c=nx*from[0]+nz*from[1];
+    const id=[key(ux),key(uz),key(c)].join(':');
+    if(!lines.has(id))lines.set(id,{ux,uz,nx,nz,c,edges:[],openings:[]});
+    const l=lines.get(id),v1=ux*from[0]+uz*from[1],v2=ux*to[0]+uz*to[1],range={a:Math.min(v1,v2),b:Math.max(v1,v2)};
+    if(edge)l.edges.push({...range,...edge});if(opening)l.openings.push({...opening,...range});
   };
-
-  for (const r of config.rooms) {
-    line('x', r.z).edges.push({ a: r.x, b: r.x + r.w, inside: 1 });
-    line('x', r.z + r.d).edges.push({ a: r.x, b: r.x + r.w, inside: -1 });
-    line('z', r.x).edges.push({ a: r.z, b: r.z + r.d, inside: 1 });
-    line('z', r.x + r.w).edges.push({ a: r.z, b: r.z + r.d, inside: -1 });
-  }
-  for (const o of config.openings) {
-    const alongX = o.from[1] === o.to[1];
-    const k = alongX ? `x:${key(o.from[1])}` : `z:${key(o.from[0])}`;
-    const l = lines.get(k);
-    if (!l) continue; // opening that is not on any wall: ignore
-    const p = alongX ? [o.from[0], o.to[0]] : [o.from[1], o.to[1]];
-    l.openings.push({ ...o, a: Math.min(...p), b: Math.max(...p) });
-  }
-
-  const segments = [];
-  for (const l of lines.values()) {
-    const pts = [...new Set([...l.edges, ...l.openings].flatMap((e) => [key(e.a), key(e.b)]))]
-      .sort((p, q) => p - q).map((p) => p / 1000);
-    const run = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      const mid = (pts[i] + pts[i + 1]) / 2;
-      const covering = l.edges.filter((e) => e.a < mid && mid < e.b);
-      if (!covering.length) continue;
-      const seg = {
-        axis: l.axis, c: l.c, a: pts[i], b: pts[i + 1],
-        kind: covering.length > 1 ? 'interior' : 'exterior',
-        inside: covering[0].inside,
-        opening: l.openings.find((o) => o.a < mid && mid < o.b) || null,
-      };
-      const prev = run[run.length - 1];
-      if (prev && Math.abs(prev.b - seg.a) < EPS && prev.kind === seg.kind
-        && prev.inside === seg.inside && prev.opening === seg.opening) prev.b = seg.b;
-      else run.push(seg);
+  for(const room of config.rooms){const ps=roomPoints(room),sign=Math.sign(contourArea(ps));for(let i=0;i<ps.length;i++){
+    const a=ps[i],b=ps[(i+1)%ps.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    add(a,b,{roomId:room.id,outX:sign*(b[1]-a[1])/len,outZ:-sign*(b[0]-a[0])/len});
+  }}
+  for(const o of config.openings)add(o.from,o.to,null,o);
+  const result=[];
+  for(const l of lines.values()){
+    const points=[...new Set([...l.edges,...l.openings].flatMap(e=>[key(e.a),key(e.b)]))].sort((a,b)=>a-b).map(v=>v/1000);
+    const run=[];
+    for(let i=0;i<points.length-1;i++){
+      const a=points[i],b=points[i+1],mid=(a+b)/2,covering=l.edges.filter(e=>e.a<mid&&mid<e.b);if(!covering.length)continue;
+      const kind=new Set(covering.map(e=>e.roomId)).size>1?'interior':'exterior',opening=l.openings.find(o=>o.a<mid&&mid<o.b)||null;
+      const prev=run.at(-1);
+      if(prev&&Math.abs(prev.b-a)<EPS&&prev.kind===kind&&prev.opening===opening)prev.b=b;
+      else run.push({...l,a,b,kind,opening,outX:covering[0].outX,outZ:covering[0].outZ});
     }
-    // Free ends get a small extension so corners close up.
-    run.forEach((s, i) => {
-      s.freeA = !(run[i - 1] && Math.abs(run[i - 1].b - s.a) < EPS);
-      s.freeB = !(run[i + 1] && Math.abs(run[i + 1].a - s.b) < EPS);
-    });
-    segments.push(...run);
+    run.forEach((s,i)=>{s.freeA=!(run[i-1]&&Math.abs(run[i-1].b-s.a)<EPS);s.freeB=!(run[i+1]&&Math.abs(run[i+1].a-s.b)<EPS);});
+    result.push(...run);
   }
-  return segments;
+  return result;
 }
 
 export function buildHouse(config, camDir) {
   const group = new THREE.Group();
-  const floors = [];
+  const floors = [],walls=[];
   const H = config.wallHeight;
   const Hi = Math.min(config.interiorWallHeight, H);
   const { minX, minZ, maxX, maxZ } = config.bounds;
@@ -97,12 +78,14 @@ export function buildHouse(config, camDir) {
   // A wall piece running from a..b along its axis, between heights y0..y1.
   const piece = (s, a, b, y0, y1, t, materials = wallMats) => {
     const len = b - a;
-    const geo = s.axis === 'x' ? new THREE.BoxGeometry(len, y1 - y0, t) : new THREE.BoxGeometry(t, y1 - y0, len);
+    const geo = new THREE.BoxGeometry(len, y1 - y0, t);
     const m = new THREE.Mesh(geo, materials);
     const mid = (a + b) / 2;
-    m.position.set(s.axis === 'x' ? mid : s.c, (y0 + y1) / 2, s.axis === 'x' ? s.c : mid);
+    m.position.set(s.ux*mid+s.nx*s.c, (y0+y1)/2, s.uz*mid+s.nz*s.c);
+    m.rotation.y=-Math.atan2(s.uz,s.ux);
     m.castShadow = m.receiveShadow = true;
     group.add(m);
+    if(materials!==blocker)walls.push(m);
     return m;
   };
 
@@ -110,8 +93,8 @@ export function buildHouse(config, camDir) {
     const exterior = s.kind === 'exterior';
     const t = exterior ? EXT_T : INT_T;
     // Outward normal of an exterior wall points away from its room.
-    const nx = s.axis === 'z' ? -s.inside : 0;
-    const nz = s.axis === 'x' ? -s.inside : 0;
+    const nx = s.outX;
+    const nz = s.outZ;
     const near = exterior && nx * camDir.x + nz * camDir.z > 0.15;
     const a = s.a - (s.freeA ? EXT_T / 2 : 0);
     const b = s.b + (s.freeB ? EXT_T / 2 : 0);
@@ -144,5 +127,5 @@ export function buildHouse(config, camDir) {
     if (!exterior && Hi < H) piece(s, a, b, Hi, H, 0.04, blocker).receiveShadow = false;
   }
 
-  return { group, floors };
+  return { group, floors, walls };
 }

@@ -1,0 +1,31 @@
+/* The exact quality color is retained for borders and light; text adapts to the theme. */
+.mode-inventory [data-rarity=poor] { --rarity-color:#9d9d9d;--rarity-ink:#b6bcc6; }
+.mode-inventory [data-rarity=common] { --rarity-color:#ffffff;--rarity-ink:#e4eaf3; }
+.mode-inventory [data-rarity=uncommon] { --rarity-color:#1eff00;--rarity-ink:#80e78c; }
+.mode-inventory [data-rarity=rare] { --rarity-color:#0070dd;--rarity-ink:#88bbff; }
+.mode-inventory [data-rarity=epic] { --rarity-color:#a335ee;--rarity-ink:#d7a5ff; }
+.mode-inventory [data-rarity=legendary] { --rarity-color:#ff8000;--rarity-ink:#ffc17d; }
+.mode-inventory[data-inventory-theme=light] [data-rarity=poor] { --rarity-ink:#59616e; }
+.mode-inventory[data-inventory-theme=light] [data-rarity=common] { --rarity-ink:#465469;--rarity-color:#c3cdd9; }
+.mode-inventory[data-inventory-theme=light] [data-rarity=uncommon] { --rarity-ink:#236d2b; }
+.mode-inventory[data-inventory-theme=light] [data-rarity=rare] { --rarity-ink:#095da5; }
+.mode-inventory[data-inventory-theme=light] [data-rarity=epic] { --rarity-ink:#7928ac; }
+.mode-inventory[data-inventory-theme=light] [data-rarity=legendary] { --rarity-ink:#984700; }
+.mode-inventory :is(.iv-photo-card,.iv-table-row,.iv-storage-row,.iv-detail-hero)[data-rarity] {
+  background:linear-gradient(115deg,color-mix(in srgb,var(--rarity-color) 12%,transparent),color-mix(in srgb,var(--rarity-color) 3%,transparent)),var(--glass);
+  border-color:color-mix(in srgb,var(--rarity-color) 32%,var(--line));
+}
+.mode-inventory :is(.iv-photo-card,.iv-table-row,.iv-storage-row)[data-rarity]:hover {
+  background:linear-gradient(115deg,color-mix(in srgb,var(--rarity-color) 20%,transparent),color-mix(in srgb,var(--rarity-color) 7%,transparent)),var(--glass);
+}
+.mode-inventory[data-inventory-theme] .iv-thumb[data-rarity] { color:var(--rarity-ink);background:color-mix(in srgb,var(--rarity-color) 12%,var(--glass));border-color:color-mix(in srgb,var(--rarity-color) 40%,var(--line)); }
+.mode-inventory .iv-thumb:is([data-rarity=epic],[data-rarity=legendary]) {
+  box-shadow:0 0 12px color-mix(in srgb,var(--rarity-color) 50%,transparent),0 0 24px color-mix(in srgb,var(--rarity-color) 22%,transparent);
+}
+.mode-inventory .iv-thumb:is([data-rarity=epic],[data-rarity=legendary]) .icon { filter:drop-shadow(0 0 4px var(--rarity-color)); }
+.mode-inventory .iv-rarity-label { display:inline-flex;align-items:center;gap:4px;color:var(--rarity-ink);font-size:10px;line-height:14px;white-space:nowrap; }
+.mode-inventory .iv-rarity-label::before { content:'';width:5px;height:5px;flex:none;border-radius:50%;background:var(--rarity-ink); }
+.mode-inventory .iv-detail-hero[data-rarity] { padding:12px;border:1px solid color-mix(in srgb,var(--rarity-color) 32%,var(--line));border-radius:14px; }
+.mode-inventory .if-rarity-help { margin:5px 0 0;font-size:11px;line-height:1.4;color:var(--muted); }
+.mode-inventory .if-rarity-preview { margin-top:5px; }
+.mode-inventory .if-rarity-field { grid-column:1/-1; }

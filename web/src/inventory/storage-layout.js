@@ -1,7 +1,9 @@
+import { isKitchenType } from './ikea-storage.js';
+import { planForNode } from './spaces.js';
 // Layouts refer to live inventory IDs. Rendering never creates, moves or deletes inventory.
 import { automaticGrid, kitchenModules, KITCHEN_MODULE_TYPES } from './ikea-storage.js';
 import { fridgeChambers } from './fridge-layout.js';
-export const OPENABLE_TYPES=new Set(['wardrobe','slidingWardrobe','dresser','nightstand','sideboard','bookshelf','metalRack','wallShelf','shoeCabinet','hallUnit','wallUnit','kitchen','island','vanity','fridge','stove','bookcaseTall','bookcaseMedium','printerCabinet']);
+export const OPENABLE_TYPES=new Set(['woodShelfLow','kallaxShelf','ivarRack','wardrobe','slidingWardrobe','dresser','nightstand','sideboard','bookshelf','metalRack','wallShelf','shoeCabinet','hallUnit','wallUnit','kitchenBase','hoodCabinet','kitchen','island','vanity','fridge','stove','bookcaseTall','bookcaseMedium','printerCabinet']);
 export const LAYOUT_TEMPLATES=[['shelves','Полки'],['wardrobe','Шкаф: верхняя полка и две секции'],['grid','Равные секции'],['drawers','Выдвижные ящики']];
 export const storageChildren=(doc,id)=>doc.nodes.filter(n=>n.parentId===id&&!n.archived&&n.kind!=='item').sort((a,b)=>a.order-b.order);
 function rawLayoutZones(doc,nodeId) {
@@ -9,9 +11,9 @@ function rawLayoutZones(doc,nodeId) {
   if(n.kitchenModule&&!KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.storage)return [];
   const children=storageChildren(doc,nodeId);
   if(!children.length)return [{nodeId:n.id,name:n.fridgeChamber?n.name:'Основное пространство',kind:'space',rect:[0,0,1,1]}];
-  const shape=doc.plan.furniture.find(f=>f.id===n.furnitureId);
+  const shape=planForNode(doc,n).furniture.find(f=>f.id===n.furnitureId);
   if(shape?.type==='fridge')return fridgeChambers(shape).flatMap(c=>{const child=children.find(n=>n.fridgeChamber===c.key);return child?[{nodeId:child.id,name:child.name,kind:child.kind,fridgeChamber:c.key,rect:[0,0,1,1]}]:[];});
-  if(shape?.type==='kitchen')return kitchenModules(shape).modules.flatMap(m=>{const child=children.find(c=>c.kitchenModule===m.key);return child?[{nodeId:child.id,name:child.name,kind:child.kind,moduleKey:m.key,moduleType:m.type,rect:[0,0,1,1]}]:[];});
+  if(isKitchenType(shape?.type))return kitchenModules(shape).modules.flatMap(m=>{const child=children.find(c=>c.kitchenModule===m.key);return child?[{nodeId:child.id,name:child.name,kind:child.kind,moduleKey:m.key,moduleType:m.type,rect:[0,0,1,1]}]:[];});
   if(!n.storageLayout&&(n.autoLayout||children.some(c=>c.autoSection))){
     const {columns}=automaticGrid(n.kitchenModule?{type:'kitchen',width:.6}:shape||{type:n.modelType||'kitchen'},children.length),rows=Math.ceil(children.length/columns);
     return children.map((c,i)=>({nodeId:c.id,name:c.name,kind:c.kind,rect:[i%columns/columns,Math.floor(i/columns)/rows,1/columns,1/rows]}));

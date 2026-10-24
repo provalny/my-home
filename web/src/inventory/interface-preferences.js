@@ -3,12 +3,19 @@ import { icon } from '../ui/icons.js';
 
 // Visual preferences belong to this device, not to apartment data or undo history.
 const KEY = 'iv:interface';
+const PALETTES = [
+  ['ocean','Океан','Синий и мягкий золотой свет'],
+  ['emerald','Изумруд','Хвойный фон, мята и тёплые блики'],
+  ['amethyst','Аметист','Сливовое стекло и лавандовый свет'],
+  ['amber','Тёплый янтарь','Кофейные оттенки и медовые акценты'],
+];
 export function createInterfacePreferences(onChange) {
   let saved;
   try { saved=JSON.parse(localStorage.getItem(KEY)||'{}'); } catch { saved={}; }
   const prefs={
     theme:['light','dark'].includes(saved?.theme)?saved.theme:'dark',
     material:['glass','matte','glow'].includes(saved?.material)?saved.material:'glass',
+    palette:PALETTES.some(([id])=>id===saved?.palette)?saved.palette:'ocean',
     collapsed:typeof saved?.collapsed==='boolean'?saved.collapsed:innerWidth<850,
   };
   const controls=new Set();
@@ -16,6 +23,7 @@ export function createInterfacePreferences(onChange) {
     const html=document.documentElement;
     html.dataset.inventoryTheme=prefs.theme;
     html.dataset.inventoryMaterial=prefs.material;
+    html.dataset.inventoryPalette=prefs.palette;
     document.querySelector('meta[name="color-scheme"]')?.setAttribute('content',prefs.theme);
     for(const control of controls){
       if(!control.isConnected){controls.delete(control);continue;}
@@ -42,6 +50,9 @@ export function createInterfacePreferences(onChange) {
         ['dark','Тёмная','moon','Дымчатое стекло и тёплые акценты'],
         ['light','Светлая','sun','Светлое стекло и мягкие тени'],
       ]),
+      h('div.iv-appearance-field',h('span','Палитра'),h('div.iv-appearance-options.iv-palette-options',{'role':'group','aria-label':'Палитра'},...PALETTES.map(([value,title,description])=>
+        h('button.iv-appearance-choice.iv-palette-choice',{type:'button','data-preference':'palette','data-value':value,'aria-pressed':String(prefs.palette===value),onclick:()=>set({palette:value})},
+          h('span.iv-palette-swatch',{'data-palette-swatch':value,'aria-hidden':'true'}),h('span',h('strong',title),h('small',description)))))),
       choices('Поверхности','material',[
         ['glass','Liquid Glass','copy','Прозрачность, объёмные края и живые блики'],
         ['matte','Матовые','stop','Спокойные непрозрачные панели'],

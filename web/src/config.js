@@ -1,3 +1,4 @@
+import { validateContour } from './geometry/room.js';
 // Loads and normalises a floor plan ("home.json"). Everything the 3D scene and the UI
 // know about the apartment comes from this one document, so swapping the file swaps the home.
 
@@ -7,6 +8,7 @@ const WALLS = ['north', 'south', 'east', 'west'];
 export class ConfigError extends Error {}
 
 export const LIGHT_KINDS = LIGHT_TYPES;
+export const LIGHT_INTENSITY_DEFAULTS = {ceiling:20,pendant:9,spots:20,floor:3.4,table:1.5,strip:1.6};
 
 // A lamp or an AC is real when it is linked to a device of a connected platform:
 // `link: { service, id }` (Home Assistant, Philips Hue, Apple Home) or, for Smart Life,
@@ -71,13 +73,14 @@ export function normalize(raw) {
       `Комната «${r.id}»: укажите положение, ширину и глубину`);
     const [x, z, w, d] = r.rect;
     need(w > 0 && d > 0, `Комната «${r.id}»: ширина и глубина должны быть больше нуля`);
-    return { id: r.id, name: r.name || r.id, x, z, w, d, floor: r.floor || 'oak' };
+    if(r.contour)validateContour(r.contour);
+    return { ...(r.contour?{contour:r.contour.map(p=>[...p])}:{}), id: r.id, name: r.name || r.id, x, z, w, d, floor: r.floor || 'oak' };
   });
   const roomIds = new Set(rooms.map((r) => r.id));
 
   const openings = (raw.openings || []).map((o, i) => {
     need(isPoint(o.from) && isPoint(o.to), `Проём №${i + 1}: укажите начало и конец`);
-    need(o.from[0] === o.to[0] || o.from[1] === o.to[1], `Проём №${i + 1} должен быть направлен вдоль стены`);
+    need(Math.hypot(o.to[0]-o.from[0],o.to[1]-o.from[1])>0, `Проём №${i+1}: начало и конец не должны совпадать`);
     return { type: o.type || 'door', from: o.from, to: o.to, sill: o.sill ?? 0.85, head: o.head ?? 2.1 };
   });
 
@@ -85,6 +88,7 @@ export function normalize(raw) {
     unique(l.id, 'Светильник');
     need(roomIds.has(l.room), `Светильник «${l.id}»: комната «${l.room}» не найдена`);
     need(LIGHT_TYPES.includes(l.type), `Светильник «${l.id}»: неизвестный тип «${l.type}»`);
+    need(l.intensity == null || Number.isFinite(l.intensity) && l.intensity >= 0 && l.intensity <= 1000, `Светильник «${l.id}»: интенсивность должна быть от 0 до 1000`);
     need(isPoint(l.pos), `Светильник «${l.id}»: укажите координаты X и Z`);
     return {
       ...l,
