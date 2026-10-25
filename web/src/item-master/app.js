@@ -69,7 +69,7 @@ export function createItemMaster({getDocument,change,modal,say,isActive=()=>true
         const c=M.chosen(n),choices=new Set();plans.push({id:n.id,candidateId:c.id,checkedAt:n.itemResearch.checkedAt,choices,node:structuredClone(n)});
         const section=h('section.im-compare-item',h('h3',n.name),h('p.iv-muted',c.title,' · ',sourceLink(c.url)));
         const table=h('table',h('thead',h('tr',...['Применить','Поле','Сейчас','Найдено'].map(t=>h('th',t))))),rows=h('tbody');
-        for(const key of [...Object.keys(c.fields),...(c.fields.officialName?['name']:[])]) {
+        for(const key of Object.keys(c.fields).map(key=>key==='officialName'?'name':key)) {
           const fact=c.fields[key==='name'?'officialName':key],before=M.currentValue(n,key),same=before===fact.value;
           const check=h('input',{type:'checkbox','aria-label':n.name+' · '+M.FIELDS[key]});check.disabled=same;
           check.checked=!same&&key!=='name'&&(before==null||before==='');if(check.checked)choices.add(key);

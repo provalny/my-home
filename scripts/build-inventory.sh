@@ -52,6 +52,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>NSHumanReadableCopyright</key><string>Based on House Control © 0xProbability. MIT License.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSLocalNetworkUsageDescription</key><string>Life Assistant подключает телефон к вашей квартире и вещам по домашней сети Wi-Fi.</string>
+<key>NSCalendarsUsageDescription</key><string>Life Assistant предлагает занятое время из выбранных календарей для подтверждения в личном опросе.</string>
+<key>NSCalendarsFullAccessUsageDescription</key><string>Life Assistant читает события выбранных календарей за один день, чтобы предложить занятое время перед сохранением.</string>
 </dict></plist>
 PLIST
 python3 "$ROOT/scripts/configure-updates.py" "$APP/Contents/Info.plist" "$ROOT/distribution.json"

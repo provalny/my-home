@@ -1,6 +1,6 @@
 import { weightKg } from '../inventory/weights.js';
 
-export const FIELDS = {officialName:'Официальное название',mpn:'Артикул производителя',weightGrams:'Вес, г',transportLiters:'Транспортный объём, л',name:'Название в каталоге'};
+export const FIELDS = {officialName:'Название',mpn:'Артикул производителя',weightGrams:'Вес, г',transportLiters:'Транспортный объём, л',name:'Название'};
 export const eligible = n => Boolean(n && !n.archived && !n.virtual && !n.autoSection && !n.kitchenModule && !n.fridgeChamber && ['item','furniture','box'].includes(n.kind));
 export const items = d => d.nodes.filter(eligible);
 export const checked = n => Boolean(n.itemResearch?.checkedAt);
@@ -39,14 +39,14 @@ export function chooseCandidate(d,id,candidateId) {
 }
 export const chosen = n => n.itemResearch?.candidates.find(c=>c.id===n.itemResearch.chosen);
 export function currentValue(n,key) {
-  if(key==='name')return n.name;
+  if(key==='name'||key==='officialName')return n.name;
   if(key==='weightGrams'){const kg=weightKg(n);return kg==null?null:Math.round(kg*1e6)/1000;}
   if(key==='transportLiters'){const raw=n.fields?.[FIELDS[key]];return raw==null||raw.trim()===''?null:Number(raw.replace(',','.'));}
   return n.fields?.[FIELDS[key]] || '';
 }
 export function planChanges(n,keys) {
   const c=chosen(n);if(!eligible(n)||!c)throw Error('Сначала выберите свою модель');
-  return [...new Set(keys)].map(key=>{
+  return [...new Set(keys.map(key=>key==='officialName'?'name':key))].map(key=>{
     if(!Object.hasOwn(FIELDS,key))throw Error('Неизвестное поле');
     const fact=c.fields[key==='name'?'officialName':key];if(!fact)throw Error('Для этого поля нет подтверждённого значения');
     return {key,before:currentValue(n,key),after:fact.value,fact:structuredClone(fact)};
@@ -63,7 +63,7 @@ export function applyChanges(d,plans,at=new Date().toISOString()) {
   for(const plan of plans) {
     const n=d.nodes.find(n=>n.id===plan.id);n.fields??={};n.itemResearch.applied??={};
     for(const p of plan.fields) {
-      if(p.key==='name')n.name=String(p.after);
+      if(p.key==='name'||p.key==='officialName')n.name=String(p.after);
       else n.fields[FIELDS[p.key]]=String(p.after);
       if(p.key==='weightGrams'){delete n.fields['Вес, кг'];delete n.weightKg;delete n.weightEstimate;}
       n.itemResearch.applied[p.key]={...p.fact,appliedAt:at};

@@ -210,6 +210,25 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
                 } else { host.reply(to: m, publicSettings) }
             case "inventoryBackupNow": storeTask(replyTo: m) { storage in try storage.backup(); return storage.publicSettings }
             case "inventorySystemStatus": refreshSystemStatus(replyTo: m)
+            case "metricsCalendarList":
+                MetricsCalendar.shared.calendars(requestAccess: true) { result in
+                    DispatchQueue.main.async {
+                        switch result {
+                        case .success(let calendars): self.host.reply(to: m, ["calendars": calendars])
+                        case .failure(let error): self.host.reply(to: m, ["error": error.localizedDescription])
+                        }
+                    }
+                }
+            case "metricsCalendarDay":
+                let day = m["day"] as? String ?? "", ids = m["calendarIds"] as? [String] ?? []
+                MetricsCalendar.shared.events(day: day, calendarIDs: ids) { result in
+                    DispatchQueue.main.async {
+                        switch result {
+                        case .success(let events): self.host.reply(to: m, ["events": events])
+                        case .failure(let error): self.host.reply(to: m, ["error": error.localizedDescription])
+                        }
+                    }
+                }
             case "inventoryExport":
                 let p = NSSavePanel(); p.nameFieldStringValue = "Life-Assistant-\(InventoryStore.day()).json"; p.allowedContentTypes = [.json]
                 if p.runModal() == .OK, let url = p.url {

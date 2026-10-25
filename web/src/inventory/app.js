@@ -161,7 +161,7 @@ export async function bootInventory(root) {
   const monitoring=createMonitoring({getDocument:()=>doc,change,modal,say,reducedMotion,theme:()=>appearance.prefs.theme});
   const itemMaster=createItemMaster({getDocument:()=>doc,change,modal,say,isActive:()=>view==='item-master'});
   const personalMetrics=createPersonalMetrics({getDocument:()=>doc,change,modal,say});
-  const travel=createTravel({getDocument:()=>doc,change,modal,say,theme:()=>appearance.prefs.theme,details,demoHref:!isShowcase&&!isNative&&!isLAN?'?section=travel&demo=travel':null});
+  const travel=createTravel({getDocument:()=>doc,change,modal,say,reducedMotion,theme:()=>appearance.prefs.theme,details,demoHref:!isShowcase&&!isNative&&!isLAN?'?section=travel&demo=travel':null});
   const automobile=createAutomobile({getDocument:()=>doc,change,modal,say,reducedMotion,theme:()=>appearance.prefs.theme,editItem:editNode,details,demoHref:!isShowcase&&!isNative&&!isLAN?'?section=automobile&demo=automobile':null,closeDetails:()=>{detailId=null;drawDetails();}});
   const demoTour=createDemoTour({storageKey,onClose:({automatic,completed})=>{if(completed)startShowcase(automatic);else if(automatic)finishFirstLaunch();}});
   function startShowcase(automatic=false){

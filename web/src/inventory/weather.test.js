@@ -15,6 +15,11 @@ test('city search returns choices rather than silently selecting the first resul
   let address;const result=await findWeatherCities('Тест',async url=>{address=url;return {ok:true,json:async()=>({results:[{id:1,name:'Тест',latitude:55,longitude:37,country:'Страна'},{id:2,name:'Тест',latitude:56,longitude:38,country:'Другая страна'}]})};});
   assert.equal(result.length,2);assert.equal(result[1].id,'2');assert.equal(address.searchParams.get('language'),'ru');assert.equal((await findWeatherCities('а')).length,0);
 });
+test('weather includes the city UTC offset and local solar times for seasonal scenery',async()=>{
+ const weather={...response,timezone:'Europe/Moscow',utc_offset_seconds:10800,daily:{sunrise:['2026-10-25T07:30'],sunset:['2026-10-25T17:00']}};let url;
+ const result=await fetchCurrentWeather(city,async u=>{url=u;return {ok:true,json:async()=>weather};});
+ assert.equal(url.searchParams.get('daily'),'sunrise,sunset');assert.equal(result.utcOffsetSeconds,10800);assert.equal(result.timezone,'Europe/Moscow');assert.equal(result.sunrise,'2026-10-25T07:30');assert.equal(result.sunset,'2026-10-25T17:00');
+});
 test('weather cache deduplicates calls, expires, and retains stale data on an offline error',async()=>{
   let clock=100,calls=0,offline=false;const entries=new Map(),storage={getItem:k=>entries.get(k),setItem:(k,v)=>entries.set(k,v)},service=createWeatherService({storage,now:()=>clock,fetcher:async()=>{calls++;if(offline)throw Error('offline');return {ok:true,json:async()=>response};}});
   await Promise.all([service.current(city),service.current(city)]);assert.equal(calls,1);await service.current(city);assert.equal(calls,1);

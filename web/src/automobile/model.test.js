@@ -4,6 +4,21 @@ import { readFileSync } from 'node:fs';
 import * as I from '../inventory/model.js';
 import * as A from './model.js';
 import { createActionHistory } from '../inventory/action-history.js';
+import { vehicleModelType } from './vehicle-model.js';
+import * as T from '../travel/model.js';
+import {vehicleStatusCards} from './status-data.js';
+
+test('vehicle plaques use recorded readings, the requested default 90%, and no invented tire percentage',()=>{
+ const {d,c}=fixture();let cards=vehicleStatusCards(c);
+ assert.equal(cards.find(x=>x.id==='condition').percent,90);assert.equal(cards.find(x=>x.id==='tires').percent,null);assert.equal(cards.find(x=>x.id==='tires').value,'Не указано');
+ const before=structuredClone(d),history=createActionHistory();A.updateCar(d,c.id,{conditionPercent:86,tireConditionPercent:72});
+ history.record(before,{label:'Состояние',section:'automobile'},d);
+ cards=vehicleStatusCards(c);assert.equal(cards.find(x=>x.id==='condition').percent,86);assert.equal(cards.find(x=>x.id==='tires').percent,72);
+ I.validate(JSON.parse(JSON.stringify(d)));history.applyTo(d);history.complete(false);assert.equal(A.car(d,c.id).conditionPercent,undefined);
+ history.applyTo(d,true);history.complete(true);assert.equal(A.car(d,c.id).tireConditionPercent,72);
+ for(const value of [-1,101,NaN,Infinity,'90'])assert.throws(()=>A.updateCar(d,c.id,{conditionPercent:value}),/процент/);
+ A.updateCar(d,c.id,{tireConditionPercent:null});assert.equal(vehicleStatusCards(A.car(d,c.id)).find(x=>x.id==='tires').percent,null);
+});
 const seed=()=>I.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8')));
 const fixture=()=>{const d=seed(),id=A.addCar(d,{name:'Проверка',initialOdometer:10000,initialDate:'2026-01-01'});return {d,c:A.car(d,id)};};
 const trunk=(d,c)=>A.compartments(d,c).find(n=>n.carCompartment==='trunk');
@@ -27,3 +42,50 @@ test('initial odometer can be corrected, and changed TO dates cannot desynchroni
 test('same-day repeated service can be reversed in actual completion order',()=>{const {d,c}=fixture(),task=A.saveTask(c,{name:'Проверка',dueDate:'2026-02-01',intervalKm:1000});const one=A.completeTask(d,c,task,{date:'2026-02-01',odometer:11000,amountCents:100}),two=A.completeTask(d,c,task,{date:'2026-02-01',odometer:12000,amountCents:100});assert.throws(()=>A.deleteRecord(d,c,one),/более позднее/);A.deleteRecord(d,c,two);A.deleteRecord(d,c,one);assert.equal(c.maintenance[0].dueDate,'2026-02-01');I.validate(d);});
 test('an unfuelled month never reuses a previous-month manual consumption reading',()=>{const {d,c}=fixture();record(d,c,{type:'fuel',consumption:8});record(d,c,{type:'refuel',date:'2026-03-01',odometer:11000,litres:30,amountCents:200000,priceCents:null,categoryId:'fuel',fullTank:true});assert.equal(A.metrics(c,'2026-03').consumption,null);assert.equal(A.metrics(c).consumption,8);assert.equal(A.metrics(c,'2026-03').distance,1000);I.validate(d);});
 test('starting a personal home keeps the existing cars, car possessions and operating ledger',()=>{const {d,c}=fixture(),thing=I.newNode(d,{name:'Насос машины',parentId:trunk(d,c).id});record(d,c,{type:'expense',amountCents:50000,categoryId:'parts'});const next=I.createHome(d,{mode:'empty'});assert.deepEqual(next.automobiles,d.automobiles);assert.equal(A.carForNode(next,thing.id).id,c.id);assert.ok(I.getNode(next,thing.id));assert.equal(A.metrics(A.car(next,c.id)).total,50000);I.validate(next);});
+
+test('an explicit car model survives renaming and updates existing trip and loadout previews',()=>{
+ const {d,c}=fixture(),thing=I.newNode(d,{name:'Фонарь',parentId:trunk(d,c).id}),nodes=structuredClone(d.nodes);
+ record(d,c,{type:'expense',amountCents:12345,categoryId:'parts'});const ledger=structuredClone(c.records);
+ const tripId=T.saveTrip(d,{name:'За город'});T.saveBag(d,tripId,{kind:'car',nodeId:c.rootId});T.saveLoadout(d,tripId,'Выезд');
+ A.updateCar(d,c.id,{modelType:'vestaSwCross2019'});
+ assert.equal(vehicleModelType(c),'vestaSwCross2019');assert.deepEqual(d.nodes,nodes);assert.deepEqual(c.records,ledger);assert.equal(thing.parentId,trunk(d,c).id);
+ for(const group of [...d.travel.trips,...d.travel.loadouts])assert.equal(group.bags[0].modelType,'vestaSwCross2019');
+ A.updateCar(d,c.id,{modelType:'trailSuv',name:'Моя Vesta'});assert.equal(vehicleModelType(c),'trailSuv');
+ const copy=JSON.parse(JSON.stringify(d));I.migrate(copy);I.validate(copy);assert.equal(vehicleModelType(A.car(copy,c.id)),'trailSuv');
+ assert.equal(vehicleModelType({name:'Lada Vesta SW Cross'}),'vestaSwCross2019');
+});
+
+test('invalid car model changes are rejected before mutating the car or creating storage',()=>{
+ const {d,c}=fixture(),before=structuredClone(d);
+ assert.throws(()=>A.updateCar(d,c.id,{modelType:'missing-model'}),/3D-модель/);assert.deepEqual(d,before);
+ assert.throws(()=>A.addCar(d,{name:'Проверка',modelType:'missing-model'}),/3D-модель/);assert.deepEqual(d,before);
+});
+
+test('car removal preserves active and archived possessions, nesting, other cars and trip checklists',()=>{
+ const {d,c}=fixture(),other=A.car(d,A.addCar(d,{name:'Другая машина'})),box=I.newNode(d,{kind:'box',name:'Ящик',parentId:trunk(d,c).id}),item=I.newNode(d,{name:'Фонарь',parentId:box.id,purchaseCents:50000});
+ const archived=I.newNode(d,{name:'Старый насос',parentId:trunk(d,c).id});I.archive(d,archived.id,{reason:'Продано',date:'2026-02-01'});
+ const custom=A.addCompartment(d,c,{name:'Подполье'}),loose=I.newNode(d,{name:'Трос',parentId:custom});
+ const trashed=I.newNode(d,{name:'Из корзины',parentId:custom});const entry=I.remove(d,trashed.id);
+ record(d,c,{type:'expense',amountCents:10000,categoryId:'parts'});
+ const tripId=T.saveTrip(d,{name:'На природу'}),bagId=T.saveBag(d,tripId,{kind:'car',nodeId:c.rootId,items:[item.id]}),tripBefore=structuredClone(T.getTrip(d,tripId));
+ const before=structuredClone(d),history=createActionHistory(),plan=structuredClone(d.plan),otherBefore=structuredClone(other),zones=A.compartments(d,c).map(n=>n.id);
+ A.deleteCar(d,c.id);assert.equal(A.car(d,c.id),undefined);assert.equal(I.getNode(d,c.rootId),undefined);assert.ok(zones.every(id=>!I.getNode(d,id)));
+ assert.equal(box.parentId,I.UNPLACED_ID);assert.equal(item.parentId,box.id);assert.equal(loose.parentId,I.UNPLACED_ID);assert.equal(archived.parentId,I.UNPLACED_ID);assert.ok(archived.archived);
+ assert.equal(entry.nodes[0].parentId,I.UNPLACED_ID);assert.deepEqual(d.plan,plan);assert.deepEqual(A.car(d,other.id),otherBefore);
+ assert.deepEqual(T.getTrip(d,tripId),tripBefore);assert.equal(T.storageExists(d,T.getTrip(d,tripId).bags.find(b=>b.id===bagId)),false);
+ I.validate(JSON.parse(JSON.stringify(d)));
+ history.record(before,{label:'Удаление автомобиля',section:'automobile'},d);history.applyTo(d);history.complete(false);assert.deepEqual(d,before);I.validate(d);
+ history.applyTo(d,true);history.complete(true);assert.equal(A.car(d,c.id),undefined);assert.equal(I.getNode(d,item.id).parentId,box.id);I.validate(d);
+});
+
+test('deleting the last empty car leaves a valid garage that accepts a new vehicle',()=>{
+ const {d,c}=fixture();A.deleteCar(d,c.id);assert.equal(A.cars(d).length,0);I.validate(d);
+ const next=A.addCar(d,{name:'Новая',modelType:'vestaSwCross2019'});assert.equal(vehicleModelType(A.car(d,next)),'vestaSwCross2019');I.validate(d);
+});
+test('car weather uses a chosen city, inherits the home city, and can be explicitly disabled',()=>{
+ const {d,c}=fixture(),homeCity={name:'Дом',latitude:55,longitude:37},carCity={name:'Гараж',latitude:-34,longitude:18};
+ d.settings.weatherLocations={[I.PRIMARY_SPACE_ID]:homeCity};assert.deepEqual(A.weatherCity(d,c),homeCity);
+ A.updateCar(d,c.id,{weatherCity:carCity});assert.deepEqual(A.weatherCity(d,c),carCity);I.validate(JSON.parse(JSON.stringify(d)));
+ A.updateCar(d,c.id,{weatherCity:null});assert.equal(A.weatherCity(d,c),null);
+ const before=structuredClone(d);assert.throws(()=>A.updateCar(d,c.id,{weatherCity:{name:'Ошибка',latitude:99,longitude:37}}),/город/);assert.deepEqual(d,before);
+});

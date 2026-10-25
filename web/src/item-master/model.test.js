@@ -21,7 +21,7 @@ test('errors do not mark unchecked items as checked and preserve prior successfu
 test('search results reject stale identity and removed/archived items',()=>{const d={nodes:[node()]},fp=M.fingerprint(d.nodes[0]);d.nodes[0].name='Другой товар';assert.throws(()=>M.saveResult(d,'one',{candidates:[]},fp));d.nodes[0].archived={};assert.throws(()=>M.saveResult(d,'one',{candidates:[]},M.fingerprint(d.nodes[0])));});
 test('applying selected facts preserves name, manual weight, quantity and location; undo preserves checked marker',()=>{
   const d=ready(),n=d.nodes[0],before=structuredClone(d),h=createActionHistory();
-  M.applyChanges(d,[{id:n.id,candidateId:n.itemResearch.chosen,checkedAt:n.itemResearch.checkedAt,fields:M.planChanges(n,['officialName','mpn','transportLiters'])}]);
+  M.applyChanges(d,[{id:n.id,candidateId:n.itemResearch.chosen,checkedAt:n.itemResearch.checkedAt,fields:M.planChanges(n,['mpn','transportLiters'])}]);
   assert.equal(n.name,'Мой рюкзак');assert.equal(n.fields['Вес, г'],'700');assert.equal(n.quantity,2);assert.equal(n.parentId,'room:unplaced');assert.equal(n.fields['Транспортный объём, л'],'4');
   h.record(before,{label:'Применение',section:'item-master'},d);h.applyTo(d);assert.deepEqual(d,before);assert.equal(M.pending(d).length,0);
 });
@@ -41,4 +41,10 @@ test('batch applies facts to multiple chosen items, keeping their checked record
   const plans=d.nodes.map(n=>({id:n.id,candidateId:n.itemResearch.chosen,checkedAt:n.itemResearch.checkedAt,fields:M.planChanges(n,['mpn','transportLiters'])}));M.applyChanges(d,plans);
   assert.deepEqual(d.nodes.map(n=>n.fields['Вес, г']),['700','800']);assert.ok(d.nodes.every(n=>n.fields['Артикул производителя']==='EX-20'&&M.checked(n)));
   assert.equal(itemVolumeLiters({...two,fields:{'Транспортный объём, л':'4','Объём, л':'30'}}),4);
+});
+
+test('applying a found name explicitly changes the ordinary name and creates no official-name attribute',()=>{
+  const d=ready(),n=d.nodes[0];const fields=M.planChanges(n,['officialName','name']);assert.equal(fields.length,1);assert.equal(fields[0].key,'name');
+  M.applyChanges(d,[{id:n.id,candidateId:n.itemResearch.chosen,checkedAt:n.itemResearch.checkedAt,fields}]);
+  assert.equal(n.name,'Рюкзак Example 20');assert.equal(n.fields['Официальное название'],undefined);assert.equal(n.fields['Название'],undefined);assert.ok(M.checked(n));
 });

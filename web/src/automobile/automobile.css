@@ -6,3 +6,32 @@ html[data-inventory-theme=light] .au-content{--au-amber:#99600a}html[data-invent
 @media(max-width:700px){.au-header-controls select{flex:1 0 100%;width:100%;max-width:100%}.au-header-controls>.iv-btn{flex:1}}
 .au-demo-badge{display:inline-flex;align-items:center;font-size:10px;letter-spacing:.4px;color:var(--au-amber);border:1px solid #f5b84b44;background:#f5b84b10;border-radius:7px;padding:5px 8px;margin:2px 0 10px}
 .au-header-controls a.iv-btn{color:var(--text);text-decoration:none}
+.au-form-actions .au-delete-car{margin-right:auto}
+.au-viewer>.au-landscape-canvas,.au-viewer>.au-weather-canvas{position:absolute;inset:0;pointer-events:none;touch-action:auto}
+.au-viewer>.au-landscape-canvas{z-index:0}
+.au-viewer>.au-weather-canvas{z-index:1}
+.au-viewer>.au-car-canvas{position:relative;z-index:2;background:transparent}
+.au-model-panel:has(.au-landscape-canvas) .au-model-heading{color:#f2f3f2;text-shadow:0 1px 7px #091629aa;max-width:calc(100% - 188px)}
+.au-model-panel:has(.au-landscape-canvas) .au-model-heading :is(p,.au-eyebrow){color:#e0e5e8}
+.au-model-panel .au-weather-chip{position:absolute;top:18px;right:16px;z-index:5;max-width:165px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:30px;padding:6px 9px;font-size:11px;background:#132337c9;color:#e4eff8;border-color:#b8cee34a;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.au-model-panel .au-weather-chip.is-stale{opacity:.7}
+.au-model-panel:has(.au-landscape-canvas) .au-view-hint{z-index:3;color:#e2e7e8;text-shadow:0 1px 5px #091629}
+.au-car-form .iv-field>.iv-btn{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;justify-content:flex-start;min-height:32px;font-size:11px}
+@media(max-width:500px){.au-model-panel .au-weather-chip{top:12px;right:10px;max-width:125px;font-size:10px}.au-model-panel:has(.au-landscape-canvas) .au-model-heading{max-width:calc(100% - 155px)}}
+.au-car-form .au-form-grid{gap:8px 16px}
+.au-car-form .iv-field{margin:0;gap:5px;min-width:0}
+.au-car-form .au-form-grid :is(input,select){min-height:32px;padding:6px 9px}
+.au-car-form .au-form-grid .iv-field input[type=color]{min-height:32px;height:32px}
+.au-car-form .au-form-grid textarea{min-height:44px;padding:6px 9px}
+.au-car-form>.iv-muted{font-size:11px;line-height:1.5;margin:10px 0}
+.au-car-form>.iv-actions{margin-top:12px}
+@media(max-width:500px){.au-form-actions .au-delete-car{flex-basis:100%;margin-right:0}}
+.au-model-panel:has(.au-status-hud) .au-viewer{height:490px}
+.au-status-hud{position:absolute;inset:0;z-index:4;pointer-events:none}
+.au-status-row{position:absolute;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.au-status-card{min-width:0;min-height:0;display:flex;flex-direction:column;align-items:stretch;justify-content:space-between;gap:4px;padding:8px 9px;border-radius:10px;border:1px solid #b4cad24a;background:linear-gradient(140deg,#1a3349d9,#101d2bcf);color:#e6eff4;box-shadow:0 5px 18px #09101e26,inset 0 1px #f6fbff14;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);text-align:left;font:inherit;pointer-events:auto;cursor:pointer}
+.au-status-card:hover{border-color:#bbd9df99;background:#294252ea}.au-status-caption{display:flex;gap:5px;align-items:center;min-width:0;font-size:9px;line-height:1.1;color:#bcd0db;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.au-status-caption .icon{flex:none}
+.au-status-card strong{font-size:16px;font-weight:650;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.au-status-card small{font-size:8px;line-height:1;color:#a9c0cc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.au-status-track{height:4px;background:#c1d2da23;border-radius:4px;overflow:hidden}.au-status-track i{display:block;height:100%;background:#74d5a3;border-radius:4px}.au-status-card[data-tone=warn] .au-status-track i{background:#edc275}.au-status-card[data-tone=low] .au-status-track i{background:#ee9b8f}
+.au-status-lines{position:absolute;inset:0;width:100%;height:100%;overflow:hidden}.au-status-lines path{fill:none;stroke:#c7dce28c;stroke-width:1}.au-status-lines circle{fill:#dff3f1;stroke:#7ebda9;stroke-width:1.4}
+@media(max-width:500px){.au-status-card{padding:7px 6px}.au-status-caption{font-size:8px;gap:3px}.au-status-caption .icon{width:11px;height:11px}.au-status-card strong{font-size:13px}.au-status-card small{font-size:7px}.au-model-panel:has(.au-status-hud) .au-viewer{height:470px}}

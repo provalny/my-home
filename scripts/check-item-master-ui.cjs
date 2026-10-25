@@ -49,7 +49,7 @@ const {chromium} = require('/Users/maksimefimov/.cache/codex-runtimes/codex-prim
   await p.getByRole('button',{name:'Сравнить и применить',exact:true}).click();
   const dialog=()=>p.locator('dialog[open]').last();
   assert.equal(await dialog().getByRole('checkbox',{name:'Тестовый рюкзак X20 · Вес, г',exact:true}).isChecked(),false);
-  assert.equal(await dialog().getByRole('checkbox',{name:'Тестовый рюкзак X20 · Название в каталоге',exact:true}).isChecked(),false);
+  assert.equal(await dialog().getByRole('checkbox',{name:'Тестовый рюкзак X20 · Название',exact:true}).isChecked(),false);
   console.log('comparison ready');
   await dialog().getByRole('button',{name:'Применить выбранные поля',exact:true}).click();await p.waitForFunction(()=>!document.querySelector('dialog[open]'));
   let n=await p.evaluate(id=>window.__inventory.document.nodes.find(n=>n.id===id),ids[0]);assert.equal(n.fields['Вес, г'],'700');assert.equal(n.fields['Артикул производителя'],'EX-X20-Red');assert.equal(n.fields['Транспортный объём, л'],'1');assert.equal(n.name,'Тестовый рюкзак X20');assert.equal(n.quantity,2);

@@ -1,6 +1,8 @@
 import { randomID } from '../uuid.js';
 import * as I from '../inventory/model.js';
 import { isSection } from '../inventory/ikea-storage.js';
+import { VEHICLE_MODELS, vehicleModelType } from './vehicle-model.js';
+import { validWeatherCity } from '../inventory/weather.js';
 
 export const CATEGORIES = [
  ['fuel','Топливо','#f5b84b'],['service','ТО','#58a6ff'],['repair','Ремонт','#f87586'],
@@ -11,6 +13,7 @@ export const TYPES = {odometer:'Одометр',trip:'Поездка',refuel:'З
 const finite = (v,min=0) => Number.isFinite(v)&&v>=min&&v<=1e10;
 export const cars = d => d.automobiles?.vehicles || [];
 export const car = (d,id) => cars(d).find(c=>c.id===id);
+export const weatherCity = (d,c={}) => Object.hasOwn(c,'weatherCity')?c.weatherCity:d.settings?.weatherLocations?.[I.PRIMARY_SPACE_ID]||null;
 export function carForNode(d,node){let n=typeof node==='string'?I.getNode(d,node):node;const seen=new Set();while(n&&!seen.has(n.id)){if(n.automobileId)return car(d,n.automobileId)||null;seen.add(n.id);n=I.getNode(d,n.parentId);}return null;}
 export const compartments = (d,c) => I.children(d,c.rootId).filter(n=>n.carCompartment);
 export const odometer = c => {const values=[c.baseline?.odometer,...c.records.map(r=>r.odometer)].filter(v=>v!=null);return values.length?Math.max(...values):null;};
@@ -22,9 +25,30 @@ function text(v,label){if(typeof v!=='string'||!v.trim()||v.length>300)throw Err
 function positive(v,label,optional=true){if(v==null&&optional)return;if(!finite(v)||v===0)throw Error(label+': число больше нуля');}
 function amount(v){if(v!=null&&(!Number.isSafeInteger(v)||v<0))throw Error('Некорректная сумма расхода');}
 function unique(list,label){if(!Array.isArray(list)||list.length>50000)throw Error('Некорректный список: '+label);const ids=new Set();for(const v of list){if(!v||typeof v.id!=='string'||!v.id||ids.has(v.id))throw Error('Повторяющийся ID: '+label);ids.add(v.id);}}
-function properties(p){text(p.name,'название автомобиля');if(p.year!=null&&(!Number.isInteger(p.year)||p.year<1886||p.year>2200))throw Error('Проверьте год выпуска');for(const k of ['brand','model','engine','transmission','fuel','plate','vin','notes'])if(p[k]!=null&&(typeof p[k]!=='string'||p[k].length>5000))throw Error('Некорректные характеристики автомобиля');if(p.color&&!/^#[0-9a-f]{6}$/i.test(p.color))throw Error('Некорректный цвет машины');}
+function properties(p){text(p.name,'название автомобиля');for(const key of ['conditionPercent','tireConditionPercent'])if(p[key]!=null&&(!Number.isFinite(p[key])||p[key]<0||p[key]>100))throw Error('Состояние: укажите процент от 0 до 100');if(p.weatherCity!=null&&!validWeatherCity(p.weatherCity))throw Error('Выберите город для погоды');if(p.modelType!=null&&!Object.hasOwn(VEHICLE_MODELS,p.modelType))throw Error('Выберите доступную 3D-модель автомобиля');if(p.year!=null&&(!Number.isInteger(p.year)||p.year<1886||p.year>2200))throw Error('Проверьте год выпуска');for(const k of ['brand','model','engine','transmission','fuel','plate','vin','notes'])if(p[k]!=null&&(typeof p[k]!=='string'||p[k].length>5000))throw Error('Некорректные характеристики автомобиля');if(p.color&&!/^#[0-9a-f]{6}$/i.test(p.color))throw Error('Некорректный цвет машины');}
 export function addCar(d,p){properties(p);d.automobiles??={version:1,vehicles:[]};const id=randomID(),root=I.newNode(d,{kind:'room',name:p.name,virtual:true,automobileId:id});const c={id,rootId:root.id,createdAt:new Date().toISOString(),name:p.name.trim(),brand:'',model:'',engine:'',transmission:'',fuel:'',plate:'',vin:'',notes:'',year:null,color:'#278cb7',baseline:null,records:[],maintenance:[],tires:[],kits:[],categories:CATEGORIES.map(([id,name,color])=>({id,name,color})),...p};c.id=id;c.rootId=root.id;if(p.initialOdometer!=null)c.baseline={date:p.initialDate||I.today(),odometer:p.initialOdometer};delete c.initialOdometer;delete c.initialDate;d.automobiles.vehicles.push(c);for(const [key,name]of [['cabin','Салон'],['trunk','Багажник']])I.newNode(d,{parentId:root.id,kind:'compartment',name,autoSection:true,carCompartment:key});validateAutomobiles(d);return id;}
-export function updateCar(d,id,p){const c=car(d,id);if(!c)throw Error('Автомобиль не найден');const allowed=['name','brand','model','year','engine','transmission','fuel','plate','vin','notes','color'];const next={...c,...Object.fromEntries(allowed.filter(k=>Object.hasOwn(p,k)).map(k=>[k,p[k]]))};if(Object.hasOwn(p,'initialOdometer')){next.baseline=p.initialOdometer==null?null:{date:p.initialDate,odometer:p.initialOdometer};if(next.baseline&&(!dateOK(next.baseline.date)||!finite(next.baseline.odometer)))throw Error('Проверьте начальный пробег и дату');checkMileage(next);}properties(next);Object.assign(c,next);I.getNode(d,c.rootId).name=c.name;}
+export function updateCar(d,id,p){const c=car(d,id);if(!c)throw Error('Автомобиль не найден');const allowed=['name','brand','model','modelType','year','engine','transmission','fuel','plate','vin','notes','color','weatherCity','conditionPercent','tireConditionPercent'];const next={...c,...Object.fromEntries(allowed.filter(k=>Object.hasOwn(p,k)).map(k=>[k,p[k]]))};if(Object.hasOwn(p,'initialOdometer')){next.baseline=p.initialOdometer==null?null:{date:p.initialDate,odometer:p.initialOdometer};if(next.baseline&&(!dateOK(next.baseline.date)||!finite(next.baseline.odometer)))throw Error('Проверьте начальный пробег и дату');checkMileage(next);}properties(next);Object.assign(c,next);I.getNode(d,c.rootId).name=c.name;for(const group of [...(d.travel?.trips||[]),...(d.travel?.loadouts||[])])for(const bag of group.bags||[])if(bag.kind==='car'&&bag.nodeId===c.rootId)bag.modelType=vehicleModelType(c);}
+export function deleteCar(d,id){
+ const c=car(d,id);if(!c)throw Error('Автомобиль не найден');
+ const destination=I.ensureUnplaced(d).id,removed=new Set([c.rootId]),possessions=[];
+ // Built-in zones disappear with the car; real boxes retain their own contents.
+ function visit(parentId){for(const child of d.nodes.filter(n=>n.parentId===parentId)){
+  if(isSection(child)||child.carCompartment){removed.add(child.id);visit(child.id);}else possessions.push(child);
+ }}
+ visit(c.rootId);
+ for(const n of possessions){
+  if(!n.archived)I.move(d,n.id,destination);
+  else {const group=[n,...I.descendants(d,n.id)],before=new Map(group.map(n=>[n.id,I.address(d,n)]));n.parentId=destination;n.order=I.children(d,destination,true).length;for(const child of group)I.record(d,'move',child,{from:before.get(child.id),to:I.address(d,child)});}
+ }
+ d.nodes=d.nodes.filter(n=>!removed.has(n.id));d.automobiles.vehicles=cars(d).filter(v=>v.id!==id);
+ for(const entry of d.trash||[]){const root=entry.nodes.find(n=>n.id===entry.rootId);if(root&&removed.has(root.parentId))root.parentId=destination;}
+ for(const other of cars(d)){
+  for(const kit of other.kits)for(const entry of kit.entries)if(removed.has(entry.originId))entry.originId=destination;
+  for(const tires of other.tires)if(removed.has(tires.storageId))tires.storageId=destination;
+ }
+ I.record(d,'delete',{id:c.rootId,name:c.name},{reason:'Удаление автомобиля',count:removed.size});
+ return {moved:possessions.length};
+}
 export function addCompartment(d,c,p){text(p.name,'название отсека');return I.newNode(d,{kind:'compartment',parentId:c.rootId,name:p.name,fill:p.fill??null,autoSection:true,carCompartment:'custom:'+randomID()}).id;}
 export function updateCompartment(d,c,id,p){const n=compartments(d,c).find(n=>n.id===id);if(!n)throw Error('Отсек не найден');text(p.name,'название отсека');if(p.fill!=null&&!finite(p.fill)||p.fill>100)throw Error('Заполненность: от 0 до 100%');I.updateNode(d,id,{name:p.name,fill:p.fill});}
 export function moveMany(d,ids,destination){const chosen=[...new Set(ids)],roots=chosen.filter(id=>!chosen.some(other=>other!==id&&I.descendants(d,other).some(n=>n.id===id)));for(const id of roots)I.move(d,id,destination);}

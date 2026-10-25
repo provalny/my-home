@@ -13,10 +13,10 @@ export async function findWeatherCities(name,fetcher=fetch){
 export function validWeatherCity(city){return Boolean(city&&typeof city.name==='string'&&city.name.trim()&&Number.isFinite(city.latitude)&&Math.abs(city.latitude)<=90&&Number.isFinite(city.longitude)&&Math.abs(city.longitude)<=180);}
 export async function fetchCurrentWeather(city,fetcher=fetch){
   if(!validWeatherCity(city))throw Error('Выберите город для погоды');
-  const url=new URL(FORECAST);url.search=new URLSearchParams({latitude:String(city.latitude),longitude:String(city.longitude),current:'temperature_2m,weather_code,is_day',timezone:'auto',forecast_days:'1'});
-  const {current}=await request(url,fetcher);
+  const url=new URL(FORECAST);url.search=new URLSearchParams({latitude:String(city.latitude),longitude:String(city.longitude),current:'temperature_2m,weather_code,is_day',daily:'sunrise,sunset',timezone:'auto',forecast_days:'1'});
+  const {current,daily,utc_offset_seconds,timezone}=await request(url,fetcher);
   if(!current||!Number.isFinite(current.temperature_2m)||!Number.isInteger(current.weather_code))throw Error('Сервис вернул неполные данные погоды');
-  return {temperature:current.temperature_2m,code:current.weather_code,day:current.is_day===1,time:current.time,fetchedAt:Date.now(),kind:weatherKind(current.weather_code)};
+  return {temperature:current.temperature_2m,code:current.weather_code,day:current.is_day===1,time:current.time,fetchedAt:Date.now(),kind:weatherKind(current.weather_code),...(Number.isFinite(utc_offset_seconds)?{utcOffsetSeconds:utc_offset_seconds}:{}),...(typeof timezone==='string'?{timezone}:{}),...(typeof daily?.sunrise?.[0]==='string'?{sunrise:daily.sunrise[0]}:{}),...(typeof daily?.sunset?.[0]==='string'?{sunset:daily.sunset[0]}:{})};
 }
 // Bounded device cache and shared in-flight requests avoid calls on every scene redraw.
 export function createWeatherService({fetcher=fetch,storage=null,now=()=>Date.now()}={}){
