@@ -5,6 +5,8 @@ import { box, cyl, mat, at, rng } from './kit.js';
 import { WORKSPACE_BUILDERS } from './workspace-models.js';
 import { IKEA_SHELF_BUILDERS } from './ikea-shelves.js';
 import { buildParrotCage } from './parrot-cage.js';
+import { buildTrailSuv } from './trail-suv.js';
+import { BAG_BUILDERS } from './luggage-models.js';
 import { EQUIPMENT_BUILDERS } from './equipment.js';
 import { EXTRA_BUILDERS } from './furniture-extra.js';
 import { extraDimensions } from './furniture-info.js';
@@ -77,6 +79,8 @@ const builders = {
   ...WORKSPACE_BUILDERS,
   ...IKEA_SHELF_BUILDERS,
   parrotCage:buildParrotCage,
+  trailSuv:buildTrailSuv,
+  ...BAG_BUILDERS,
   rug({ size = [2, 1.4], color = '#3b4a66' }) {
     const g = group(
       at(box(size[0], 0.016, size[1], mat(color, { rough: 1 }), { r: 0.006 }), 0, 0, 0),
@@ -358,7 +362,7 @@ export function buildFurniture(items) {
     const flat = g.userData.flat;
     g.traverse((o) => {
       if (o.isMesh) {
-        o.castShadow = !flat&&!o.userData.dynamicFurniture; o.receiveShadow = true;
+        o.castShadow = !flat&&!o.userData.dynamicFurniture&&!o.userData.noShadow; o.receiveShadow = !o.userData.noShadow;
         if (item.id) o.userData = { ...o.userData, kind: 'furniture', id: item.id };
       }
     });

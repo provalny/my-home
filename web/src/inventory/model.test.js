@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as M from './model.js';
-import { calculateAwards, syncAwards } from './awards.js';
+import { AWARDS, calculateAwards, syncAwards } from './awards.js';
 import { categoryAppearance, nodeAppearance } from './appearance.js';
 import { ROOM_ICONS, setRoomIcon } from './room-icons.js';
 import { roomPreviewPlan } from '../three/room-previews.js';
@@ -394,7 +394,7 @@ test('backups require actual successful timestamps and corrupt optional award da
   syncAwards(d,{lastBackupAt:'2026-10-23T10:00:00Z'});M.validate(d);
   assert.equal(calculateAwards(d).find(a=>a.id==='first-backup').earned,true);
   d.awards.earned['future-id']={earnedAt:null};syncAwards(d);assert.ok(d.awards.earned['future-id']);
-  assert.equal(new Set(calculateAwards(d).map(a=>a.id)).size,18);
+  assert.equal(new Set(calculateAwards(d).map(a=>a.id)).size,AWARDS.length);
 });
 
 

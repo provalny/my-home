@@ -4,7 +4,7 @@
 
 Нужны macOS, Xcode Command Line Tools, Node.js **22.12+** и **pnpm 11**.
 
-Текущая версия — 0.4.45. [Открытие хранилищ и настройка комнат](storage-focus.ru.md).
+Текущая версия — 0.4.70. [Открытие хранилищ и настройка комнат](storage-focus.ru.md).
 
 ```sh
 git clone https://github.com/provalny/my-home.git
@@ -60,6 +60,7 @@ CORS; проверяет Origin, Host, специальный заголовок
 ```sh
 swiftc macos/Sources/HomeInventory/InventoryStore.swift \
   macos/Sources/HomeInventory/InventoryLANServer.swift \
+  macos/Sources/HomeInventory/ItemMasterHTTP.swift \
   scripts/test-inventory-lan.swift -o /tmp/life-lan-checks
 /tmp/life-lan-checks
 ```
@@ -118,6 +119,24 @@ Excel создаётся как OOXML в ZIP без дополнительных
 
 
 ### Редкость предметов (0.4.44)
+
+Обновление 0.4.47: мебель распознаётся по основному предмету в заголовке,
+без categoryId/kind. Если мебель названа раньше техники/аксессуаров, текст
+после «для/под» отсекается, а в основной части допускаются только прежние
+собственные мебельные правила (`furnitureSafe`: IKEA, Herman Miller,
+Steelcase, Secretlab и стол с электроподъёмом). Это исключает повышение
+«Тумбочка под 3D-принтер» и сохраняет уровень самой техники в названии
+«3D-принтер на тумбе». Приоритет типов моделей редактора и ручных уровней
+остаётся прежним. DJI также ищется по Диджиай/Ди Джи Ай/Ди-Джи-Ай.
+Расширение от 25 октября одобрено командой «давай» и включено в 0.4.48:
+121 epic и 37 legendary из отдельного документа. Уточняющие линейки/модели
+имеют приоритет над общей маркой. Новые мебельные правила разрешены только
+для согласованных производителя/модели (`furnitureSafe`); штативы Gitzo/
+Manfrotto — только когда основной предмет штатив (`subject`). Аксессуар
+не наследует уровень другого предмета даже при пропуске «для».
+Нормализация сохраняет отдельный токен `+`, чтобы Ultimate без плюса не
+совпадал с Ultimate+. BenQ SW проверяется как отдельная серия с цифровым
+номером, а не произвольный префикс слова (SW271C допустимо, SWARM — нет).
 
 `inventory/rarity-keywords.js` содержит согласованный словарь из
 `docs/rarity-keywords-proposal.ru.md`. `titleRarity(name)` учитывает только
@@ -197,3 +216,131 @@ ocean не переопределяется. Светлая/тёмная тем�
 Семантические цвета редкости, опасных действий и заполненности сохраняются.
 Матовый режим остаётся непрозрачным, настройки уменьшения прозрачности
 учтены отдельно. Редактор плана по-прежнему использует собственную палитру.
+
+### Сияние и окружение (0.4.50)
+
+Диаграмма использует встроенный SVG bloom с уникальным ID и светлым краем
+реальных epic/legendary дуг. Фильтр не зависит от CSS color-mix/drop-shadow
+для SVG в WebKit. Счётчики и доли не изменены; нулевые сектора не создаются.
+drawDetails применяет итоговую редкость к самой iv-detail-panel; локальные
+цветовые токены и градиенты окрашивают панель от заголовка до истории,
+независимо от общей палитры. Обычная карточка сбрасывает эти переопределения.
+
+cozy-exterior.js рисует условный дальний город, деревья, дымку и огоньки
+без изображений, геолокации или новых сетевых запросов. Статичный фон
+кэшируется в уменьшенном canvas; движущийся свет и погода ограничены 24 fps,
+останавливаются в скрытой сцене и при уменьшении движения. Все декорации
+и погодные эффекты отсечены живой проекцией квартиры через evenodd clip.
+Маска обновляется при изменении камеры, включая reduced motion. Без города
+уютное окружение остаётся, день/ночь берётся из темы; с погодой — из её данных.
+Параметры камеры, зум и подлёт не менялись.
+
+### Равная высота плиток (0.4.51)
+
+Сетки комнат, хранения, фотографий и категорий используют grid-auto-rows:1fr,
+поэтому высота одинакова и между рядами, а не только внутри одного ряда.
+Высоту определяет содержимое самой высокой плитки без заданной пустой высоты.
+Прокрутка хранения вынесена в iv-storage-scroll: внутренняя сетка получает
+естественную высоту, карточки и их основной блок не сжимаются по высоте
+панели. На узком экране wrapper не ограничивает обычную прокрутку страницы.
+В компактном каталоге кнопки выровнены к низу плиток. Данные не менялись.
+
+## Аудит интерфейса и настройки (0.4.54/build60)
+
+`drawSettings` сохраняет активную вкладку при перерисовке. Переключение
+вкладок скрывает уже созданные панели, поэтому введённый интервал не теряется;
+его черновик также сохраняется при обновлении состояния. Диапазон 0–365,
+целое обязательное значение; сохранение через валидируемую форму.
+Оформление и компактное меню — предпочтения устройства. Анимации и сроки —
+настройки общей базы. Системные действия остаются только в native-ветке;
+LAN показывает общую базу и доступные экспорты без восстановления.
+
+`interface-polish.css` завершает каскад интерфейса: настройки, переносы
+истории и bulk-действий, фокус, компактная мобильная шапка и область нажатия.
+В узком настольном/browser-редакторе панели временно перекрывают план,
+не перезаписывая сохранённые ширины и свёрнутость широкого режима.
+При переходе через 700 px предпросмотр пересоздаётся, если меняется
+видимость правой панели. iOS-ветка и жесты камеры не изменялись.
+
+
+## Мониторинг квартиры (0.4.56/build62)
+
+`web/src/monitoring/model.js` — независимая ветка `monitoring` документа
+версии 1. Каждая квартира содержит свои услуги, счётчики, показания, ручной
+расход, тарифы, счета, оплаты, климат, задачи, месячные правила и отметки
+выполнения. `planSpaceId` — единственная связь с планом; сцена получает его
+копию и не открывает вещи. Нет внешних API и управления устройствами.
+Старые документы не изменяются до явного добавления квартиры мониторинга.
+Валидация, сохранение с проверкой ревизии, полная копия и undo/redo общие.
+
+Деньги — целые копейки. Показания не порождают расход; тарифы не порождают
+счета. Суммируются только внесённые записи. Платежи считаются по дате оплаты,
+начисления — по месяцу счёта, остаток — на конец выбранного месяца.
+Неизвестные расходы показаны прочерком, разные единицы не складываются.
+Работы с ценой имеют свой журнал; включение в начисления требует счёта.
+Вложения ограничены JPG/PNG/WebP/PDF, до 8 файлов по 2 МБ на счёт.
+
+`MonitoringReminders.swift` генерирует расписание без системных действий.
+`InventoryApp` добавляет его в существующее планирование уведомлений:
+общий переключатель плюс настройки квартиры, без повторов доставленных
+напоминаний; нажатие открывает обслуживание нужной квартиры. Проверки
+расписания не запрашивают разрешения и не отправляют уведомления.
+
+Проверки:
+
+```sh
+pnpm --dir web test
+pnpm --dir web build
+swiftc -module-cache-path /tmp/monitoring-swift-cache \
+  macos/Sources/HomeInventory/MonitoringReminders.swift \
+  scripts/test-monitoring-reminders.swift -o /tmp/monitoring-reminder-checks
+/tmp/monitoring-reminder-checks
+```
+
+Для UI: `scripts/check-monitoring-ui.cjs` использует отдельный временный
+профиль браузера. Нужен доступный Playwright (или `PLAYWRIGHT_MODULE`),
+установленный Chrome (или `CHROME_BIN`) и сервер `MONITORING_URL`
+(по умолчанию `http://127.0.0.1:5208`). Проверка не читает Application Support.
+Прямая ссылка `?section=monitoring` открывает новый раздел без мастера категорий.
+
+### Travel browser module
+
+`web/src/travel` owns trip references, day events, routes, bag capacities and
+loadouts. Inventory remains the owner of physical item records and weights
+(`fields['Вес, г']`); transfers never change storage parent IDs. Validation is
+part of the shared inventory validator. Deleted/archived source items are
+reported in bag totals and skipped on loadout application. Completed trips
+release active membership labels. Shared undo/persistence covers trip changes.
+
+Leaflet uses OSM tiles for normal online viewing. Photon search is submit-only;
+FOSSGIS OSRM handles car/foot/bike, manual/train/plane segments use explicitly
+labelled straight geometry. Requests are sequential and rate-limited. Providers
+can be configured in the route window. Downloaded Overpass vectors live in
+IndexedDB, limited to 25,000 km² / 30 MB per visible region, one region per trip.
+They are device-local and are not part of inventory JSON backups. Public raster
+map tiles are not bulk-cached. `offline-plugin.js` emits the production service
+worker for same-origin build assets only; it never caches API responses or LAN
+inventory endpoints. Fresh deployment activates on the next clean visit after
+old tabs close. Development mode does not register a worker.
+
+Demo URL: `?section=travel&demo=travel`; separate browser key
+`my-home-inventory:v1:travel-demo-v1`. UI regression: `scripts/check-travel-ui.cjs`
+with optional `TRAVEL_URL`, using isolated Chrome context and mocked external
+services. Production preview is recommended when other chats edit the same tree.
+
+### Trip storage revision (0.4.64)
+
+The existing `travel.trips[].bags` array now stores `kind: bag | box | car`;
+missing kind means legacy bag. Car entries reference the vehicle root node and
+exclude vehicle mass from cargo totals. Legacy `carId` migrates once to a stable
+storage ID and is cleared. Loadouts use the same schema; source parent IDs never
+change. Unknown car/container capacity is nullable. Per-item volume is optional
+`fields['Объём, л']`, distinct from manually occupied storage liters.
+
+`inventory/weights.js` supplies editable, explicitly marked planning estimates
+for furniture with no entered weight. Existing values win. `weightEstimate`
+records provenance and the estimated grams; a manual correction clears it.
+This is not a manufacturer specification catalog. A weight/volume editor in
+item details makes corrections available without changing trip membership.
+UI regression: `scripts/check-travel-storage-ui.cjs` plus the updated
+`check-travel-ui.cjs`, isolated browser profiles only.

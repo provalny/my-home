@@ -46,7 +46,7 @@ test('KALLAX has equal square openings and IVAR contents stand above each shelf 
   }
 });
 test('all catalog models render finite geometry on the floor and match their plan footprint',()=>{
-  assert.equal(Object.keys(EXTRA_MODEL_INFO).length,38);
+  assert.equal(Object.keys(EXTRA_MODEL_INFO).length,42);
   for(const [type,info]of Object.entries(EXTRA_MODEL_INFO)){
     assert.ok(FURNITURE_TYPES.includes(type));
     const root=buildFurniture([{id:'sample',type,pos:[0,0]}]),box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3());

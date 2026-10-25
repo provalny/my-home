@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="440" viewBox="0 0 1280 440" role="img" aria-labelledby="title">
+<title id="title">Life Assistant. Меньше искать. Больше жить. Дом, вещи, автомобиль, поездки и привычки.</title>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0b1627"/><stop offset=".55" stop-color="#152840"/><stop offset="1" stop-color="#272334"/></linearGradient><linearGradient id="edge"><stop stop-color="#66c8ff"/><stop offset=".55" stop-color="#aa9aff"/><stop offset="1" stop-color="#efbd81"/></linearGradient><radialGradient id="glow"><stop stop-color="#5b9ddd" stop-opacity=".18"/><stop offset="1" stop-color="#5b9ddd" stop-opacity="0"/></radialGradient></defs>
+<g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif"><rect x="1" y="1" width="1278" height="438" rx="30" fill="url(#bg)" stroke="#34455c"/>
+<circle cx="1050" cy="180" r="310" fill="url(#glow)"/>
+<path d="M720 1v438 M720 220h559" stroke="#8abde9" stroke-opacity=".06"/>
+<rect x="48" y="42" width="42" height="42" rx="13" fill="#9acbff" fill-opacity=".12" stroke="#8cbfff" stroke-opacity=".3"/>
+<g transform="translate(57 51) scale(1.0)" fill="none" stroke="#a6d1ff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></g>
+<text x="105" y="70" font-size="15" font-weight="600" letter-spacing="3" fill="#a9c7e7">YOUR EVERYDAY, ORGANIZED</text>
+<text x="48" y="157" font-size="67" font-weight="700" letter-spacing="-2.5" fill="#f0f5ff">Life Assistant</text>
+<text x="48" y="225" font-size="34" font-weight="500" letter-spacing="-.7" fill="#e3eaf5">Меньше искать. Больше жить.</text>
+<text x="48" y="266" font-size="22" fill="#aebfd4">Дом, вещи, автомобиль, поездки и привычки.</text>
+<rect x="48" y="322" width="590" height="58" rx="17" fill="#bcd8ff" fill-opacity=".05" stroke="#829bbf" stroke-opacity=".23"/>
+<text x="69" y="357" font-size="16" fill="#cdddf0">macOS 13+ <tspan fill="#627b99"> / </tspan> Apple silicon + Intel <tspan fill="#627b99"> / </tspan> MIT</text>
+<circle cx="969" cy="222" r="131" fill="none" stroke="#7a9dc4" stroke-opacity=".21"/>
+<circle cx="969" cy="222" r="75" fill="none" stroke="#7a9dc4" stroke-opacity=".17" stroke-dasharray="3 9"/>
+<path d="M969 85v274 M834 222h270" stroke="url(#edge)" stroke-opacity=".3"/>
+<rect x="915" y="168" width="108" height="108" rx="30" fill="#14253b" stroke="#93b8e6" stroke-opacity=".5"/>
+<g transform="translate(943 196) scale(2.1666666666666665)" fill="none" stroke="#d2e4ff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></g>
+<circle cx="969" cy="91" r="34" fill="#162a42" stroke="#8bcaff" stroke-opacity=".6"/><g transform="translate(955 77) scale(1.1666666666666667)" fill="none" stroke="#8bcaff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5v9l-9 5-9-5V8Z M3 8l9 5 9-5 M12 13v9 M7 5.8l9 5"/></g>
+<circle cx="1100" cy="222" r="34" fill="#202b3d" stroke="#f2c27e" stroke-opacity=".6"/><g transform="translate(1086 208) scale(1.1666666666666667)" fill="none" stroke="#f2c27e" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m4 10 2-6h12l2 6 M3 10h18v9H3Z M6 19v2 M18 19v2 M7 14h.01 M17 14h.01"/></g>
+<circle cx="969" cy="353" r="34" fill="#182e32" stroke="#a1d8b7" stroke-opacity=".6"/><g transform="translate(955 339) scale(1.1666666666666667)" fill="none" stroke="#a1d8b7" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 5h8a4 4 0 0 1 0 8H9a3 3 0 0 0 0 6h8"/></g>
+<circle cx="838" cy="222" r="34" fill="#2b263a" stroke="#eda8bd" stroke-opacity=".6"/><g transform="translate(824 208) scale(1.1666666666666667)" fill="none" stroke="#eda8bd" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></g>
+<text x="969" y="420" text-anchor="middle" font-size="15" fill="#aebfd4">Данные на вашем Mac</text>
+<path d="M49 405H638" stroke="url(#edge)" stroke-opacity=".6"/></g></svg>

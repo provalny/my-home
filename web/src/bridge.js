@@ -1,7 +1,8 @@
 // Thin bridge to the native shell (the macOS menu bar app or the iPhone app). In a plain
 // browser every call is a no-op, so the same bundle runs under `vite dev` too.
 
-const handler = window.webkit?.messageHandlers?.house;
+import {isShowcase} from './inventory/demo-runtime.js';
+const handler = isShowcase?null:window.webkit?.messageHandlers?.house;
 
 export const isNative = Boolean(handler);
 
@@ -29,7 +30,7 @@ const pending = new Map();
 
 export function call(type, payload = {}) {
   // Embedded editors share the top frame's request IDs and reply destination.
-  if (window.parent && window.parent !== window && window.parent.house?.requestFromFrame) return window.parent.house.requestFromFrame(type,payload);
+  if (!isShowcase && window.parent && window.parent !== window && window.parent.house?.requestFromFrame) return window.parent.house.requestFromFrame(type,payload);
   if (!handler) return Promise.reject(new Error('Доступно только в приложении'));
   return new Promise((resolve, reject) => {
     const id = nextId++;

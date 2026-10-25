@@ -68,13 +68,16 @@ export async function bootEditor(root, options = {}) {
   let dirty = false;
   let world = null,previewResize = null;
   const layoutObservers=[];
-  function disposePreview(){clearTimeout(previewTimer);previewResize?.disconnect();previewResize=null;world?.dispose();world=null;}
+  function disposePreview(){clearTimeout(previewTimer);previewTimer=0;previewResize?.disconnect();previewResize=null;world?.dispose();world=null;}
   let phone = null; // the iPhone's layout and gestures, set up by buildPhoneLayout()
   let previewLights = true;
   let deletingFurniture = false;
   let saving = false;
   let layout = { side: 220, right: 300, sideClosed: false, rightClosed: false, previewClosed: false };
   try { Object.assign(layout, JSON.parse(localStorage.getItem('myhome:editor-layout') || '{}')); } catch { /* defaults */ }
+  let narrowPanel=null;
+  const compactPanels=()=>!isPhone&&innerWidth<=700;
+  const panelClosed=key=>compactPanels()?narrowPanel!==key:layout[key];
   const undo = [];
   const redo = [];
   let savedDocument = JSON.stringify(doc);
@@ -117,8 +120,8 @@ export async function bootEditor(root, options = {}) {
   const inspector = h('div.inspector');
   const previewHost = h('div.preview');
   const previewToggle = h('button.chip', { onclick: () => { previewLights = !previewLights; schedulePreview(0); } });
-  const sideToggle = h('button.btn.panel-toggle', { 'aria-label': 'Свернуть список объектов', onclick: () => setLayout('sideClosed', !layout.sideClosed) }, 'Объекты');
-  const inspectorToggle = h('button.btn.panel-toggle', { 'aria-label': 'Свернуть свойства', onclick: () => setLayout('rightClosed', !layout.rightClosed) }, 'Свойства');
+  const sideToggle = h('button.btn.panel-toggle', { 'aria-label': 'Свернуть список объектов', onclick: () => setLayout('sideClosed', !panelClosed('sideClosed')) }, 'Объекты');
+  const inspectorToggle = h('button.btn.panel-toggle', { 'aria-label': 'Свернуть свойства', onclick: () => setLayout('rightClosed', !panelClosed('rightClosed')) }, 'Свойства');
   const previewCollapse = h('button.btn', { onclick: () => setLayout('previewClosed', !layout.previewClosed) });
   const sidebarRestore = h('button.panel-restore', { onclick: () => setLayout('sideClosed', false), 'aria-label': 'Развернуть список объектов' }, icon('list', 18));
   const rightRestore = h('button.panel-restore', { onclick: () => setLayout('rightClosed', false), 'aria-label': 'Развернуть свойства' }, icon('settings', 18));
@@ -141,6 +144,9 @@ export async function bootEditor(root, options = {}) {
     toastEl));
 
   function setLayout(key, value) {
+    if(compactPanels()&&['sideClosed','rightClosed'].includes(key)){
+      narrowPanel=value?null:key;applyLayout();schedulePreview(0);return;
+    }
     layout[key] = value;
     try { localStorage.setItem('myhome:editor-layout', JSON.stringify(layout)); } catch { /* no persistence */ }
     applyLayout();
@@ -155,13 +161,13 @@ export async function bootEditor(root, options = {}) {
     const rightSize = layout.rightClosed ? 38 : clamp(Number(layout.right) || 300, 260, Math.max(260, available - sideSize - 300));
     shell.style.setProperty('--side-width', `${sideSize}px`);
     shell.style.setProperty('--right-width', `${rightSize}px`);
-    shell.classList.toggle('side-closed', layout.sideClosed);
-    shell.classList.toggle('right-closed', layout.rightClosed);
+    shell.classList.toggle('side-closed', panelClosed('sideClosed'));
+    shell.classList.toggle('right-closed', panelClosed('rightClosed'));
     shell.classList.toggle('preview-closed', layout.previewClosed);
-    sideToggle.setAttribute('aria-expanded', String(!layout.sideClosed));
-    sideToggle.setAttribute('aria-label', layout.sideClosed ? 'Развернуть список объектов' : 'Свернуть список объектов');
-    inspectorToggle.setAttribute('aria-expanded', String(!layout.rightClosed));
-    inspectorToggle.setAttribute('aria-label', layout.rightClosed ? 'Развернуть свойства' : 'Свернуть свойства');
+    sideToggle.setAttribute('aria-expanded', String(!panelClosed('sideClosed')));
+    sideToggle.setAttribute('aria-label', panelClosed('sideClosed') ? 'Развернуть список объектов' : 'Свернуть список объектов');
+    inspectorToggle.setAttribute('aria-expanded', String(!panelClosed('rightClosed')));
+    inspectorToggle.setAttribute('aria-label', panelClosed('rightClosed') ? 'Развернуть свойства' : 'Свернуть свойства');
     previewCollapse.textContent = layout.previewClosed ? 'Показать 3D-предпросмотр' : 'Свернуть 3D-предпросмотр';
     previewCollapse.setAttribute('aria-expanded', String(!layout.previewClosed));
     world?.resize();
@@ -176,7 +182,10 @@ export async function bootEditor(root, options = {}) {
     handle.addEventListener('keydown', e => { if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return; e.preventDefault(); layout[`${which}Closed`] = false; setLayout(which, clamp((Number(layout[which]) || 260) + (e.key === 'ArrowRight' ? 20 : -20) * (which === 'side' ? 1 : -1), which === 'side' ? 170 : 260, 520)); });
     return handle;
   }
-  if (!isPhone) {const observer=new ResizeObserver(applyLayout);observer.observe(root);layoutObservers.push(observer);}
+  if (!isPhone) {const observer=new ResizeObserver(()=>{
+    const closed=root.querySelector('.editor')?.classList.contains('right-closed');applyLayout();
+    if(closed!==root.querySelector('.editor')?.classList.contains('right-closed'))schedulePreview(0);
+  });observer.observe(root);layoutObservers.push(observer);}
   applyLayout();
 
   /* ---------- history ---------- */
@@ -200,7 +209,7 @@ export async function bootEditor(root, options = {}) {
     touch();
   }
 
-  function touch({ inspector: redrawInspector = true } = {}) {
+  function touch({ inspector: redrawInspector = true, preview = true } = {}) {
     updateWallAttachments(doc.furniture,doc.rooms,{movingId:sel.kind==='furniture'?doc.furniture[sel.index]?.id:null});
     updateSurfaceAttachments(doc.furniture,{movingId:sel.kind==='furniture'?doc.furniture[sel.index]?.id:null});
     const active=sel.kind==='furniture'?doc.furniture[sel.index]:null;
@@ -213,7 +222,7 @@ export async function bootEditor(root, options = {}) {
     renderPlan();
     if (redrawInspector) renderInspector();
     validate();
-    schedulePreview();
+    if(preview)schedulePreview();
   }
 
   function select(next) {
@@ -223,6 +232,7 @@ export async function bootEditor(root, options = {}) {
     renderPlan();
     renderInspector();
     if (isPhone) phone.selected(next);
+    else if(compactPanels()&&narrowPanel==='sideClosed')setLayout('rightClosed',false);
   }
 
   function toast(text, bad = false) {
@@ -272,7 +282,7 @@ export async function bootEditor(root, options = {}) {
   function buildPreview() {
     previewToggle.replaceChildren(icon(previewLights ? 'bright' : 'moon', 14), previewLights ? 'Свет включён' : 'Свет выключен');
     if (!valid) {disposePreview();previewHost.replaceChildren();return;}
-    if (!isPhone && (layout.previewClosed || layout.rightClosed)) { disposePreview(); previewHost.replaceChildren(); return; }
+    if (!isPhone && (layout.previewClosed || panelClosed('rightClosed'))) { disposePreview(); previewHost.replaceChildren(); return; }
     if (isPhone && !phone.show3D) { disposePreview(); previewHost.replaceChildren(); return; }
     disposePreview();
     const canvas = h('canvas');
@@ -670,7 +680,7 @@ export async function bootEditor(root, options = {}) {
   /* ---------- inspector ---------- */
 
   // A labelled input bound to a getter/setter; edits redraw everything except the form itself.
-  function bind(label, input, { get, set, parse = (v) => v, event = 'input' }) {
+  function bind(label, input, { get, set, parse = (v) => v, event = 'input', livePreview = null }) {
     const v = get();
     if (input.type === 'checkbox') input.checked = Boolean(v);
     else input.value = v ?? '';
@@ -681,7 +691,8 @@ export async function bootEditor(root, options = {}) {
       snapshot(label + sel.kind + sel.index);
       set(next);
       // Pickers and checkboxes can change which fields exist; typing must keep its focus.
-      touch({ inspector: event === 'change' });
+      const updatedLive=previewTimer===0&&livePreview?.();
+      touch({ inspector: event === 'change', preview: !updatedLive });
     });
     return h('label.field', h('span', label), input);
   }
@@ -829,9 +840,15 @@ export async function bootEditor(root, options = {}) {
         item.type==='neonPorsche'?h('p.note','Вывеска встаёт на ближайшую стену и поворачивается светящейся стороной в комнату. Высота задаётся в поле «От пола».'):null,
         item.type === 'parrotCage' ? bind('Попугаи в клетке', choice([['1','Один попугай'],['2','Два попугая']]), {get:()=>Number(item.parrotCount)===2?'2':'1',set:value=>{item.parrotCount=Number(value);},event:'change'}) : null,
         item.type === 'parrotCage' ? h('p.note','Попугаи прыгают между жердочками. Иногда появляются ноты, изредка — %@?$.') : null,
+        item.type === 'trailSuv' ? h('div',
+          ...[['frontLeft','Передняя левая дверь'],['frontRight','Передняя правая дверь'],['tailgate','Багажник открыт'],['hood','Капот открыт']].map(([key,label])=>bind(label,h('input',{type:'checkbox'}),{get:()=>Boolean(item.vehicleOpen?.[key]),set:value=>{item.vehicleOpen={...item.vehicleOpen,[key]:value?1:0};},event:'change',livePreview:()=>world?.setVehicleState(item.id,{vehicleOpen:{[key]:item.vehicleOpen[key]}})})),
+          bind('Фары',h('input',{type:'checkbox'}),{get:()=>item.headlights!==false,set:value=>{item.headlights=value;},event:'change',livePreview:()=>world?.setVehicleState(item.id,{headlights:item.headlights})}),
+          bind('Грязь на кузове, %',h('input',{type:'number',min:0,max:100,step:5}),{get:()=>Math.round((item.dirt??.45)*100),set:value=>{item.dirt=Math.max(0,Math.min(100,value))/100;},parse:parseNum}),
+          h('p.note','В карточке машины — отдельное хранение в салоне и багажнике. Багаж появляется при добавлении вещей; заполненность можно задать вручную.')) : null,
         item.type === 'tireStack' ? bind('Как хранить 4 шины', choice([['stack','Стопкой'],['row','В ряд']]), { ...prop(item,'layout','stack'), event:'change' }) : null,
         item.type === 'cornerSofa' ? bind('Угол дивана', choice([['right','Справа'],['left','Слева']]), { ...prop(item,'chaise','right'), event:'change' }) : null,
-        bind('Цвет (hex, необязательно)', text(), optional(item, 'color')),
+        EXTRA_MODEL_INFO[item.type]?.capacityLiters ? bind('Цвет ткани',h('input',{type:'color'}),{...prop(item,'color',EXTRA_MODEL_INFO[item.type].color),event:'input'}) : bind('Цвет (hex, необязательно)', text(), optional(item, 'color')),
+        EXTRA_MODEL_INFO[item.type]?.capacityLiters ? h('p.note',`Объём: ${EXTRA_MODEL_INFO[item.type].capacityLiters} л. Размер этой модели фиксирован; цвет ткани можно выбрать любой.`) : null,
         h('p.note', 'Короткая линия отмечает фасад. При повороте 0° он направлен к нижнему краю плана.')));
       if(EQUIPMENT_FIELDS[item.type]){
         nodes.push(section('Характеристики',h('p.note',['simCockpit','simCockpitTriple'].includes(item.type)?'Комплектация сохраняется в карточке. Внешний вид кокпита не меняется. ПК приобретается и размещается отдельно.':item.type==='macBook'?'Один размер корпуса: 31 × 25 см, высота с открытым экраном 22 см. Характеристики не меняют модель.':'Стеклянная боковая стенка и внутренняя подсветка. Характеристики сохраняются в карточке.'),
@@ -1134,6 +1151,7 @@ export async function bootEditor(root, options = {}) {
   window.addEventListener('keydown', (ev) => {
     if (saving || deletingFurniture || document.querySelector('dialog[open]')) return;
     const typing = editingText(document.activeElement), command = historyShortcut(ev);
+    if(ev.key==='Escape'&&!typing&&compactPanels()&&narrowPanel){ev.preventDefault();setLayout(narrowPanel,true);return;}
     if (command && !typing) {
       ev.preventDefault();
       routeHistory(command === 'redo');

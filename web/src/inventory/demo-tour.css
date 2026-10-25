@@ -1,0 +1,26 @@
+.dt-dialog.iv-dialog{width:920px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);height:min(660px,calc(100dvh - 32px));background:var(--bg);color:var(--text);overflow:hidden}
+.dt-dialog[open]{display:flex;flex-direction:column}
+.dt-header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:24px 28px 18px;flex-shrink:0}
+.dt-header strong{display:block;font-size:18px;margin-top:6px}.dt-eyebrow{font-size:10px;letter-spacing:1.6px;color:var(--muted);line-height:1.5}
+.dt-progress{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:7px;padding:0 28px 20px;flex-shrink:0}
+.dt-step{min-height:32px;border:1px solid var(--line);border-radius:8px;background:var(--glass);color:var(--muted);font-size:11px;cursor:pointer}
+.dt-step:hover{background:var(--glass-hi)}.dt-step[aria-current=step]{background:var(--accent);color:white;border-color:var(--accent);font-weight:700}
+.dt-body{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:30px;padding:6px 28px 24px;overflow-y:auto;min-height:0;flex:1}
+.dt-copy,.dt-example{min-width:0}.dt-glyph{width:54px;height:54px;display:grid;place-items:center;background:var(--glass-hi);border:1px solid var(--line);border-radius:17px;color:var(--accent);margin-bottom:18px}
+.dt-copy h2{font-size:27px;line-height:1.18;letter-spacing:-.7px;margin:0 0 12px;outline:none}.dt-intro{font-size:13px;line-height:1.65;color:var(--muted);margin:0 0 14px}
+.dt-location{display:flex;align-items:center;gap:7px;font-size:11px;line-height:1.5;color:var(--accent);margin:0 0 18px}.dt-location .icon,.dt-tip .icon{flex-shrink:0}
+.dt-instructions{padding-left:21px;margin:0;display:grid;gap:12px;font-size:12px;line-height:1.65}.dt-instructions li{padding-left:4px}.dt-instructions li::marker{color:var(--accent);font-weight:700}
+.dt-example{padding:22px;border:1px solid var(--line);border-radius:20px;background:radial-gradient(ellipse at top right,color-mix(in srgb,var(--accent) 15%,transparent),transparent 70%),var(--glass);align-self:stretch;display:flex;flex-direction:column;justify-content:center}
+.dt-preview{border:1px solid var(--line);background:var(--bg);border-radius:13px;overflow:hidden;margin-top:14px}.dt-preview-title{display:flex;align-items:center;gap:9px;padding:17px 15px;border-bottom:1px solid var(--line);font-weight:650;font-size:13px}
+.dt-preview-row{display:flex;align-items:center;gap:10px;margin:10px;padding:12px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;line-height:1.5;background:var(--glass)}.dt-preview .icon{flex-shrink:0;color:var(--accent)}
+.dt-tip{display:flex;gap:10px;font-size:12px;line-height:1.7;color:var(--muted);margin:20px 0 0}.dt-tip>.icon{margin-top:3px;color:var(--accent)}
+.dt-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 28px;border-top:1px solid var(--line);flex-shrink:0}.dt-counter{font-size:12px;color:var(--muted)}.dt-actions{display:flex;gap:8px}.dt-actions .iv-btn{min-width:90px;min-height:40px}
+.dt-dialog :is(button):focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.dt-dialog .dt-copy h2:focus-visible{outline:none;box-shadow:none}
+@media(max-width:650px){
+ .dt-dialog.iv-dialog{max-width:calc(100vw - 16px);height:calc(100dvh - 16px);max-height:calc(100dvh - 16px);border-radius:17px}
+ .dt-header{padding:18px 16px 14px;gap:8px}.dt-header .dt-eyebrow{font-size:8px;letter-spacing:1px}.dt-header .iv-btn{font-size:11px;padding:8px}.dt-header strong{font-size:16px}
+ .dt-progress{padding:0 16px 14px;gap:4px}.dt-step{padding:0;min-height:30px;font-size:10px}
+ .dt-body{grid-template-columns:minmax(0,1fr);gap:20px;padding:4px 18px 20px}.dt-copy h2{font-size:25px}.dt-glyph{margin-bottom:14px;width:46px;height:46px}.dt-example{padding:17px}.dt-preview{margin-top:10px}.dt-preview-row{padding:9px}.dt-tip{margin-top:14px}
+ .dt-footer{padding:14px 16px;gap:8px;flex-wrap:wrap}.dt-actions{margin-left:auto}.dt-actions .iv-btn{min-width:65px;font-size:11px;padding:8px}.dt-counter{font-size:11px}
+}

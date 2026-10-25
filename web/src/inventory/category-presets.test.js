@@ -22,6 +22,18 @@ test('every pack combines into one valid tree; preview never changes existing da
   assert.deepEqual(d,saved);
 });
 
+test('general shoes and power tools reuse their parents without duplicate branches',()=>{
+  const d=seed(),packs=['common-shoes','common-power-tools','common-clothes','common-electronics'];
+  const preview=previewCategoryPacks(d,packs);
+  assert.equal(new Set(preview.categories.map(c=>c.key)).size,preview.categories.length);
+  assert.ok(preview.categories.some(c=>c.path.endsWith('Обувь / Кроссовки')));
+  assert.ok(preview.categories.some(c=>c.path.endsWith('Электроинструменты / Шуруповёрты')));
+  applyCategoryPacks(d,packs);M.validate(d);
+  const saved=structuredClone(d);
+  assert.deepEqual(applyCategoryPacks(d,packs),{addedCategories:0,addedCollections:0});
+  assert.deepEqual(d,saved);
+});
+
 test('work and hobby photography reuse shared branches, legacy siblings, and collections after renaming',()=>{
   const d=seed(),computers=d.categories.find(c=>c.name==='Компьютеры');
   applyCategoryPacks(d,['work-it',...photo]);

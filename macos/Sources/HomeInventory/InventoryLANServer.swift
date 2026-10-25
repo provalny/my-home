@@ -152,7 +152,7 @@ final class InventoryLANServer: @unchecked Sendable {
             do {
                 if let request = try LANRequest.parse(data, maxBody: Self.maxBody) {
                     timeout.cancel()
-                    self.respond(connection, self.handle(request)); return
+                    if let response = self.handle(request, connection: connection) { self.respond(connection, response) }; return
                 }
                 if complete || error != nil { timeout.cancel(); connection.cancel(); return }
                 self.receive(connection, buffer: data, timeout: timeout)
@@ -166,7 +166,7 @@ final class InventoryLANServer: @unchecked Sendable {
         connection.send(content: response.encoded(), completion: .contentProcessed { _ in connection.cancel() })
     }
 
-    private func handle(_ request: LANRequest) -> LANResponse {
+    private func handle(_ request: LANRequest, connection: NWConnection) -> LANResponse? {
         guard let host = request.headers["host"], let components = URLComponents(string: "http://" + host),
               components.host != nil, components.user == nil, components.password == nil,
               components.path.isEmpty, components.query == nil, components.fragment == nil,
@@ -196,6 +196,22 @@ final class InventoryLANServer: @unchecked Sendable {
             let cookies = (request.headers["cookie"] ?? "").split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
             let token = cookies.first(where: { $0.hasPrefix("la_session=") }).map { String($0.dropFirst(11)) } ?? ""
             guard sessions[token] != nil else { return .json(401, ["error": "Подключение завершено. Отсканируйте QR-код на Mac."]) }
+            if path == "/api/item-master/page", request.method == "POST" {
+                guard request.body.count < 8192,
+                      let body = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any],
+                      let url = body["url"] as? String else { return .json(400, ["error": "Нужна ссылка на товар"]) }
+                ItemMasterHTTP.fetch(url) { [weak self, weak connection] result in
+                    guard let self, let connection else { return }
+                    self.queue.async {
+                        guard self.listener != nil, self.sessions[token] != nil else { connection.cancel(); return }
+                        switch result {
+                        case .success(let value): self.respond(connection, .json(200, value))
+                        case .failure(let error): self.respond(connection, .json(502, ["error": error.localizedDescription]))
+                        }
+                    }
+                }
+                return nil
+            }
             if path == "/api/state", request.method == "GET" {
                 guard let document = store.document else { return .json(503, ["error": "Сначала откройте квартиру на Mac"]) }
                 let revision = document["revision"] as? Int ?? 0

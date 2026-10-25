@@ -14,6 +14,7 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
     private var notificationAlerts = "notSupported"
     private var notificationGeneration = 0
     private var pendingNotificationNode: String?
+    private var pendingMonitoringApartment: String?
     private var updates: UpdateManager!
     private let storeQueue = DispatchQueue(label: "local.myhome.inventory.storage", qos: .userInitiated)
     private var pendingStoreTasks = 0
@@ -154,6 +155,15 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
     func receive(_ m: [String: Any]) {
         do {
             switch m["type"] as? String {
+            case "inventoryItemMasterPage":
+                ItemMasterHTTP.fetch(m["url"] as? String ?? "") { result in
+                    DispatchQueue.main.async {
+                        switch result {
+                        case .success(let value): self.host.reply(to: m, value)
+                        case .failure(let error): self.host.reply(to: m, ["error": error.localizedDescription])
+                        }
+                    }
+                }
             case "inventoryPhoneAccess":
                 if m["action"] as? String == "renew" { phoneAccess.renew() }
                 else if m["on"] as? Bool == true { phoneAccess.start() }
@@ -234,6 +244,7 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
             case "ready":
                 host.call("shown"); pushSettings()
                 if let id = pendingNotificationNode { pendingNotificationNode = nil; host.call("inventoryOpenNode", id) }
+                if let id = pendingMonitoringApartment { pendingMonitoringApartment = nil; host.call("monitoringOpenApartment", id) }
             default: if m["callId"] != nil { throw InventoryError.message("Функция недоступна в версии инвентаризации") }
             }
         } catch { host.reply(to: m, ["error": error.localizedDescription]) }
@@ -297,15 +308,43 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
                 }
             }
         }
-        let obsolete = pending.filter { $0.identifier.hasPrefix("inventory.") && !active.contains($0.identifier) }.map(\.identifier)
+        for reminder in monitoringReminders(document: d, now: now, calendar: calendar) {
+            let identifier = reminder.identifier, fire = reminder.fire
+            active.insert(identifier)
+            if fire > now, let previous = pending.first(where: { $0.identifier == identifier }),
+               let trigger = previous.trigger as? UNCalendarNotificationTrigger,
+               let scheduled = trigger.nextTriggerDate(), abs(scheduled.timeIntervalSince(fire)) < 1 { continue }
+            if fire <= now, pending.contains(where: { $0.identifier == identifier && $0.trigger is UNTimeIntervalNotificationTrigger }) { continue }
+            if deliveredIDs.contains(identifier) || fire <= now && self.store.wasNotificationScheduled(identifier, before: now) { continue }
+            let content = UNMutableNotificationContent(); content.title = reminder.title; content.body = reminder.body
+            content.sound = .default; content.userInfo = ["monitoringApartmentId": reminder.apartmentID]
+            let trigger: UNNotificationTrigger
+            if fire > now {
+                var parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fire); parts.timeZone = calendar.timeZone
+                trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
+            } else { trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false) }
+            center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)) { error in
+                guard error == nil else { return }
+                DispatchQueue.main.async {
+                    guard generation == self.notificationGeneration else { return }
+                    self.storeTask { $0.rememberNotificationSchedule(identifier, fire: max(fire, now)); return NSNull() }
+                }
+            }
+        }
+        let obsolete = pending.filter { ($0.identifier.hasPrefix("inventory.") || $0.identifier.hasPrefix("monitoring.")) && !active.contains($0.identifier) }.map(\.identifier)
         if !obsolete.isEmpty { center.removePendingNotificationRequests(withIdentifiers: obsolete) }
         storeTask { $0.reconcileNotificationSchedules(active: active, now: now); return NSNull() }
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler handler: @escaping (UNNotificationPresentationOptions) -> Void) { handler([.banner, .sound]) }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler handler: @escaping () -> Void) {
         let nodeID = response.notification.request.content.userInfo["nodeId"] as? String
+        let apartmentID = response.notification.request.content.userInfo["monitoringApartmentId"] as? String
         DispatchQueue.main.async {
             self.show()
+            if let apartmentID {
+                if self.host.isReady { self.host.call("monitoringOpenApartment", apartmentID) }
+                else { self.pendingMonitoringApartment = apartmentID }
+            }
             if let nodeID {
                 if self.host.isReady { self.host.call("inventoryOpenNode", nodeID) }
                 else { self.pendingNotificationNode = nodeID }

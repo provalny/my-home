@@ -481,3 +481,33 @@ html.ios.mode-editor body { background: var(--bg); }
 .catalog-thumb { width: 96px; height: 62px; display: block; flex: none; margin-bottom: 6px; }
 @media(max-width:1050px) { .editor:not(.phone) .bar-title > .icon { display: none; } .editor:not(.phone) .bar-actions .panel-toggle { padding: 0 6px; font-size: 11px; } }
 @media(prefers-reduced-motion:reduce) { .editor *, .object-catalog * { transition: none !important; } }
+
+/* Toolbars wrap before the title or exit action can be pushed out of view. */
+@media(max-width:1050px) {
+  .editor:not(.phone) { grid-template-rows:auto minmax(0,1fr) 30px; }
+  .editor:not(.phone) .bar { flex-wrap:wrap;padding:8px;gap:6px; }
+  .editor:not(.phone) .bar-title { flex:1 1 100%; }
+  .editor:not(.phone) .bar-title .danger { margin-left:auto;white-space:nowrap; }
+  .editor:not(.phone) .bar-actions { flex:1 1 100%;flex-wrap:wrap; }
+}
+@media(max-width:700px) {
+  .editor:not(.phone) { grid-template-columns:minmax(0,1fr);grid-template-areas:'bar' 'canvas' 'foot'; }
+  .editor:not(.phone) .bar-actions .btn { min-height:36px;height:auto;white-space:normal;padding:7px 5px; }
+  .editor.inventory-editor:not(.phone) .bar-actions { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px; }
+  .editor.inventory-editor:not(.phone) .bar-actions>.btn:first-child,
+  .editor.inventory-editor:not(.phone) .bar-actions>.primary,
+  .editor.inventory-editor:not(.phone) .bar-actions>.btn:last-child { grid-column:span 2; }
+  .editor:not(.phone) .bar-actions .icon-btn { width:auto; }
+  .editor:not(.phone) :is(.side-shell,.right) { grid-area:canvas;z-index:8;width:min(320px,100%);max-height:100%;background:var(--bg);box-shadow:0 8px 30px #0007; }
+  .editor:not(.phone) .side-shell { justify-self:start; }
+  .editor:not(.phone) .right { justify-self:end; }
+  .editor:not(.phone).side-closed .side-shell,
+  .editor:not(.phone).right-closed .right,
+  .editor:not(.phone) :is(.panel-resize,.panel-restore) { display:none; }
+  .editor:not(.phone) .hint { padding:0 12px;font-size:10px; }
+  .editor:not(.phone) :is(input,select,textarea) { max-width:100%;box-sizing:border-box;font-size:16px; }
+  .editor:not(.phone) .row { min-height:40px; }
+  .object-catalog { box-sizing:border-box;width:calc(100vw - 16px);padding:12px; }
+  .catalog-controls { grid-template-columns:minmax(0,1fr); }
+  .catalog-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,128px),1fr)); }
+}

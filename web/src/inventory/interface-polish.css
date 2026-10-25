@@ -1,0 +1,106 @@
+/* Shared finishing rules, after theme and compact/mobile layouts. */
+.mode-inventory :is(button,input,select,textarea,[tabindex]):focus-visible { outline:2px solid var(--accent);outline-offset:3px; }
+.mode-inventory .iv-btn>.icon { flex-shrink:0; }
+.iv-heading h1,.iv-dialog-title h2,.iv-detail-panel h2 { min-width:0;overflow-wrap:anywhere; }
+.iv-dialog-title>.iv-btn { flex-shrink:0; }
+.iv-event { gap:12px;padding:12px 0; }
+.iv-event>div { min-width:0;overflow-wrap:anywhere; }
+.iv-event>div>.iv-btn { max-width:100%;white-space:normal;text-align:left;justify-content:flex-start; }
+.iv-event>.icon,.iv-event>time { flex-shrink:0; }
+.iv-event time { padding-top:9px;white-space:nowrap; }
+.iv-trash-row .iv-row-copy { min-width:0;overflow-wrap:anywhere; }
+.iv-trash-row>.iv-btn { flex-shrink:0; }
+.iv-bulk { flex-wrap:wrap;min-width:0; }
+.iv-bulk>.iv-btn { max-width:100%;white-space:normal; }
+
+.iv-settings-page { max-width:1100px;min-width:0; }
+.iv-settings-tabs { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px; }
+.mode-inventory .iv-settings-tab { min-height:36px;padding:8px 12px;white-space:normal;text-align:left; }
+.mode-inventory .iv-settings-tab[aria-selected=true] { color:var(--iv-blue);background:var(--iv-selected);border-color:var(--iv-edge); }
+.iv-settings-panel { display:grid;gap:12px;min-width:0; }
+.iv-settings-panel[hidden] { display:none; }
+.iv-settings-panel>.iv-card { min-width:0; }
+.iv-settings-panel :is(p,small,dd) { overflow-wrap:anywhere; }
+.iv-settings-panel p { font-size:12px;line-height:1.55;margin:0; }
+.iv-settings-panel :is(.iv-settings-card,.iv-appearance-settings)>h2 { margin:0 0 8px; }
+.iv-settings-card { display:flex;flex-direction:column;gap:12px; }
+.iv-settings-card h3 { margin:0 0 4px;font-size:13px; }
+.iv-settings-card .iv-actions,.iv-settings-card .iv-field { margin:0; }
+.iv-settings-card>.iv-btn { align-self:flex-start; }
+.iv-settings-divider { border-top:1px solid var(--line);margin:4px 0; }
+.iv-appearance-settings>.iv-settings-divider { margin:16px 0 0; }
+.iv-setting-row { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;cursor:pointer; }
+.iv-setting-row>span { min-width:0; }
+.iv-setting-row strong { display:block;font-size:12px;font-weight:600; }
+.iv-setting-row small { display:block;color:var(--muted);font-size:11px;line-height:1.5;margin-top:4px; }
+.mode-inventory .iv-setting-row input[type=checkbox] { flex:0 0 18px;width:18px;height:18px;margin:4px; }
+.iv-setting-row:has(input:disabled) { cursor:default; }
+.iv-settings-inline { display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap; }
+.iv-settings-inline .iv-field { flex:0 1 320px; }
+.iv-settings-inline input { width:100%;box-sizing:border-box;min-height:34px; }
+.iv-reminder-form { display:grid;gap:8px; }
+.iv-setting-action { display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:12px;border-top:1px solid var(--line); }
+.iv-setting-action>div { min-width:0; }
+.iv-setting-action>.iv-btn { flex-shrink:0; }
+.iv-settings-facts { display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 16px;margin:0;font-size:12px;line-height:1.5; }
+.iv-settings-facts dt { color:var(--muted); }
+.iv-settings-facts dd { margin:0; }
+.iv-settings-card .iv-icon-settings { margin:0;padding:0;border:0; }
+.iv-settings-card .iv-icon-settings>h3 { display:none; }
+.iv-settings-card .iv-app-icons { grid-template-columns:repeat(auto-fit,minmax(min(100%,100px),1fr));gap:8px;margin-bottom:10px; }
+.iv-settings-card .iv-app-icons .iv-btn { min-height:112px;padding:10px 6px; }
+.iv-settings-card .iv-app-icons img { width:64px; }
+.mode-inventory .iv-settings-version { font-size:15px;font-weight:600; }
+
+@media(max-width:700px){
+  /* Keep search and undo visible without spending four rows on the toolbar. */
+  .mode-inventory .iv-topbar { grid-template-columns:auto minmax(0,1fr) 42px;gap:6px 8px; }
+  .mode-inventory .iv-topbar>.iv-mobile-menu { grid-column:1;grid-row:1;min-height:38px;width:auto; }
+  .mode-inventory .iv-topbar>.primary { grid-column:2;grid-row:1;min-height:38px;width:100%; }
+  .mode-inventory .iv-topbar>.iv-theme-toggle { grid-column:3;grid-row:1;width:42px;min-height:38px; }
+  .mode-inventory .iv-topbar .iv-search { grid-column:1/-1;grid-row:2;max-width:none; }
+  .mode-inventory .iv-topbar>.iv-history-controls { grid-column:1/-1;grid-row:3; }
+  .mode-inventory .iv-history-buttons { display:grid;grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mode-inventory .iv-history-buttons .iv-btn { min-height:32px; }
+  .mode-inventory :is(.iv-catalog-compact,.iv-categories-compact) .iv-btn { min-height:38px;font-size:12px; }
+  .mode-inventory .iv-catalog-compact .iv-filters select,
+  .mode-inventory .iv-categories-compact :is(.iv-category-search input,.iv-category-edit-row input,.iv-category-add input,.iv-category-add select) { min-height:38px;height:auto;font-size:16px; }
+  .mode-inventory .iv-categories-compact .iv-category-edit-row:not(.is-selecting) { grid-template-columns:28px 36px minmax(0,1fr); }
+  .mode-inventory .iv-categories-compact .iv-category-drag-handle { width:28px;min-height:38px;height:38px; }
+  .mode-inventory .iv-categories-compact .iv-category-icon-button { width:36px;height:38px;min-height:38px; }
+  .mode-inventory .iv-catalog-compact .iv-photo-card { padding:10px; }
+  .mode-inventory .iv-catalog-compact .iv-photo-card .iv-actions { flex-wrap:wrap; }
+  .mode-inventory .iv-catalog-compact .iv-show-furniture { min-height:36px;display:inline-flex;align-items:center;gap:6px;font-size:12px; }
+  .mode-inventory .iv-settings-tabs { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px; }
+  .mode-inventory .iv-settings-tab { min-height:42px;justify-content:flex-start;padding:8px; }
+  .iv-settings-panel .iv-appearance-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .iv-settings-panel .iv-appearance-choice { align-items:flex-start;padding:10px;gap:8px; }
+  .iv-settings-panel .iv-appearance-choice>span { min-width:0; }
+  .iv-settings-panel .iv-appearance-choice>.icon { width:16px;flex-shrink:0; }
+  .iv-settings-panel .iv-palette-swatch { width:24px;height:30px;flex-shrink:0; }
+  .iv-settings-inline { align-items:stretch; }
+  .iv-settings-inline .iv-field { flex:1 1 180px; }
+  .iv-settings-inline>.iv-btn { align-self:flex-end; }
+  .iv-setting-action { align-items:flex-start;flex-direction:column;gap:8px; }
+  .iv-settings-facts { grid-template-columns:1fr;gap:4px; }
+  .iv-settings-facts dd { margin-bottom:8px; }
+  .iv-event { display:grid;grid-template-columns:18px minmax(0,1fr);gap:4px 10px; }
+  .iv-event>time { grid-column:2;padding:0; }
+  .iv-trash-row { flex-wrap:wrap;gap:8px; }
+  .iv-trash-row .iv-row-copy { flex:1 1 calc(100% - 60px); }
+  .iv-trash-row>.iv-btn { margin-left:auto; }
+}
+.iv-metric-growth>.icon,.iv-metric-growth strong,.iv-metric-growth span{color:#67cb93}
+.iv-metric-growth span{font-weight:650}
+.iv-tree-unplaced{margin:0 0 12px;padding:5px 3px 10px;border-bottom:1px solid var(--line)}
+.iv-tree-unplaced .iv-tree-row>.iv-btn:last-child{font-weight:700;color:#97d7b9}
+.iv-tree-unplaced .iv-tree-row>.iv-btn.active{background:#438f6d36;color:#c3f0d2}
+.iv-detail-panel .iv-btn.iv-travel-toggle{color:#edc29b;background:#6e493329;border-color:#9e6b4c88}
+.iv-detail-panel .iv-btn.iv-travel-toggle:hover{background:#77503655;border-color:#bd855d}
+.iv-details .iv-selected-color{color:var(--selected-color,var(--text));font-weight:700;text-shadow:0 1px 2px #000,0 0 3px #0009;background:#0002;border-radius:5px;padding:1px 5px;width:max-content;max-width:100%}
+.iv-car-summary .iv-room-card-heading > .iv-btn:last-child { font-size:inherit;padding:6px 8px; }
+.iv-import-preview { margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--glass-bg,transparent); }
+.iv-import-duplicates { margin:10px 0;padding:12px;border:1px solid #d89b5977;border-radius:12px;background:#d89b5915; }
+.iv-import-duplicates .iv-import-warning { margin:0 0 8px;color:#efb978;font-weight:700; }
+.iv-import-duplicates .iv-field { margin:8px 0; }
+.iv-import-duplicates .iv-muted:last-child { margin-bottom:0;overflow-wrap:anywhere; }

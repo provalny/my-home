@@ -45,7 +45,7 @@ export function createInterfacePreferences(onChange) {
         return b;
       })));
     }
-    const section=h('section.iv-card.iv-appearance-settings',h('h2','Внешний вид'),h('p.iv-muted','Свет, глубина и немного домашнего тепла.'),
+    const section=h('section.iv-card.iv-appearance-settings',h('h2','Внешний вид'),h('p.iv-muted','Тема, палитра и поверхности меняются сразу. Выбор сохраняется только на этом устройстве.'),
       choices('Тема','theme',[
         ['dark','Тёмная','moon','Дымчатое стекло и тёплые акценты'],
         ['light','Светлая','sun','Светлое стекло и мягкие тени'],

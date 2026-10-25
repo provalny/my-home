@@ -116,6 +116,9 @@ test('Excel includes resolved rarity without changing the inventory',()=>{
   M.newNode(d,{name:'Audeze LCD-5 Excel',parentId});
   M.newNode(d,{name:'Audeze Maxwell Excel',parentId});
   M.newNode(d,{name:'Книга Excel',parentId,categoryId:'books'});
+  M.newNode(d,{name:'Audeze CRBN2 Excel',parentId});
+  M.newNode(d,{name:'Штатив Gitzo Excel',parentId});
+  M.newNode(d,{name:'Тумбочка под 3D-принтер Excel',parentId});
   const before=JSON.stringify(d),data=inventoryExportRows(d),column=data.headers.indexOf('Редкость');
   assert.ok(column>=0);
   assert.equal(data.active.find(row=>row[0]==='Canon Excel')[column],'Эпический');
@@ -123,5 +126,8 @@ test('Excel includes resolved rarity without changing the inventory',()=>{
   assert.equal(data.active.find(row=>row[0]==='Audeze LCD-5 Excel')[column],'Легендарный');
   assert.equal(data.active.find(row=>row[0]==='Audeze Maxwell Excel')[column],'Эпический');
   assert.equal(data.active.find(row=>row[0]==='Книга Excel')[column],'Необычный');
+  assert.equal(data.active.find(row=>row[0]==='Audeze CRBN2 Excel')[column],'Легендарный');
+  assert.equal(data.active.find(row=>row[0]==='Штатив Gitzo Excel')[column],'Эпический');
+  assert.equal(data.active.find(row=>row[0]==='Тумбочка под 3D-принтер Excel')[column],'Обычный');
   assert.equal(JSON.stringify(d),before);
 });

@@ -7,6 +7,7 @@ import { h, openMenu } from './ui/dom.js';
 import { icon } from './ui/icons.js';
 import { isNative, isPhone, post, incoming, haptic } from './bridge.js';
 import { publishWidgets, runWidgetAction } from './widgets.js';
+import {isShowcase} from './inventory/demo-runtime.js';
 
 const DEMO_PLANS = [
   { id: 'home', name: 'Demo · Apartment' },
@@ -232,7 +233,7 @@ async function renderShot(config, store, room) {
   }
 }
 
-const mode = window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'inventory';
+const mode = isShowcase?'inventory':window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'inventory';
 if (new URLSearchParams(location.search).has('modelGallery')) {
   import('./three/model-gallery.js').then(m=>m.bootModelGallery(app)).catch(e=>fatal('Не удалось открыть модели',e));
 } else if (new URLSearchParams(location.search).has('inventoryEditor')) {
@@ -257,3 +258,6 @@ if (new URLSearchParams(location.search).has('modelGallery')) {
 } else {
   boot();
 }
+
+// Offline shell is available in the browser build; native and LAN use their own hosts.
+if(import.meta.env.PROD && !isShowcase && !isNative && location.protocol!=='file:' && 'serviceWorker' in navigator && !window.__HOUSE_LAN__) window.addEventListener('load',()=>navigator.serviceWorker.register(new URL('./sw.js',document.baseURI),{type:'classic'}).catch(()=>{}));

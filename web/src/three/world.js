@@ -376,6 +376,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     let active = updateRig(dt);
     active=wallGhost?.update(dt,reduceMotion)||active;
     furnitureTime+=dt;active=animateFurniture(furnitureAnimators,furnitureTime,{reduceMotion})||active;
+    if(furnitureAnimators.some(o=>o.userData.vehicle?.moving))shadowFrames=2;
     if(storage){
       if(storageProgress<1){storageProgress=reduceMotion?1:Math.min(1,storageProgress+dt*1.3);storage.interior?.animate(THREE.MathUtils.smoothstep(storageProgress,.12,1));active=true;
         focusLight.intensity=storageProgress*.8;
@@ -437,6 +438,13 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     setInsets(top, bottom) { topInset = top; bottomInset = bottom; resize(); },
     resize,
 
+    setVehicleState(id,{vehicleOpen,headlights}={}){
+      const vehicle=modelFor(id)?.userData.vehicle,shape=config.furniture.find(f=>f.id===id);if(!vehicle||!shape)return false;
+      if(vehicleOpen){for(const [key,value]of Object.entries(vehicleOpen))vehicle.animateOpen(key,value);shape.vehicleOpen={...shape.vehicleOpen,...vehicleOpen};}
+      if(headlights!==undefined){vehicle.setHeadlights(headlights);shape.headlights=Boolean(headlights);}
+      shadowFrames=2;wake(2);return true;
+    },
+
     focus(next) {
       setHover(null);closeStorage();
       rig.focus = next;
@@ -497,6 +505,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
     settle(seconds = 6) {
       for (let t = 0; t < seconds; t += 0.05) {
         updateRig(0.05);
+        furnitureTime+=.05;animateFurniture(furnitureAnimators,furnitureTime,{reduceMotion});
         for (const unit of lights.values()) unit.update(0.05);
         for (const unit of acs.values()) unit.update(0.05);
       }

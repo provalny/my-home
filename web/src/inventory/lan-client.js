@@ -1,6 +1,7 @@
 // The LAN server marks its HTML explicitly. Ordinary browser previews keep their
 // own local storage; a paired phone never falls back to a separate/demo document.
-export const isLAN = Boolean(globalThis.window?.__HOUSE_LAN__);
+import {isShowcase} from './demo-runtime.js';
+export const isLAN = !isShowcase&&Boolean(globalThis.window?.__HOUSE_LAN__);
 
 export function createLANClient({fetcher = globalThis.fetch, timeout = 60000} = {}) {
   async function request(path, body) {

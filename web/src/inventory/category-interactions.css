@@ -1,0 +1,22 @@
+.mode-inventory .iv-categories-compact .iv-category-edit-row:not(.is-selecting){grid-template-columns:22px 26px minmax(0,1fr);border-radius:7px}
+.mode-inventory .iv-category-drag-handle{width:22px;min-height:26px;height:26px;padding:0;border-color:transparent;background:transparent;color:var(--muted);cursor:grab;touch-action:none}
+.mode-inventory .iv-category-drag-handle:active{cursor:grabbing}
+.mode-inventory .iv-category-drag-handle .icon{transform:rotate(90deg);pointer-events:none}
+.mode-inventory .iv-category-icon-button{padding:0;cursor:pointer;font:inherit}
+.mode-inventory .iv-category-icon-button:hover{outline:1px solid var(--accent);outline-offset:2px}
+.mode-inventory .iv-category-icon-button:disabled{cursor:default;opacity:.6}
+.mode-inventory .iv-category-drag-hint{font-size:11px;line-height:1.5;color:var(--muted);margin:10px 0 7px}
+.mode-inventory .iv-category-root-drop{display:flex;align-items:center;gap:9px;padding:11px 12px;border:1px dashed var(--line);border-radius:9px;color:var(--muted);font-size:11px;line-height:1.5}
+.mode-inventory .iv-category-root-drop .icon{flex:none}
+.mode-inventory .iv-categories-compact .iv-category-drop-target{outline:2px solid var(--accent);outline-offset:-2px;background:var(--iv-selected,var(--glass-hi))!important}
+.mode-inventory .iv-categories-compact .iv-category-drop-before{box-shadow:inset 0 3px 0 var(--accent);outline:0}
+.mode-inventory .iv-categories-compact .iv-category-drop-after{box-shadow:inset 0 -3px 0 var(--accent);outline:0}
+.mode-inventory .iv-category-dragging{opacity:.45}
+.iv-category-icon-preview{display:flex;align-items:center;gap:13px;padding:13px;border:1px solid var(--line);border-radius:11px;background:var(--glass);color:var(--text)}
+.iv-category-icon-preview>.icon{flex:none;color:var(--accent)}
+.iv-category-icon-preview strong,.iv-category-icon-preview small{display:block;overflow-wrap:anywhere}
+.iv-category-icon-preview small{font-size:11px;color:var(--muted);margin-top:5px}
+.iv-category-icon-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:7px;max-height:40vh;overflow:auto;padding:3px}
+.iv-category-icon-grid .iv-btn{display:flex;flex-direction:column;gap:6px;white-space:normal;font-size:10px;min-height:67px;padding:8px 5px;text-align:center;line-height:1.3}
+.iv-category-icon-grid .iv-btn[aria-pressed=true]{border-color:var(--accent);background:var(--iv-selected,var(--glass-hi));color:var(--text)}
+.iv-category-icon-grid .icon{width:21px;height:21px;flex:none}

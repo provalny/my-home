@@ -15,7 +15,7 @@ export function phoneAccessCard({native, remote, status = {}, call, error}) {
     try { await call('inventoryPhoneAccess',payload); } catch (failure) { error(failure.message); }
     finally { button.disabled=false; }
   }},text);
-  card.append(h('p','Откройте ту же квартиру и вещи в браузере телефона. Установка приложения не требуется.'));
+  card.append(h('p','Все пространства и вещи будут доступны в браузере телефона. Установка приложения не требуется.'));
   if (status.enabled) {
     card.append(h('p.iv-phone-state',status.state==='ready'?'Доступ по Wi-Fi включён':'Запускаем подключение…'));
     const links=status.links||[];

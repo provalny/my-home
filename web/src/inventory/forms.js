@@ -164,14 +164,17 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   const location = createLocationPicker({ getDoc, value: starting.parentId, movingId: existing?.id, required: true, label: 'Место хранения' });
   const categoryOptions = [['', 'Без категории'], ...doc.categories.slice().sort((a, b) => M.categoryName(doc, a.id).localeCompare(M.categoryName(doc, b.id), 'ru')).map(c => [c.id, M.categoryName(doc, c.id)])];
   const category = select(categoryOptions, starting.categoryId, { 'aria-label': 'Категория' });
-  const rarity = select([['','Автоматически'],...RARITIES.map(r=>[r.id,r.name])],starting.rarity||'',{'aria-label':'Редкость'});
+  const manualRarities=RARITIES.filter(r=>!['epic','legendary'].includes(r.id));
+  const previousHigh=existing&&['epic','legendary'].includes(starting.rarity)?RARITIES.find(r=>r.id===starting.rarity):null;
+  const rarity = select([['','Автоматически'],...manualRarities.map(r=>[r.id,r.name]),...(previousHigh?[[previousHigh.id,previousHigh.name+' · прежнее значение']]:[])],starting.rarity||'',{'aria-label':'Редкость'});
+  if(previousHigh)rarity.querySelector(`option[value="${previousHigh.id}"]`).disabled=true;
   const rarityHelp=h('p.if-rarity-help'),rarityPreview=h('div.if-rarity-preview',{'aria-live':'polite'}),rarityField=field('Редкость',rarity,'if-rarity-field');
   rarityField.append(rarityPreview,rarityHelp);
   function refreshRarity() {
     captureAttributes();
     const candidate={...starting,name:name.value,kind:kind.value,categoryId:category.value,fields:allFields,rarity:rarity.value||null};
     rarityPreview.replaceChildren(...[rarityBadge(getDoc(),candidate)].filter(Boolean));
-    rarityHelp.textContent='Автоматически — по словам в названии предмета. Ручной выбор имеет приоритет.';
+    rarityHelp.textContent='Эпический и легендарный уровни присваиваются только автоматически по названию. Остальные можно выбрать вручную.';
     const effective=itemRarity(getDoc(),candidate);
     if(effective)rarityField.dataset.rarity=effective.id;else delete rarityField.dataset.rarity;
   }

@@ -1,7 +1,8 @@
+import {estimatedWeight} from './weights.js';
 import { isKitchenType } from './ikea-storage.js';
 import './inventory.css';
 import { createInventoryWorkbook, EXCEL_MIME, bytesBase64 } from './excel-export.js';
-import { importInventoryRows, readInventoryExcel } from './excel-import.js';
+import { importInventoryRows, previewInventoryImport, readInventoryExcel } from './excel-import.js';
 import { createWeatherService, findWeatherCities, validWeatherCity, weatherDescription, WEATHER_TTL } from './weather.js';
 import { createWeatherScene } from './weather-scene.js';
 import { itemWear, validateWear, resolvedWearMode, wearSchedule } from './wear.js';
@@ -16,7 +17,8 @@ import * as M from './model.js';
 import releases from './releases.json';
 import { categoryAppearance, nodeAppearance, rememberCategoryIcons } from './appearance.js';
 import { nodeThumbnail, paintRarity, rarityBadge } from './visuals.js';
-import { calculateAwards, syncAwards } from './awards.js';
+import { awardToday, calculateAwards, syncAwards } from './awards.js';
+import { renderAwards } from './awards-view.js';
 import { ROOM_ICONS, setRoomIcon } from './room-icons.js';
 import { renderRoomPreviews } from '../three/room-previews.js';
 import { APP_ICONS, appIconPath } from './app-icons.js';
@@ -31,7 +33,7 @@ import { createActionHistory, describeAction, historyShortcut, editingText, same
 import { planLocation } from './plan-location.js';
 import { openCategoryWizard } from './category-wizard.js';
 import { itemCollections } from './category-presets.js';
-import { planCategoryRemoval, removeCategories } from './categories.js';
+import { planCategoryRemoval, removeCategories, planCategoryMove, moveCategory, placeCategory, CATEGORY_ICONS, setCategoryIcon } from './categories.js';
 import { rarityChart } from './rarity-chart.js';
 import { ELECTRONICS_TYPES } from '../editor/object-sections.js';
 import { createInterfacePreferences } from './interface-preferences.js';
@@ -46,6 +48,19 @@ import './palettes.css';
 import { isLAN, createLANClient } from './lan-client.js';
 import { phoneAccessCard } from './phone-access.js';
 import './mobile.css';
+import './category-interactions.css';
+import './interface-polish.css';
+import { createMonitoring } from '../monitoring/app.js';
+import { createPersonalMetrics } from '../metrics/app.js';
+import { createTravel, travelTags } from '../travel/app.js';
+import { isPossession as travelPossession, itemWeightKg, itemVolumeLiters, setWeight, decimal as travelDecimal } from '../travel/model.js';
+import { createAutomobile } from '../automobile/app.js';
+import { carForNode, cars as automobileCars, moveMany as moveAutomobileItems } from '../automobile/model.js';
+import { COLORS } from './colors.js';
+import {createItemMaster} from '../item-master/app.js';
+import {createDemoTour} from './demo-tour.js';
+import {isShowcase} from './demo-runtime.js';
+import {openShowcase} from './showcase.js';
 
 const LOCAL_KEY = 'my-home-inventory:v1';
 const APP_VERSION = releases[0].version;
@@ -63,12 +78,20 @@ const input = (value='',props={}) => h('input',{value:value ?? '',...props});
 const displayDate = value => value ? new Date(value.length === 10 ? value+'T12:00:00' : value).toLocaleDateString('ru-RU') : '—';
 
 export async function bootInventory(root) {
+  const automobileDemo=!isNative&&!isLAN&&new URLSearchParams(location.search).get('demo')==='automobile';
+  const travelDemo=!isNative&&!isLAN&&new URLSearchParams(location.search).get('demo')==='travel';
+  const itemMasterDemo=!isNative&&!isLAN&&new URLSearchParams(location.search).get('demo')==='item-master';
+  const storageKey=LOCAL_KEY+(itemMasterDemo?':item-master-demo-v1':travelDemo?':travel-demo-v1':automobileDemo?':automobile-demo-v1':'');
   const lan = isLAN ? createLANClient() : null;
-  let doc = lan ? await lan.connect() : window.__HOUSE_BOOT__?.inventory;
-  if (!doc && !isNative) { const raw = localStorage.getItem(LOCAL_KEY); if (raw) doc = JSON.parse(raw); }
-  if (!doc) { const response = await fetch('./plans/home.json'); if (!response.ok) throw Error('Не найден демонстрационный план'); doc = M.demo(await response.json()); }
+  let doc = (isShowcase||automobileDemo||travelDemo||itemMasterDemo)?null:lan ? await lan.connect() : window.__HOUSE_BOOT__?.inventory;
+  let createdDemo=false;
+  if (!doc && !isNative && !isShowcase) { const raw = localStorage.getItem(storageKey); if (raw) doc = JSON.parse(raw); }
+  if(isShowcase){const response=await fetch('./plans/home.json');if(!response.ok)throw Error('Не найден демонстрационный план');const {createShowcaseDocument}=await import('./showcase-data.js');doc=createShowcaseDocument(await response.json());}
+  if (!doc) { const response = await fetch('./plans/home.json'); if (!response.ok) throw Error('Не найден демонстрационный план'); doc = M.demo(await response.json());if(itemMasterDemo){const {itemMasterDemo:seedItemMaster}=await import('../item-master/demo.js');doc=seedItemMaster(doc);createdDemo=true;}if(travelDemo){const {seedTravelDemo}=await import('../travel/demo.js');seedTravelDemo(doc);createdDemo=true;}if(automobileDemo){const {seedAutomobileDemo}=await import('../automobile/demo.js');seedAutomobileDemo(doc);createdDemo=true;}if(!itemMasterDemo&&!travelDemo&&!automobileDemo)doc=M.createHome(doc,{mode:'empty'}); }
+  if(travelDemo)doc.demoProfile??={type:'travel',version:1};
   let originalDocument=structuredClone(doc);M.migrate(doc);M.validate(doc);M.listSpaces(doc).forEach(s=>normalize(s.plan));let migrationPending=!sameValue(originalDocument,doc);if(!migrationPending)originalDocument=null;
-  let view = 'overview', query = '', place = null, category = '', collection = '', condition = '', sort = 'name', roomFilter = '', selected = new Set();
+  if(createdDemo){localStorage.setItem(storageKey,JSON.stringify(doc));migrationPending=false;originalDocument=null;}
+  let view = ['monitoring','automobile','travel','personal-metrics','item-master'].includes(new URLSearchParams(location.search).get('section'))?new URLSearchParams(location.search).get('section'):'overview', query = '', place = null, category = '', collection = '', condition = '', sort = 'name', roomFilter = '', selected = new Set();
   let activeSpaceId=localStorage.getItem('iv:active-space')||M.PRIMARY_SPACE_ID;if(!M.getSpace(doc,activeSpaceId))activeSpaceId=M.PRIMARY_SPACE_ID;
   const activeSpace=(d=doc)=>M.getSpace(d,activeSpaceId)||M.listSpaces(d)[0];
   const activePlan=(d=doc)=>activeSpace(d).plan;
@@ -77,14 +100,15 @@ export async function bootInventory(root) {
   function followSpace(n){const space=M.spaceForNode(doc,n);if(space&&space.id!==activeSpace(doc).id)selectSpace(space.id);}
   let readIndex=null,searchTimer=0,catalogLimit=100,catalogPageKey=null,worldSignature=null,focusSignature=null;
   const index=()=>readIndex??=M.createReadIndex(doc);
-  let busy = false, world = null, resize = null, editor = null, lastCategory = '', nativeSettings = window.__HOUSE_BOOT__?.inventorySettings || {};
+  let busy = false, world = null, resize = null, editor = null, lastCategory = '', nativeSettings = isShowcase?{}:window.__HOUSE_BOOT__?.inventorySettings || {};
   let remotePending=false, sharedRefreshing=false, sharedTimer=0, sharedNotice=null;
   let detailId=null, locatedId=null, spaceMode=localStorage.getItem('iv:space-mode')||'3d', catalogMode=localStorage.getItem('iv:catalog-mode')||(isLAN&&matchMedia('(max-width: 700px)').matches?'grid':'table');
   let showFurniture=localStorage.getItem('iv:show-furniture')!=='false';
+  let settingsSection='appearance', reminderDraft=null;
   let categoriesMode=localStorage.getItem('iv:categories-mode')==='grid'?'grid':'list';
   lastCategory=localStorage.getItem('iv:last-category')||'';
   const sectionState=new Map(), history=createActionHistory(); let failedAction=null, sceneMemory=null, renderedPlace=null;
-  const awardsAtBoot=syncAwards(doc,nativeSettings);let awardsRefreshPending=false;
+  const awardsAtBoot=syncAwards(doc,nativeSettings,{now:new Date().toISOString(),visitDay:document.hidden?null:awardToday()});let awardsRefreshPending=false;const awardViewState={};
   const weatherService=createWeatherService({storage:localStorage});
   const nodeIcon=n=>nodeAppearance(doc,n).glyph;
   const detailsPane=h('aside.iv-detail-panel',{'aria-label':'Карточка вещи',hidden:true});
@@ -104,7 +128,8 @@ export async function bootInventory(root) {
   const reducedMotion=()=>doc.settings.motion==='off'||doc.settings.motion!=='on'&&(nativeSettings.reduceMotion||matchMedia('(prefers-reduced-motion: reduce)').matches);
   const appearance=createInterfacePreferences((next,previous)=>{
     updateAppearance();
-    if(next.theme!==previous.theme&&(view==='space'||view==='unplaced'))draw(true);
+    const menuPreference=content.querySelector('[aria-label="Компактное боковое меню"]');if(menuPreference)menuPreference.checked=next.collapsed;
+    if(next.theme!==previous.theme&&(view==='space'||view==='unplaced'||view==='monitoring'||view==='automobile'||view==='travel'||view==='personal-metrics'))draw(true);
   });
   const collapseButton=button('',()=>appearance.set({collapsed:!appearance.prefs.collapsed}),'back','iv-sidebar-toggle');
   const themeButton=button('',()=>appearance.set({theme:appearance.prefs.theme==='dark'?'light':'dark'}),null,'iv-theme-toggle');
@@ -117,8 +142,8 @@ export async function bootInventory(root) {
   secondaryNav.addEventListener('click',e=>{if(e.target.closest('button'))setMobileMenu(false);});
   root.replaceChildren(h('div.iv-shell',h('aside.iv-sidebar',
     h('div.iv-sidebar-heading',h('div.iv-brand',icon('home',27),h('div',h('strong','Life Assistant'))),collapseButton),nav,
-    h('div.iv-sidebar-bottom',secondaryNav,button('Что нового',()=>{setMobileMenu(false);showWhatsNew();},'sparkles','iv-whats-new'),h('div.iv-local-status',h('span.iv-dot'),isLAN?'Общая база на Mac':'Хранится на этом Mac'),h('small.iv-version-number',`Версия ${APP_VERSION}`))),menuBackdrop,
-    h('section.iv-workspace',h('header.iv-topbar',mobileMenu,h('div.iv-search',icon('search',20),searchInput),status,historyControls,themeButton,button('Добавить вещь',()=>editNode(null),'plus','primary')),alertBar,h('div.iv-body',content,detailsPane))),toast);
+    h('div.iv-sidebar-bottom',secondaryNav,button('Что нового',()=>{setMobileMenu(false);showWhatsNew();},'sparkles','iv-whats-new'),h('div.iv-local-status',h('span.iv-dot'),isShowcase?'Демо · до закрытия':(automobileDemo||travelDemo||itemMasterDemo)?'Демонстрационные данные':isLAN?'Общая база на Mac':isNative?'Хранится на этом Mac':'Хранится в этом браузере'),h('small.iv-version-number',`Версия ${APP_VERSION}`))),menuBackdrop,
+    h('section.iv-workspace',h('header.iv-topbar',mobileMenu,h('div.iv-search',icon('search',20),searchInput),h('div.iv-monitoring-context',icon('homeassistant',18),'Мониторинг квартиры'),h('div.au-context',icon('car',18),'Автомобиль'),h('div.iv-personal-context',icon('activity',14),'Личные метрики'),status,historyControls,themeButton,button('Добавить вещь',()=>view==='automobile'?automobile.addItem():editNode(null),'plus','primary')),alertBar,h('div.iv-body',content,detailsPane))),toast);
   function updateAppearance(){
     const {collapsed,theme}=appearance.prefs;
     root.querySelector('.iv-shell')?.classList.toggle('is-sidebar-collapsed',collapsed);
@@ -131,6 +156,20 @@ export async function bootInventory(root) {
   }
   updateAppearance();
   installLiquidGlass(root,{reducedMotion});
+  const monitoring=createMonitoring({getDocument:()=>doc,change,modal,say,reducedMotion,theme:()=>appearance.prefs.theme});
+  const itemMaster=createItemMaster({getDocument:()=>doc,change,modal,say,isActive:()=>view==='item-master'});
+  const personalMetrics=createPersonalMetrics({getDocument:()=>doc,change,modal,say});
+  const travel=createTravel({getDocument:()=>doc,change,modal,say,theme:()=>appearance.prefs.theme,details,demoHref:!isShowcase&&!isNative&&!isLAN?'?section=travel&demo=travel':null});
+  const automobile=createAutomobile({getDocument:()=>doc,change,modal,say,reducedMotion,theme:()=>appearance.prefs.theme,editItem:editNode,details,demoHref:!isShowcase&&!isNative&&!isLAN?'?section=automobile&demo=automobile':null,closeDetails:()=>{detailId=null;drawDetails();}});
+  const demoTour=createDemoTour({storageKey,onClose:({automatic,completed})=>{if(completed)startShowcase(automatic);else if(automatic)finishFirstLaunch();}});
+  function startShowcase(automatic=false){
+    demoTour.markShowcase();
+    openShowcase({theme:appearance.prefs.theme,onClose:()=>{demoTour.completeShowcase();if(automatic)finishFirstLaunch();}});
+  }
+  function finishFirstLaunch(){
+    if(!doc.settings.categorySetup&&!['monitoring','automobile','travel','personal-metrics','item-master'].includes(view))configureCategories();
+    if(view==='personal-metrics')personalMetrics.maybePrompt();
+  }
 
   function updateHistoryControls(){
     const previous=history.peek(),next=history.peek(true);
@@ -152,9 +191,10 @@ export async function bootInventory(root) {
     clearTimeout(say.timer);say.timer=setTimeout(()=>toast.className='iv-toast',error?10000:5500);
   }
   async function persist(next, restore=false) {
+    if(isShowcase){migrationPending=false;originalDocument=null;return;}
     if (lan) await lan.save(next,doc.revision||0,restore||migrationPending);
     else if (isNative) await call('saveInventory',{document:next,expectedRevision:doc.revision || 0,restore:restore||migrationPending});
-    else {if(migrationPending)localStorage.setItem(LOCAL_KEY+':before-migration',JSON.stringify(originalDocument));localStorage.setItem(LOCAL_KEY,JSON.stringify(next));}migrationPending=false;originalDocument=null;
+    else {if(migrationPending)localStorage.setItem(storageKey+':before-migration',JSON.stringify(originalDocument));localStorage.setItem(storageKey,JSON.stringify(next));}migrationPending=false;originalDocument=null;
   }
   async function change(mutator,{restore=false,undoable=true,retryable=true,action=null,historyStep=null}={}) {
     if (busy) throw Error('Дождитесь сохранения предыдущего изменения');
@@ -165,7 +205,7 @@ export async function bootInventory(root) {
       for(const parentId of new Set(next.nodes.filter(isSection).map(n=>n.parentId)))M.renumberSections(next,parentId);
       if(undoable&&sameValue(next,doc)){status.textContent='Все изменения сохранены';return;}
       next.revision=(doc.revision || 0)+1;
-      rememberCategoryIcons(next);syncAwards(next,nativeSettings,{now:new Date().toISOString(),previous:restore?null:doc});
+      rememberCategoryIcons(next);syncAwards(next,nativeSettings,{now:new Date().toISOString(),previous:restore?null:doc,visitDay:document.hidden?null:awardToday()});
       M.validate(next); M.listSpaces(next).forEach(s=>normalize(s.plan)); await persist(next,restore);
       if(place&&!M.getNode(next,place)){let parent=M.getNode(doc,place);while(parent&&!M.getNode(next,parent.id))parent=M.getNode(doc,parent.parentId);place=parent?.id||null;}
       if(historyStep)history.complete(historyStep==='redo');
@@ -193,8 +233,8 @@ export async function bootInventory(root) {
   }
   const currentPlace = () => M.getNode(doc,place) || activeRooms()[0] || M.getNode(doc,M.UNPLACED_ID) || doc.nodes.find(n=>n.kind==='room');
   function rememberSection(){sectionState.set(view,{spaceId:activeSpaceId,place,query,category,collection,condition,roomFilter,sort,detailId,scroll:content.scrollTop});}
-  function go(page){rememberSection();locatedId=null;view=page;const saved=sectionState.get(page);if(page==='space'&&saved?.spaceId&&saved.spaceId!==activeSpaceId)selectSpace(saved.spaceId);({place=null,query='',category='',collection='',condition='',roomFilter='',sort='name',detailId=null}=saved||{});if(page==='unplaced')place=M.UNPLACED_ID;searchInput.value=query;selected.clear();draw();content.scrollTop=saved?.scroll||0;}
-  const open = n => {if(!n)return;if(n.kind==='item'){details(n);return;}followSpace(n);
+  function go(page){rememberSection();locatedId=null;view=page;const saved=sectionState.get(page);if(page==='space'&&saved?.spaceId&&saved.spaceId!==activeSpaceId)selectSpace(saved.spaceId);({place=null,query='',category='',collection='',condition='',roomFilter='',sort='name',detailId=null}=saved||{});if(page==='unplaced')place=M.UNPLACED_ID;searchInput.value=query;selected.clear();draw();content.scrollTop=saved?.scroll||0;if(page==='personal-metrics')personalMetrics.maybePrompt();recordAwardVisit();}
+  const open = n => {if(!n)return;if(n.kind==='item'){details(n);return;}if(automobile.openNode(n.id)){go('automobile');return;}followSpace(n);
     locatedId=null;
     if(isBasicSection(n)){const parent=M.getNode(doc,n.parentId);if(world&&view==='space'&&spaceMode==='3d'){if(parent&&focusId!==parent.id)enterStorage(parent);selectStorageSection(n.id);return;}rememberSection();view='space';place=n.id;focusId=parent?.id||null;selectedSection=n.id;focusTrail=[];draw();return;}
     if(world&&view==='space'&&spaceMode==='3d'&&!n.virtual){
@@ -207,7 +247,7 @@ export async function bootInventory(root) {
   function anchorFor(n){for(let a=n;a;a=M.getNode(doc,a.parentId)){if(a.furnitureId&&activePlan().furniture.some(f=>f.id===a.furnitureId))return a;}return null;}
   function showOnPlan(nodeId){
     if(editor)return;
-    const node=M.getNode(doc,nodeId),target=planLocation(doc,nodeId);
+    const node=M.getNode(doc,nodeId);if(automobile.openNode(nodeId)){go('automobile');return;}const target=planLocation(doc,nodeId);
     if(target.reason){say(target.reason,true);return;}
     followSpace(node);rememberSection();clearWorld();sceneMemory=null;
     locatedId=nodeId;view='space';spaceMode='3d';localStorage.setItem('iv:space-mode','3d');
@@ -257,14 +297,30 @@ export async function bootInventory(root) {
   }
 
   function drawNav() {
-    nav.replaceChildren(...[['overview','Общая сводка','home'],['space','Пространство','map'],['catalog','Все вещи','box'],['categories','Категории','list'],['unplaced','Без места','unplaced'],['archive','Архив','folder'],['editor','Редактор пространства','sliders']].map(([key,label,glyph])=>{const b=button(label,()=>key==='editor'?openEditor():go(key),glyph,view===key?'active':'');if(key==='editor')b.append(h('span.iv-new','NEW'));return b;}),h('div.iv-nav-caption','В дальнейшем'),...[['Мониторинг квартиры','homeassistant'],['Автомобиль','car'],['Личные метрики','activity']].map(([label,glyph])=>button(label,()=>say('«'+label+'» появится в следующих версиях'),glyph,'future')));
+    nav.replaceChildren(...[['overview','Общая сводка','home'],['space','Пространство','map'],['catalog','Все вещи','box'],['item-master','Мастер предметов','sparkles'],['categories','Категории','list'],['unplaced','Без места','unplaced'],['archive','Архив','folder'],['editor','Редактор пространства','sliders']].map(([key,label,glyph])=>{const b=button(label,()=>key==='editor'?openEditor():go(key),glyph,view===key?'active':'');if(key==='editor')b.append(h('span.iv-new','NEW'));return b;}),button('Мониторинг квартиры',()=>go('monitoring'),'homeassistant',view==='monitoring'?'active':''),automobileNav(),button('Походы и отпуска',()=>go('travel'),'map',view==='travel'?'active':''),button('Личные метрики',()=>go('personal-metrics'),'activity',view==='personal-metrics'?'active':''));
     const spaces=h('div.iv-space-nav',{'aria-label':'Мои пространства'},...M.listSpaces(doc).map(s=>button(s.name,()=>{selectSpace(s.id);view='space';query='';searchInput.value='';draw();},s.type==='garage'?'car':s.type==='work'?'sliders':'home',view==='space'&&s.id===activeSpace().id?'active':'')));nav.children[1]?.after(spaces);
     secondaryNav.replaceChildren(...[['settings','Настройки','gear'],['trash','Корзина','trash'],['history','История','clock'],['awards','Награды','trophy']].map(([key,label,glyph])=>button(label,()=>go(key),glyph,view===key?'active':'')));
     for(const b of [...nav.querySelectorAll('button'),...secondaryNav.querySelectorAll('button'),...root.querySelectorAll('.iv-whats-new')]){const label=b.textContent.replace(/NEW$/,'').trim();b.title=label;b.setAttribute('aria-label',label);}
   }
+  function automobileNav(){
+    const b=button('Автомобиль',()=>go('automobile'),'car',view==='automobile'?'active':'');let timer=0;
+    b.ondragover=e=>{if(e.dataTransfer.types.includes('application/x-inventory-node')){e.preventDefault();b.classList.add('iv-drop');if(!timer&&view!=='automobile')timer=setTimeout(()=>go('automobile'),650);}};
+    b.ondragleave=()=>{clearTimeout(timer);timer=0;b.classList.remove('iv-drop');};
+    b.ondrop=e=>{e.preventDefault();clearTimeout(timer);b.classList.remove('iv-drop');const c=automobile.activeCar;if(!c){say('Сначала добавьте автомобиль',true);return;}const target=doc.nodes.find(n=>n.parentId===c.rootId&&n.carCompartment==='trunk');if(target)automobile.dropTarget(b,target.id).ondrop(e);};return b;
+  }
   function sceneSignature(){return JSON.stringify([activePlan(),doc.nodes.filter(n=>n.furnitureId&&n.archived).map(n=>n.furnitureId),appearance.prefs.theme,reducedMotion()]);}
   function clearWorld() { if(sceneUI){clearTimeout(sceneUI.weatherTimer);sceneUI.weatherFx?.dispose();}if(world)sceneMemory={...world.cameraSnapshot?.(),place:renderedPlace};resize?.disconnect();resize=null;world?.dispose();world=null;worldSignature=null;focusSignature=null;sceneUI=null; }
   function draw(preserveScroll=false) {
+    monitoring.dispose();automobile.dispose();travel.dispose();
+    content.classList.toggle('im-content',view==='item-master');
+    content.classList.toggle('tr-content',view==='travel');
+    content.classList.toggle('au-content',view==='automobile');
+    root.querySelector('.iv-shell')?.classList.toggle('is-automobile',view==='automobile');
+    content.classList.toggle('mn-content',view==='monitoring');
+    root.querySelector('.iv-shell')?.classList.toggle('is-monitoring',view==='monitoring');
+    content.classList.toggle('pm-content',view==='personal-metrics');
+    root.querySelector('.iv-shell')?.classList.toggle('is-personal-metrics',view==='personal-metrics');
+    if(view==='monitoring'||view==='automobile'||view==='travel'||view==='personal-metrics'||view==='item-master')detailId=null;
     document.documentElement.dataset.inventoryMotion=reducedMotion()?'off':'on';
     content.classList.toggle('iv-home-content',view==='space'||view==='unplaced');
     content.classList.toggle('iv-catalog-compact',view==='catalog');
@@ -274,7 +330,12 @@ export async function bootInventory(root) {
     closeActionMenu?.();closeActionMenu=null;
     if(view!=='space'||spaceMode!=='3d'||worldSignature!==sceneSignature())clearWorld();
     drawNav();
-    if(view==='overview')drawOverview();
+    if(view==='item-master')itemMaster.render(content);
+    else if(view==='personal-metrics')personalMetrics.render(content);
+    else if(view==='travel')travel.render(content);
+    else if(view==='automobile')automobile.render(content);
+    else if(view==='monitoring')monitoring.render(content);
+    else if(view==='overview')drawOverview();
     else if(view==='space'||view==='unplaced')drawHome();
     else if(view==='catalog' || view==='archive') drawCatalog();
     else if(view==='categories')drawCategories();
@@ -287,18 +348,14 @@ export async function bootInventory(root) {
   function drawAwards(){
     let awards;
     try{awards=calculateAwards(doc,nativeSettings);}catch{content.replaceChildren(title('Награды','Достижения за порядок в доме'),empty('Пока не удалось пересчитать награды. Каталог и сохранение доступны.'));return;}
-    const earned=awards.filter(a=>a.earned).length;
-    const filter=select([['all','Все награды'],['earned','Полученные'],['locked','В процессе']],'',{'aria-label':'Показать награды'}),grid=h('div.iv-awards-grid');
-    filter.value='all';
-    function paint(){const list=awards.filter(a=>filter.value==='all'||(filter.value==='earned'?a.earned:!a.earned));grid.replaceChildren(...list.map(a=>h(`article.iv-award${a.earned?'.earned':''}`,
-      h('div.iv-award-symbol',icon(a.glyph,24)),h('div.iv-award-copy',h('h2',a.name),h('p',a.description)),
-      h('div.iv-award-state',a.earned?icon('check',14):null,a.earned?'Получена'+(a.earnedAt?' · '+displayDate(a.earnedAt):''):`${a.value} / ${a.target}`),
-      h('progress',{max:a.target,value:a.earned?a.target:a.value,'aria-label':`${a.name}: ${a.earned?'получена':a.value+' из '+a.target}`}))));if(!list.length)grid.append(empty('Здесь пока нет наград'));}
-    filter.onchange=paint;
-    content.replaceChildren(title('Награды',`Получено ${earned} из ${awards.length} · ваши достижения за порядок в доме`),
-      h('p.iv-muted','Прогресс пересчитывается по данным квартиры. Полученные награды сохраняются после обновлений и входят в резервные копии. Демо-вещи не учитываются.'),filter,grid);paint();
+    renderAwards(content,awards,awardViewState);
   }
-  function refreshAwards(){if(busy){awardsRefreshPending=true;return;}const changed=syncAwards({...doc,awards:structuredClone(doc.awards)},nativeSettings);if(changed)change(()=>{},{undoable:false,retryable:false}).catch(()=>{});else if(view==='awards')draw(true);}
+  function refreshAwards(){if(busy){awardsRefreshPending=true;return;}const changed=syncAwards({...doc,awards:structuredClone(doc.awards)},nativeSettings,{visitDay:document.hidden?null:awardToday()});if(changed)change(()=>{},{undoable:false,retryable:false}).catch(()=>{});else if(view==='awards')draw(true);}
+  function recordAwardVisit(){
+    if(document.hidden||doc.demoProfile)return;
+    const day=awardToday();
+    if(!Array.isArray(doc.awards?.activity)||!doc.awards.activity.some(r=>r.date===day))refreshAwards();
+  }
   function showWhatsNew() {
     modal('Что нового',(body)=>body.append(h('p.iv-muted',`Life Assistant · текущая версия ${APP_VERSION}`),
       h('div.iv-releases',...releases.map((release,index)=>h('article.iv-card.iv-release',
@@ -324,7 +381,8 @@ export async function bootInventory(root) {
     const type=select(kitchenTypeOptions(n.kitchenModule.split(':')[0]),n.kitchenModuleType||'cabinet',{'aria-label':'Тип кухонного модуля'}),error=h('p.iv-form-error',{role:'alert'});
     body.append(h('p',n.name),field('Тип модуля',type),h('p.iv-muted','При замене прежние секции перейдут в корзину, вещи сохранятся в месте хранения. Внешний вид изменится на плане и при открытии кухни. Действие можно отменить.'),error,button('Сохранить',async()=>{try{await change(d=>M.changeKitchenModuleType(d,n.id,type.value));close();say('Тип кухонного модуля сохранён');}catch(e){error.textContent=e.message;}},'check','primary'));
   });}
-  function editStorageLayout(n){const fridgeNode=n.fridgeChamber?M.getNode(doc,n.parentId):n;if(M.planForNode(doc,fridgeNode).furniture.some(f=>f.id===fridgeNode?.furnitureId&&f.type==='fridge')){editFridge(fridgeNode);return;}if(n.kitchenModule&&!KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.storage){editKitchenModuleType(n);return;}modal(isSection(n)&&!n.kitchenModule?'Тип секции':'Секции — '+n.name,(body,close)=>{
+  function editStorageLayout(n){
+    if(n.carCompartment&&carForNode(doc,n))return automobile.compartmentForm(n);const fridgeNode=n.fridgeChamber?M.getNode(doc,n.parentId):n;if(M.planForNode(doc,fridgeNode).furniture.some(f=>f.id===fridgeNode?.furnitureId&&f.type==='fridge')){editFridge(fridgeNode);return;}if(n.kitchenModule&&!KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.storage){editKitchenModuleType(n);return;}modal(isSection(n)&&!n.kitchenModule?'Тип секции':'Секции — '+n.name,(body,close)=>{
     const error=h('p.iv-form-error',{role:'alert'}),shape=M.planForNode(doc,n).furniture.find(f=>f.id===n.furnitureId);
     if(isKitchenType(shape?.type)){
       const choices=[],list=h('div.iv-auto-sections');
@@ -347,16 +405,25 @@ export async function bootInventory(root) {
     columns.onchange=rowCount.onchange=paint;
     body.append(h('p.iv-muted','Выберите столбцы по горизонтали и строки по вертикали. Пространство делится на равные доли автоматически, без ввода размеров.'),h('div.iv-grid-controls',field('Столбцы ↔',columns),field('Строки ↕',rowCount)),preview,list,error,save);paint();
   });}
-  function stats(){const t=index().totals();return h('div.iv-metrics',metric('Стоимость покупки',M.money(t.purchase),'box'),metric('Текущая оценка',M.money(t.current),'activity'),metric('Вещи',t.items,'box'),metric('Места хранения',t.storage,'folder'));}
+  function stats(){
+    const t=index().totals(),today=new Date(),month=today.getFullYear()*12+today.getMonth();
+    const active=doc.nodes.filter(n=>{if(n.archived||!n.createdAt)return false;const added=new Date(n.createdAt);return !Number.isNaN(added.getTime())&&added.getFullYear()*12+added.getMonth()===month;});
+    const addedItems=active.filter(n=>['item','furniture'].includes(n.kind)).length;
+    const addedStorage=active.filter(n=>['furniture','shelf','drawer','compartment','box'].includes(n.kind)).length;
+    const growth=(label,value,glyph,count)=>{const card=metric(label,value,glyph,`+${count} за месяц`);card.classList.add('iv-metric-growth');return card;};
+    return h('div.iv-metrics',metric('Стоимость покупки',M.money(t.purchase),'box'),metric('Текущая оценка',M.money(t.current),'activity'),growth('Вещи',t.items,'box',addedItems),growth('Места хранения',t.storage,'folder',addedStorage));
+  }
   function countText(nodeId){const t=index().totals(nodeId);return `${plural(t.items,['вещь','вещи','вещей'])} · ${plural(t.storage,['место хранения','места хранения','мест хранения'])}`;}
   function drawOverview(){
     const recent=doc.nodes.filter(n=>n.kind!=='room'&&!isSection(n)&&!n.archived).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,4);
     const rooms=doc.nodes.filter(n=>n.kind==='room'&&!n.virtual);
     const recentCard=h('section.iv-card',h('h2','Недавние вещи'),...(recent.length?recent.map(n=>h('div.iv-recent',nodeThumb(n),button(n.name,()=>details(n)),h('small.iv-muted',index().address(n)))):[empty('Добавьте первую вещь')]),button('Все вещи',()=>{go('catalog');sort='date';draw();},'next'));
-    content.replaceChildren(title('Общая сводка','Имущество, важные даты и последние вещи',[button('Добавить пространство',()=>spaceDialog(),'plus')]),stats(),
-      h('div.iv-overview-grid',attention(),recentCard),
+    const carCards=automobileCars(doc).map(car=>h('div.iv-room-card.iv-car-summary',h('div.iv-room-card-heading',button(car.name,()=>{automobile.openNode(car.rootId);go('automobile');},'car')),h('small.iv-muted',countText(car.rootId))));
+    content.replaceChildren(title('Общая сводка','Имущество, важные даты и последние вещи'),stats(),
       h('section.iv-card.iv-overview-fill',h('h2','Все пространства'),fillControl(null),h('div.iv-room-summary',...rooms.map(n=>h('div.iv-room-card',{'data-room-id':n.roomId,style:{borderColor:roomColor(n)+'80',backgroundColor:roomColor(n)+'22'}},h('div.iv-room-card-heading',button(n.name,()=>open(n),nodeIcon(n)),button('Настроить комнату',()=>editRoomIcon(n),'palette')),h('small.iv-muted',countText(n.id)),fillControl(n))))),
-      h('div.iv-overview-grid',rarityChart(doc),categorySummary(),monthSummary()));
+      h('div.iv-overview-grid',rarityChart(doc),categorySummary(),monthSummary()),
+      h('div.iv-overview-grid',attention(),recentCard));
+    content.querySelector('.iv-room-summary')?.append(...carCards);
     requestAnimationFrame(()=>{if(view!=='overview')return;const excluded=doc.nodes.filter(n=>n.archived).map(n=>n.furnitureId).filter(Boolean),images=new Map(M.listSpaces(doc).flatMap(s=>[...renderRoomPreviews(s.plan,rooms.filter(n=>(n.spaceId||M.PRIMARY_SPACE_ID)===s.id).map(n=>n.roomId),excluded)]));for(const card of content.querySelectorAll('.iv-room-card')){const src=images.get(card.dataset.roomId);if(src){card.style.backgroundImage=`linear-gradient(0deg,rgba(8,13,24,.88),rgba(8,13,24,.38)),url("${src}")`;card.classList.add('has-preview');}}});
   }
   function editRoomIcon(n){modal('Настройка комнаты — '+n.name,(body,close)=>{
@@ -372,10 +439,10 @@ export async function bootInventory(root) {
   });}
 
   function attention(){const due=M.dueItems(doc),loose=M.children(doc,M.UNPLACED_ID);return h('section.iv-card',h('h2','Требует внимания'),...(due.length?due.slice(0,8).map(x=>button(`${x.node.name} · ${x.key==='expiry'?'Срок годности':'Гарантия'} · ${x.days<0?'истёк':x.days===0?'сегодня':`через ${x.days} дн.`}`,()=>details(x.node),'clock')):[]),loose.length?button(`Без места · ${plural(index().totals(M.UNPLACED_ID).items,['вещь','вещи','вещей'])}`,()=>go('unplaced'),'folder'):null,!due.length&&!loose.length?h('p.iv-muted','Ближайших сроков и вещей без места нет'):null,...doc.nodes.filter(n=>n.kind==='room'&&!n.virtual&&!n.roomType).map(n=>button('Выбрать тип: '+n.name,()=>editRoomIcon(n),'home')),translationCandidates(doc.plan).length?button('Перевести стандартные названия…',translateNames,'list'):null,h('small.iv-muted',`Предупреждение за ${doc.settings.reminderDays} дн.`));}
-  function breadcrumbs(n){const chain=[];for(let a=n;a;a=M.getNode(doc,a.parentId))chain.unshift(a);return h('nav.iv-breadcrumbs',{'aria-label':'Адрес хранения'},button(M.spaceForNode(doc,n)?.name||'Пространство',()=>{followSpace(n);place=null;view='space';draw();},'home'),...chain.flatMap(a=>[h('span','›'),button(a.name,()=>a.kind==='item'?details(a):open(a),nodeIcon(a))]));}
+  function breadcrumbs(n){const chain=[];for(let a=n;a;a=M.getNode(doc,a.parentId))chain.unshift(a);return h('nav.iv-breadcrumbs',{'aria-label':'Адрес хранения'},button(carForNode(doc,n)?'Автомобиль':M.spaceForNode(doc,n)?.name||'Пространство',()=>{if(automobile.openNode(n.id)){go('automobile');return;}followSpace(n);place=null;view='space';draw();},carForNode(doc,n)?'car':'home'),...chain.flatMap(a=>[h('span','›'),button(a.name,()=>a.kind==='item'?details(a):open(a),nodeIcon(a))]));}
   function storageTree(){const tree=h('section.iv-tree',{'aria-label':'Дерево мест хранения'}),needle=input('',{type:'search',placeholder:'Найти место…','aria-label':'Поиск в дереве'}),branches=h('div.iv-tree-branches');
     const expanded=new Set(JSON.parse(localStorage.getItem('iv:tree-expanded')||'[]'));for(let a=M.getNode(doc,place);a;a=M.getNode(doc,a.parentId))expanded.add(a.id);
-    function paint(){const q=needle.value.trim().toLocaleLowerCase('ru');function branch(n,depth=0){const nested=M.children(doc,n.id).filter(x=>x.kind!=='item');const match=!q||index().address(n).toLocaleLowerCase('ru').includes(q)||M.descendants(doc,n.id).some(x=>x.kind!=='item'&&x.name.toLocaleLowerCase('ru').includes(q));if(!match)return null;const group=h('div.iv-tree-branch');const toggle=button(nested.length?(expanded.has(n.id)||q?'−':'+'):'·',()=>{expanded.has(n.id)?expanded.delete(n.id):expanded.add(n.id);localStorage.setItem('iv:tree-expanded',JSON.stringify([...expanded]));paint();});toggle.setAttribute('aria-label','Развернуть: '+n.name);if(!nested.length)toggle.disabled=true;const row=h('div.iv-tree-row',{style:{paddingLeft:depth*12+'px'}},toggle,button(view==='unplaced'&&n.kind==='room'&&!n.virtual?index().address(n):n.name,()=>open(n),nodeIcon(n),place===n.id?'active':''));dropTarget(row,n.id);group.append(row);if(expanded.has(n.id)||q)group.append(...nested.map(x=>branch(x,depth+1)).filter(Boolean));return group;}branches.replaceChildren(...(view==='unplaced'?doc.nodes.filter(n=>n.kind==='room'):activeRooms()).map(n=>branch(n)).filter(Boolean));}
+    function paint(){const q=needle.value.trim().toLocaleLowerCase('ru');function branch(n,depth=0){const nested=M.children(doc,n.id).filter(x=>x.kind!=='item');const match=!q||index().address(n).toLocaleLowerCase('ru').includes(q)||M.descendants(doc,n.id).some(x=>x.kind!=='item'&&x.name.toLocaleLowerCase('ru').includes(q));if(!match)return null;const group=h('div.iv-tree-branch'+(n.id===M.UNPLACED_ID?'.iv-tree-unplaced':''));const toggle=button(nested.length?(expanded.has(n.id)||q?'−':'+'):'·',()=>{expanded.has(n.id)?expanded.delete(n.id):expanded.add(n.id);localStorage.setItem('iv:tree-expanded',JSON.stringify([...expanded]));paint();});toggle.setAttribute('aria-label','Развернуть: '+n.name);if(!nested.length)toggle.disabled=true;const row=h('div.iv-tree-row',{style:{paddingLeft:depth*12+'px'}},toggle,button(view==='unplaced'&&n.kind==='room'&&!n.virtual?index().address(n):n.name,()=>open(n),nodeIcon(n),place===n.id?'active':''));dropTarget(row,n.id);group.append(row);if(expanded.has(n.id)||q)group.append(...nested.map(x=>branch(x,depth+1)).filter(Boolean));return group;}const roots=view==='unplaced'?[M.getNode(doc,M.UNPLACED_ID),...doc.nodes.filter(n=>n.kind==='room'&&n.id!==M.UNPLACED_ID)].filter(Boolean):activeRooms();branches.replaceChildren(...roots.map(n=>branch(n)).filter(Boolean));}
     needle.oninput=paint;tree.append(h('h2','Места хранения'),needle,branches);paint();return tree;
   }
   function spaceSwitcher(){
@@ -421,7 +488,7 @@ export async function bootInventory(root) {
       renderedPlace=place;return;
     }
     const canvas=h('canvas.iv-model-canvas',{'aria-label':'Интерактивная 3D-планировка пространства'}),weather=button('Указать город',weatherCityDialog,null,'iv-weather-chip'),hover=h('span.iv-scene-hover');
-    const labels=h('div.iv-focus-labels'),bar=h('div.iv-focus-bar');const scene=h('section.iv-scene',h('div.iv-scene-title',h('span',activePlan().name),hover),canvas,weather,h('div.iv-scene-vignette'),labels,bar,h('div.iv-scene-hint','Перетащите для вращения · колесо для масштаба · нажмите на мебель'));sceneUI={scene,labels,bar,weather,weatherFx:createWeatherScene(scene,{reducedMotion:reducedMotion()}),zoneButtons:new Map()};
+    const labels=h('div.iv-focus-labels'),bar=h('div.iv-focus-bar');const scene=h('section.iv-scene',h('div.iv-scene-title',h('span',activePlan().name),hover),canvas,weather,h('div.iv-scene-vignette'),labels,bar,h('div.iv-scene-hint','Перетащите для вращения · колесо для масштаба · нажмите на мебель'));sceneUI={scene,labels,bar,weather,weatherFx:createWeatherScene(scene,{reducedMotion:reducedMotion(),theme:appearance.prefs.theme}),zoneButtons:new Map()};
     content.append(h('div.iv-home-grid',scene,pane));const cfg=normalize(structuredClone(activePlan()));cfg.inventoryPicking=true;cfg.furniture=cfg.furniture.filter(f=>!doc.nodes.find(n=>n.furnitureId===f.id)?.archived);
     const state={lights:{},acs:{}};for(const l of cfg.lights)state.lights[l.id]={on:true,brightness:.72,temp:3200,color:l.color||null};for(const a of cfg.acs)state.acs[a.id]={on:false,mode:'cool',fan:'auto',swing:'off',sleep:false,target:23};
     try{world=createWorld(canvas,cfg,{state,on:()=>()=>{}},{reduceMotion:reducedMotion(),exterior:true,onBackdropMask:points=>sceneUI?.weatherFx.setMask(points),background:appearance.prefs.theme==='light'?'#e4edf6':'#0b1423',onZones:anchors=>{if(!sceneUI)return;for(const a of anchors){const b=sceneUI.zoneButtons.get(a.nodeId);if(b){b.hidden=!a.visible;b.style.left=a.x+'px';b.style.top=a.y+'px';const zoneWidth=Math.min(a.moduleKey?90:150,Math.max(28,a.screenWidth*.86));b.style.width=zoneWidth+'px';b.style.fontSize=zoneWidth<(b.classList.contains('iv-fridge-label')?110:60)?'10px':'12px';if(b.dataset.shortLabel){b.classList.toggle('is-narrow',zoneWidth<55);b.lastChild.textContent=zoneWidth<55?b.dataset.shortLabel.match(/\d+$/)?.[0]||b.dataset.shortLabel:b.dataset.shortLabel;};b.style.height=Math.min(a.moduleKey?32:44,Math.max(28,a.screenHeight*.65))+'px';}}},onHover:t=>{const n=t?.kind==='furniture'?doc.nodes.find(n=>n.furnitureId===t.id):null;hover.textContent=n?.name||'';if(sceneUI){sceneUI.weather.hidden=Boolean(t);sceneUI.scene.classList.toggle('is-object-hover',Boolean(t));}},onPick:t=>{if(t?.kind==='section'){selectStorageSection(t.id);return;}const n=t?.kind==='room'?doc.nodes.find(n=>n.roomId===t.id):t?.kind==='furniture'?doc.nodes.find(n=>n.furnitureId===t.id):null;if(n)open(n);}});
@@ -441,10 +508,10 @@ export async function bootInventory(root) {
     el.ondrop=e=>{e.preventDefault();e.stopPropagation();el.classList.remove('iv-drop');const nodeId=e.dataTransfer.getData('application/x-inventory-node');if(!nodeId)return;
       const n=M.getNode(doc,nodeId); if(!n || nodeId===destination)return;
       if(n.kind!=='item' && M.children(doc,nodeId).length && !confirm(`Переместить «${n.name}» вместе со всем содержимым?`))return;
-      run(d=>M.move(d,nodeId,destination));
+      try{const raw=e.dataTransfer.getData('application/x-inventory-nodes'),ids=raw?JSON.parse(raw):[nodeId];if(!Array.isArray(ids)||!ids.every(v=>typeof v==='string'))return;run(d=>moveAutomobileItems(d,ids,destination));}catch(e){say(e.message,true);}
     };return el;
   }
-  function draggable(el,n){if(n.kind==='room'||n.archived)return el;el.draggable=true;el.addEventListener('dragstart',e=>{e.stopPropagation();e.dataTransfer.setData('application/x-inventory-node',n.id);e.dataTransfer.effectAllowed='move';});return el;}
+  function draggable(el,n){if(n.kind==='room'||n.archived)return el;el.draggable=true;el.addEventListener('dragstart',e=>{e.stopPropagation();e.dataTransfer.setData('application/x-inventory-node',n.id);e.dataTransfer.setData('application/x-inventory-nodes',JSON.stringify(selected.has(n.id)?[...selected]:[n.id]));e.dataTransfer.effectAllowed='move';});return el;}
   function fillStorage(pane){
     const n=M.getNode(doc,place),nodes=n?M.children(doc,n.id):activeRooms(),totals=n?index().totals(n.id):activeRooms().reduce((sum,r)=>{const t=index().totals(r.id);for(const k of Object.keys(sum))sum[k]+=t[k];return sum;},{count:0,items:0,storage:0,purchase:0,current:0});
     const head=n?h('div',breadcrumbs(n),h('h2',n.name)):h('div',h('h2','Комнаты и хранение'));
@@ -455,11 +522,12 @@ export async function bootInventory(root) {
     const list=h('div.iv-storage-list');for(const child of nodes){const main=button('',()=>open(child));main.className='iv-storage-open';main.replaceChildren(nodeThumb(child),h('span.iv-row-copy',h('strong',child.name),h('small',child.kind==='item'?index().categoryName(child.categoryId)||'Вещь':countText(child.id))),h('span.iv-row-price',isSection(child)?(index().totals(child.id).purchase?M.money(index().totals(child.id).purchase)+' внутри':''):M.money(index().totals(child.id).purchase)));const row=draggable(h('div.iv-storage-row',{'data-node-id':child.id},main),child);if(child.id===locatedId){row.classList.add('is-located');main.setAttribute('aria-current','location');}row.oncontextmenu=e=>{if(child.kind!=='room'){e.preventDefault();showActions(child,row);}};
       paintRarity(row,doc,child);
       if(child.kind==='item')main.querySelector('.iv-row-copy').append(rarityBadge(doc,child));
+      const tripTags=travelTags(doc,child);if(tripTags)main.querySelector('.iv-row-copy').append(tripTags);
       if(child.kind!=='item')dropTarget(row,child.id);
       main.title=child.name+' · '+(child.kind==='item'?index().categoryName(child.categoryId)||'Вещь':countText(child.id));
       if(view!=='unplaced'&&!['item','room'].includes(child.kind)){const reorder=button('↕',e=>{e.stopPropagation();const siblings=nodes.filter(x=>!['item','room'].includes(x.kind));const index=siblings.findIndex(x=>x.id===child.id);if(index>0)run(d=>M.reorder(d,child.id,siblings[index-1].id));},null,'iv-storage-reorder');reorder.title='Перетащите для порядка; нажмите, чтобы поднять выше';reorder.setAttribute('aria-label','Поднять выше: '+child.name);reorder.draggable=true;reorder.ondragstart=e=>{e.stopPropagation();e.dataTransfer.setData('application/x-inventory-order',child.id);};row.append(reorder);row.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('application/x-inventory-order'))e.preventDefault();});row.addEventListener('drop',e=>{const id=e.dataTransfer.getData('application/x-inventory-order');if(id){e.preventDefault();e.stopPropagation();run(d=>M.reorder(d,id,child.id));}});}
       if(child.kind!=='room'&&!isSection(child))row.append(wearIndicator(child));if(child.kind!=='item'&&!child.virtual&&fillPercent(child)>0){row.classList.add('iv-storage-has-fill');row.append(fillMeter(child,true));}list.append(row);}
-    if(!nodes.length)list.append(empty('Здесь пока пусто. Добавьте вещь или переместите её сюда.'));pane.append(list);if(n)dropTarget(pane,n.id);
+    if(!nodes.length)list.append(empty('Здесь пока пусто. Добавьте вещь или переместите её сюда.'));pane.append(h('div.iv-storage-scroll',list));if(n)dropTarget(pane,n.id);
   }
   function wearIndicator(n){
     const value=itemWear(n),label='Износ '+(value==null?'не указан':value+'%');
@@ -508,9 +576,10 @@ export async function bootInventory(root) {
     const pageKey=JSON.stringify([view,query,category,collection,condition,roomFilter,sort,showFurniture,catalogMode]);if(pageKey!==catalogPageKey){catalogLimit=100;catalogPageKey=pageKey;}
     nodes.sort((a,b)=>sort==='price'?(b.purchaseCents||0)-(a.purchaseCents||0):sort==='date'?(b.createdAt||'').localeCompare(a.createdAt||''):a.name.localeCompare(b.name,'ru'));
     const filters=h('div.iv-filters',select([['','Все категории'],...categoryOptions().slice(1)],category,{'aria-label':'Фильтр по категории',onchange:e=>{category=e.target.value;draw();}}),select([['','Все комнаты'],...doc.nodes.filter(n=>n.kind==='room').map(n=>[n.id,index().address(n)])],roomFilter,{'aria-label':'Фильтр по комнате',onchange:e=>{roomFilter=e.target.value;draw();}}),select([['','Любое состояние'],...M.CONDITIONS.map(c=>[c,c])],condition,{'aria-label':'Фильтр по состоянию',onchange:e=>{condition=e.target.value;draw();}}),select([['name','По названию'],['price','По стоимости'],['date','По дате добавления']],sort,{'aria-label':'Сортировка',onchange:e=>{sort=e.target.value;draw();}}));
+    if(automobileCars(doc).length)filters.append(select([['','Автомобиль: любой / дом'],...automobileCars(doc).map(c=>[c.rootId,c.name])],automobileCars(doc).some(c=>c.rootId===roomFilter)?roomFilter:'',{'aria-label':'Фильтр по автомобилю',onchange:e=>{roomFilter=e.target.value;draw();}}));
     if((doc.collections||[]).length)filters.append(select([['','Все подборки'],...doc.collections.slice().sort((a,b)=>a.name.localeCompare(b.name,'ru')).map(c=>[c.id,c.name])],collection,{'aria-label':'Фильтр по подборке',onchange:e=>{collection=e.target.value;draw();}}));
     const chips=h('div.iv-filter-chips');for(const [label,value,reset] of [['Категория',category,()=>category=''],['Подборка',collection,()=>collection=''],['Комната',roomFilter,()=>roomFilter=''],['Состояние',condition,()=>condition='']])if(value)chips.append(button(label+': '+(label==='Категория'?index().categoryName(value):label==='Подборка'?doc.collections.find(c=>c.id===value)?.name||value:M.getNode(doc,value)?.name||value)+' ×',()=>{reset();draw();}));if(category||collection||roomFilter||condition)chips.append(button('Сбросить фильтры',()=>{category='';collection='';roomFilter='';condition='';draw();},'rotate'));
-    const modes=h('div.iv-actions',button('Экспорт в Excel',exportExcel,'download'),...['table','grid'].map(mode=>{const b=button(mode==='table'?'Таблица':archived?'Фото':'Плитки',()=>{catalogMode=mode;localStorage.setItem('iv:catalog-mode',mode);draw(true);},mode==='table'?'list':'box',catalogMode===mode?'active':'');b.setAttribute('aria-pressed',String(catalogMode===mode));return b;}),!archived?h('label.iv-show-furniture',h('input',{type:'checkbox',checked:showFurniture,onchange:e=>{showFurniture=e.target.checked;localStorage.setItem('iv:show-furniture',String(showFurniture));selected.clear();draw(true);}}),h('span','Показывать мебель')):null,catalogMode==='table'?button('Сбросить ширину столбцов',()=>{resetColumns(archived?'archive':'catalog');draw(true);},'rotate'):null);
+    const modes=h('div.iv-actions',button('Экспорт в Excel',exportExcel,'download'),...['table','grid'].map(mode=>{const b=button(mode==='table'?'Таблица':archived?'Фото':'Плитки',()=>{catalogMode=mode;localStorage.setItem('iv:catalog-mode',mode);draw(true);},mode==='table'?'list':'box',catalogMode===mode?'active':'');b.setAttribute('aria-pressed',String(catalogMode===mode));return b;}),!archived&&nodes.length?button(nodes.every(n=>selected.has(n.id))?'Снять выделение':'Выделить все',()=>{if(nodes.every(n=>selected.has(n.id)))for(const n of nodes)selected.delete(n.id);else for(const n of nodes)selected.add(n.id);draw(true);},'check'):null,!archived?h('label.iv-show-furniture',h('input',{type:'checkbox',checked:showFurniture,onchange:e=>{showFurniture=e.target.checked;localStorage.setItem('iv:show-furniture',String(showFurniture));selected.clear();draw(true);}}),h('span','Показывать мебель')):null,catalogMode==='table'?button('Сбросить ширину столбцов',()=>{resetColumns(archived?'archive':'catalog');draw(true);},'rotate'):null);
     content.replaceChildren(title(archived?'Архив':'Все вещи',`${plural(nodes.length,['запись','записи','записей'])}${query?' · «'+query+'»':''}`,[]),modes,filters,chips);
     if(query.trim()&&!archived){const places=index().search(query,false,true).filter(n=>n.kind==='room'||isSection(n));if(places.length)content.append(h('section.iv-search-places',h('h2','Места хранения'),h('div.iv-actions',...places.slice(0,20).map(n=>button(index().address(n),()=>open(n),nodeIcon(n))))));}
     if(selected.size&&!archived)content.append(h('div.iv-bulk',h('span',`Выбрано: ${selected.size}`),button('Переместить',()=>moveDialog([...selected]),'folder'),button('Снять выделение',()=>{selected.clear();draw(true);},'close'),button('Удалить',()=>bulkDeleteDialog([...selected]),'trash','danger')));
@@ -519,9 +588,9 @@ export async function bootInventory(root) {
       const checkbox=h('input',{type:'checkbox','aria-label':`Выбрать ${n.name}`,onchange:e=>{e.target.checked?selected.add(n.id):selected.delete(n.id);draw(true);}});checkbox.checked=selected.has(n.id);
       const metadata=h('span.iv-item-meta',h('small',{title:index().categoryName(n.categoryId)||M.KINDS[n.kind]},index().categoryName(n.categoryId)||M.KINDS[n.kind]),rarityBadge(doc,n));
       if(!archived&&catalogMode==='table'&&!isSection(n))metadata.append(wearIndicator(n));
-      const item=h('button.iv-item-name',{onclick:()=>details(n)},nodeThumb(n),h('span.iv-item-copy',h('strong',n.name),metadata));
+      const item=h('button.iv-item-name',{onclick:()=>details(n)},nodeThumb(n),h('span.iv-item-copy',h('strong',n.name),metadata,travelTags(doc,n)));
       const row=draggable(h(catalogMode==='grid'?'article.iv-photo-card':'div.iv-table-row',archived&&catalogMode==='table'?h('span',{'aria-hidden':'true'}):archived?null:checkbox,item,
-        h('button.iv-address',{onclick:()=>details(n),title:index().address(n)},archived?`${n.archived.reason} · ${displayDate(n.archived.date)}${n.archived.saleCents!=null?' · '+M.money(n.archived.saleCents):''}`:index().address(n)),
+        h('button.iv-address',{onclick:()=>details(n),title:archived?index().address(n):M.getNode(doc,n.parentId)?index().address(M.getNode(doc,n.parentId)):'Без места'},archived?`${n.archived.reason} · ${displayDate(n.archived.date)}${n.archived.saleCents!=null?' · '+M.money(n.archived.saleCents):''}`:M.getNode(doc,n.parentId)?index().address(M.getNode(doc,n.parentId)):'Без места'),
         h('div.iv-prices',h('strong',M.money(n.purchaseCents)),n.currentCents!=null?h('small',M.money(n.currentCents)):null),
         h('div.iv-actions',archived?button('Вернуть',()=>restoreDialog(n),'undo'):button('Открыть',()=>details(n),'next'),actionsButton(n))),n);
       paintRarity(row,doc,n);
@@ -549,16 +618,18 @@ export async function bootInventory(root) {
     build(body,close);dialog.showModal();return dialog;
   }
   function details(n){const previous=activeSpace(doc).id;followSpace(n);if(previous!==activeSpace(doc).id)draw();detailId=n?.id||null;drawDetails();detailsPane.querySelector('h2')?.focus();}
+  function editWeightAndVolume(n){const volumeKey=n.fields?.['Транспортный объём, л']!=null?'Транспортный объём, л':'Объём, л';modal('Вес и объём',(body,close)=>{const weight=input(itemWeightKg(n)==null?'':itemWeightKg(n)*1000,{'aria-label':'Вес предмета, г'}),volume=input(itemVolumeLiters(n)??'',{'aria-label':'Объём предмета, л'}),error=h('p.iv-form-error',{role:'alert'});body.append(field('Вес предмета, г',weight),h('p.iv-muted',estimatedWeight(n)?'Сейчас указан приблизительный вес. Сохраните уточнённое значение, чтобы снять отметку оценки.':'Вес сохранится в карточке предмета.'),field('Объём предмета, л',volume),h('p.iv-muted','Объём предмета справочный. Занятый объём хранилищ поездки задаётся отдельно.'),error,button('Сохранить',async()=>{try{const grams=travelDecimal(weight.value,{required:true}),liters=travelDecimal(volume.value);await change(d=>{setWeight(d,n.id,grams);const node=M.getNode(d,n.id);if(liters==null)delete node.fields[volumeKey];else node.fields[volumeKey]=String(liters);},{action:'Вес и объём предмета'});close();details(M.getNode(doc,n.id));}catch(e){error.textContent=e.message;}},'check','primary'));});}
   function drawDetails(){
-    const n=M.getNode(doc,detailId);detailsPane.hidden=!n;if(!n){detailsPane.replaceChildren();return;}const totals=n.archived?{purchase:[n,...M.descendants(doc,n.id)].filter(x=>x.archived?.group===n.archived.group).reduce((sum,x)=>sum+(x.purchaseCents||0),0)}:index().totals(n.id);
-    const location=planLocation(doc,n.id),locate=button('Показать на плане',()=>showOnPlan(n.id),'camera');
+    const n=M.getNode(doc,detailId);paintRarity(detailsPane,doc,n);detailsPane.hidden=!n;if(!n){detailsPane.replaceChildren();return;}const totals=n.archived?{purchase:[n,...M.descendants(doc,n.id)].filter(x=>x.archived?.group===n.archived.group).reduce((sum,x)=>sum+(x.purchaseCents||0),0)}:index().totals(n.id);
+    const inCar=carForNode(doc,n),location=inCar?{reason:null}:planLocation(doc,n.id),locate=button(inCar?'Показать в автомобиле':'Показать на плане',()=>showOnPlan(n.id),'camera');
     locate.disabled=Boolean(location.reason);locate.title=location.reason||'Подлететь к месту хранения и показать, где находится объект';
     const locateAction=h('div.iv-locate-action',locate,location.reason?h('small.iv-muted',location.reason):null);
-    const values={'Категория':index().categoryName(n.categoryId),'Подборки':itemCollections(doc,n).map(c=>c.name).join(', '),'Текущая оценка':n.currentCents!=null?M.money(n.currentCents):null,'Состояние':n.condition,'Износ':itemWear(n)!=null?itemWear(n)+'%'+(resolvedWearMode(n)!=='manual'?' · по сроку службы':''):null,'Срок полезного использования':resolvedWearMode(n)!=='manual'?wearSchedule(n).months+' мес.':null,'Дата покупки':n.purchasedAt?displayDate(n.purchasedAt):null,'Срок годности':n.expiry?displayDate(n.expiry):null,'Гарантия до':n.warranty?displayDate(n.warranty):null,...n.fields};
+    const values={'Источник веса':estimatedWeight(n)?n.weightEstimate.basis+' (≈)':null,'Категория':index().categoryName(n.categoryId),'Подборки':itemCollections(doc,n).map(c=>c.name).join(', '),'Текущая оценка':n.currentCents!=null?M.money(n.currentCents):null,'Состояние':n.condition,'Износ':itemWear(n)!=null?itemWear(n)+'%'+(resolvedWearMode(n)!=='manual'?' · по сроку службы':''):null,'Срок полезного использования':resolvedWearMode(n)!=='manual'?wearSchedule(n).months+' мес.':null,'Дата покупки':n.purchasedAt?displayDate(n.purchasedAt):null,'Срок годности':n.expiry?displayDate(n.expiry):null,'Гарантия до':n.warranty?displayDate(n.warranty):null,...n.fields};
+    const detailValue=(key,value)=>{if(key!=='Цвет')return h('dd',value);const swatch=COLORS.find(([label])=>label.toLocaleLowerCase('ru')===String(value).toLocaleLowerCase('ru'))?.[1];return h('dd.iv-selected-color',{vars:swatch&&!swatch.includes('gradient')?{'--selected-color':swatch}:{}},value);};
     if(n.quantity!==1||n.unit!=='шт.')values['Количество']=n.quantity+' '+n.unit;
     const actions=h('div.iv-actions',n.archived?button('Вернуть',()=>restoreDialog(n),'undo'):button('Редактировать',()=>editNode(n),'sliders','primary'),n.kind!=='item'&&!n.archived?button('Содержимое',()=>open(n),'folder'):null,actionsButton(n));
-    detailsPane.replaceChildren(...[h('div.iv-detail-heading',h('h2',{tabindex:-1},n.name),button('Закрыть',()=>{detailId=null;drawDetails();},'close')),breadcrumbs(n),paintRarity(h('div.iv-detail-hero',nodeThumb(n),h('div',rarityBadge(doc,n),h('strong.iv-detail-price',M.money(n.kind==='item'?n.purchaseCents:totals.purchase)),h('small.iv-muted',isSection(n)?'Стоимость содержимого':n.kind==='item'?'Стоимость покупки':`Объект ${M.money(n.purchaseCents)} · содержимое ${M.money(totals.purchase-(n.purchaseCents||0))}`))),doc,n),locateAction,actions,!isSection(n)&&n.kind!=='room'&&!n.archived?wearControl(n):null,n.archived?h('p.iv-archive-info',`${n.archived.reason} · ${displayDate(n.archived.date)}`):null,
-      h('dl.iv-details',...Object.entries(values).filter(([,v])=>v!=null&&v!=='').flatMap(([k,v])=>[h('dt',k),h('dd',v)])),n.notes?h('p.iv-notes',n.notes):null,!n.archived&&n.kind!=='room'?h('div.iv-actions',button('Переместить',()=>moveDialog([n.id]),'folder'),!isSection(n)?button('Создать копию',()=>{const copy=structuredClone(n);delete copy.id;delete copy.furnitureId;copy.name+=' — копия';copy.acquisition='existing';editNode(null,copy);},'copy'):null,n.kind==='furniture'?button(n.furnitureId?'Убрать с плана':'Разместить на плане',()=>n.furnitureId?detachFromPlan(n):openEditor(n.id),'map'):null):null,
+    detailsPane.replaceChildren(...[h('div.iv-detail-heading',h('h2',{tabindex:-1},n.name),button('Закрыть',()=>{detailId=null;drawDetails();},'close')),breadcrumbs(n),paintRarity(h('div.iv-detail-hero',nodeThumb(n),h('div',rarityBadge(doc,n),h('strong.iv-detail-price',M.money(n.kind==='item'?n.purchaseCents:totals.purchase)),h('small.iv-muted',isSection(n)?'Стоимость содержимого':n.kind==='item'?'Стоимость покупки':`Объект ${M.money(n.purchaseCents)} · содержимое ${M.money(totals.purchase-(n.purchaseCents||0))}`))),doc,n),locateAction,actions,travelPossession(n)?h('div.iv-actions',button(n.travelEligible?'Для походов ✓':'Добавить в поход',()=>{change(d=>{M.getNode(d,n.id).travelEligible=!n.travelEligible;},{action:'Доступность вещи для походов'}).then(()=>details(M.getNode(doc,n.id))).catch(()=>{});},'map','iv-travel-toggle'),button(estimatedWeight(n)?'Уточнить вес и объём':'Вес и объём',()=>editWeightAndVolume(n),'sliders'),travelTags(doc,n)):null,!isSection(n)&&n.kind!=='room'&&!n.archived?wearControl(n):null,n.archived?h('p.iv-archive-info',`${n.archived.reason} · ${displayDate(n.archived.date)}`):null,
+      h('dl.iv-details',...Object.entries(values).filter(([,v])=>v!=null&&v!=='').flatMap(([k,v])=>[h('dt',k),detailValue(k,v)])),n.notes?h('p.iv-notes',n.notes):null,!n.archived&&n.kind!=='room'?h('div.iv-actions',button('Переместить',()=>moveDialog([n.id]),'folder'),!isSection(n)?button('Создать копию',()=>{const copy=structuredClone(n);delete copy.id;delete copy.furnitureId;copy.name+=' — копия';copy.acquisition='existing';editNode(null,copy);},'copy'):null,n.kind==='furniture'?button(n.furnitureId?'Убрать с плана':'Разместить на плане',()=>n.furnitureId?detachFromPlan(n):openEditor(n.id),'map'):null):null,
       n.kind!=='item'&&!n.virtual?fillControl(n):null,h('h3','История вещи'),...doc.events.filter(e=>e.nodeId===n.id).slice(-5).reverse().map(e=>h('p.iv-muted',`${displayDate(e.effectiveDate||e.date)} · ${eventNames[e.type]||e.type}${e.from?' · '+e.from+' → '+e.to:''}`))].filter(Boolean));
   }
   function detachFromPlan(n){modal('Убрать с плана',(body,close)=>body.append(h('p',`«${n.name}» исчезнет с плана. Карточка и всё содержимое останутся на своём месте.`),button('Убрать с плана',async()=>{try{await change(d=>M.detachFurniture(d,n.id));close();say('Убрано с плана, карточка сохранена');}catch{}},'map')));}
@@ -592,6 +663,7 @@ export async function bootInventory(root) {
     body.append(h('p',`${n.name} · ${entry.nodes.length} позиций`),field('Место хранения',target),error,h('div.iv-dialog-actions',button('Отмена',close,'close'),submit));
   });}
   function editNode(existing,defaults={}){
+    if(existing?.automobileId)return automobile.carForm(carForNode(doc,existing));
     if(existing?.kind==='room')return editRoomIcon(existing);if(existing&&isSection(existing))return editStorageLayout(existing);
     openItemForm({getDoc:()=>doc,existing,defaults,currentPlaceId:currentPlace().id,lastCategory,change:fn=>change(fn,{retryable:false}),onSaved:({categoryId,parentId,kind,again,nodeId})=>{if(kind==='item'){lastCategory=categoryId;localStorage.setItem('iv:last-category',categoryId);}if(again)editNode(null,{parentId,categoryId,kind});else if(nodeId){detailId=nodeId;drawDetails();}say(existing?'Изменения сохранены':kind==='item'?'Вещь добавлена':'Место хранения добавлено');}});
   }
@@ -602,25 +674,51 @@ export async function bootInventory(root) {
     });}
   function restoreDialog(n){modal('Вернуть из архива',(body,close)=>{const destination=destinationSelect(null,n.id);body.append(h('p',n.name),field('Место хранения',destination),button('Вернуть',async()=>{try{await change(d=>M.restore(d,n.id,destination.value));close();}catch{}},'undo','primary'));});}
   function configureCategories(){openCategoryWizard({getDoc:()=>doc,change,onSaved:({addedCategories,addedCollections})=>{go('categories');say(`Добавлено категорий: ${addedCategories}, подборок: ${addedCollections}`);}});}
-  function categoryBadge(c){const a=categoryAppearance(doc,c.id);return h('span.iv-category-badge',{'data-kind':a.kind,'data-glyph':a.glyph,'aria-hidden':'true'},icon(a.glyph,16));}
+  function categoryBadge(c,action){const a=categoryAppearance(doc,c.id);return h('button.iv-category-badge.iv-category-icon-button',{type:'button',onclick:action,'data-kind':a.kind,'data-glyph':a.glyph,'aria-label':'Изменить значок: '+index().categoryName(c.id),title:'Изменить значок категории'},icon(a.glyph,16));}
   function drawCategories(draft=null){
-    let deleting=Boolean(draft?.deleting);const selectedCategories=new Set(),checks=new Map(),editRows=new Map();
-    const form=h('form.iv-category-editor'),list=h('div.iv-category-groups'),inputs=new Map(),branches=new Map(),parentLabels=new Map(),error=h('p.iv-form-error',{role:'alert'}),needle=input(draft?.query||'',{type:'search',placeholder:'Найти категорию или подкатегорию…','aria-label':'Поиск категорий и подкатегорий'}),counter=h('span.iv-muted',{'aria-live':'polite'});
-    const sorted=doc.categories.slice().sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+    let deleting=Boolean(draft?.deleting),draggedCategoryId=null;const selectedCategories=new Set(),checks=new Map(),editRows=new Map(),handles=new Map(),iconButtons=new Map();
+    const form=h('form.iv-category-editor'),list=h('div.iv-category-groups'),inputs=new Map(),branches=new Map(),parentLabels=new Map(),error=h('p.iv-form-error',{role:'alert'},draft?.error||''),needle=input(draft?.query||'',{type:'search',placeholder:'Найти категорию или подкатегорию…','aria-label':'Поиск категорий и подкатегорий'}),counter=h('span.iv-muted',{'aria-live':'polite'});
+    const sorted=doc.categories.slice().sort((a,b)=>(a.order??Number.MAX_SAFE_INTEGER)-(b.order??Number.MAX_SAFE_INTEGER)||a.name.localeCompare(b.name,'ru'));
     function rows(parentId,depth=0){return sorted.filter(c=>(c.parentId||null)===parentId).map(c=>{
       const name=input(draft?.names?.get(c.id)??c.name,{required:true,maxlength:200,'aria-label':`Название категории: ${index().categoryName(c.id)}`});
       inputs.set(c.id,name);name.addEventListener('input',filter);
       const parentLabel=h('small.iv-category-parent');parentLabels.set(c.id,parentLabel);
       const check=h('input.iv-category-select',{type:'checkbox',hidden:true,'aria-label':`Выбрать категорию: ${index().categoryName(c.id)}`});checks.set(c.id,check);
       const toggle=()=>{check.checked?selectedCategories.add(c.id):selectedCategories.delete(c.id);paintSelection();};check.onchange=toggle;
-      const row=h('div.iv-category-edit-row',{vars:{'--category-indent':depth*16+'px'}},check,categoryBadge(c),name,parentLabel);editRows.set(c.id,row);
-      row.addEventListener('click',e=>{if(deleting){if(e.target!==check){check.checked=!check.checked;toggle();}}else if(categoriesMode==='grid'&&e.target!==name)name.focus();});
+      let draggedByPointer=false;
+      const handle=button('',()=>{if(draggedByPointer){draggedByPointer=false;return;}chooseCategoryParent(c);},'more','iv-category-drag-handle');handle.draggable=false;handle.title='Перетащите за край для изменения порядка или вложенности. Нажмите для выбора родителя.';handle.setAttribute('aria-label','Переместить категорию: '+index().categoryName(c.id));handles.set(c.id,handle);
+      handle.addEventListener('pointerdown',event=>{
+        if(deleting||busy||event.button!==0)return;
+        const startX=event.clientX,startY=event.clientY,pointerId=event.pointerId;let dragging=false,targetId=null,position='inside';
+        handle.setPointerCapture(pointerId);
+        const clear=()=>{handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',finish);handle.removeEventListener('pointercancel',cancel);form.querySelectorAll('.iv-category-drop-target,.iv-category-dragging,.iv-category-drop-before,.iv-category-drop-after').forEach(el=>el.classList.remove('iv-category-drop-target','iv-category-dragging','iv-category-drop-before','iv-category-drop-after'));dragHint.textContent='Перетащите категорию за точки в другую категорию. Нажмите на значок, чтобы изменить его.';};
+        const move=e=>{
+          if(e.pointerId!==pointerId)return;
+          if(!dragging&&Math.hypot(e.clientX-startX,e.clientY-startY)<6)return;
+          dragging=true;draggedByPointer=true;editRows.get(c.id).classList.add('iv-category-dragging');
+          form.querySelectorAll('.iv-category-drop-target,.iv-category-drop-before,.iv-category-drop-after').forEach(el=>el.classList.remove('iv-category-drop-target','iv-category-drop-before','iv-category-drop-after'));
+          const hit=document.elementFromPoint(e.clientX,e.clientY),root=hit?.closest('.iv-category-root-drop'),row=hit?.closest('.iv-category-edit-row');
+          targetId=root?null:row?.dataset.categoryId??null;position='inside';
+          if(row&&!root){const bounds=row.getBoundingClientRect(),fraction=(e.clientY-bounds.top)/bounds.height;position=fraction<.28?'before':fraction>.72?'after':'inside';}
+          if(!root&&!row||targetId===c.id){targetId=undefined;return;}
+          try{planCategoryMove(doc,c.id,position==='inside'?targetId:doc.categories.find(x=>x.id===targetId)?.parentId||null);(root||row).classList.add('iv-category-drop-target');if(position!=='inside')(root||row).classList.add(position==='before'?'iv-category-drop-before':'iv-category-drop-after');dragHint.textContent=root?'Перенести на верхний уровень':position==='inside'?'Вложить в «'+inputs.get(targetId).value+'»':'Поставить '+(position==='before'?'перед':'после')+' «'+inputs.get(targetId).value+'»';}
+          catch{targetId=undefined;dragHint.textContent='Нельзя перенести категорию в себя или свою подкатегорию.';}
+        };
+        const finish=e=>{if(e.pointerId!==pointerId)return;const valid=dragging&&targetId!==undefined;clear();if(valid)performCategoryPlacement(c.id,targetId,position);};
+        const cancel=e=>{if(e.pointerId===pointerId)clear();};
+        handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',cancel);
+      });
+      handle.addEventListener('dragstart',e=>{if(deleting||busy){e.preventDefault();return;}e.stopPropagation();draggedCategoryId=c.id;e.dataTransfer.setData('application/x-inventory-category',c.id);e.dataTransfer.effectAllowed='move';editRows.get(c.id).classList.add('iv-category-dragging');});
+      handle.addEventListener('dragend',clearCategoryDrag);
+      const badge=categoryBadge(c,()=>chooseCategoryIcon(c));iconButtons.set(c.id,badge);
+      const row=h('div.iv-category-edit-row',{'data-category-id':c.id,vars:{'--category-indent':depth*16+'px'}},check,handle,badge,name,parentLabel);editRows.set(c.id,row);categoryDropTarget(row,c.id);
+      row.addEventListener('click',e=>{if(deleting){if(e.target!==check&&!e.target.closest('button')){check.checked=!check.checked;toggle();}}else if(categoriesMode==='grid'&&e.target!==name&&!e.target.closest('button'))name.focus();});
       const branch=h('div.iv-category-branch',row,...rows(c.id,depth+1));branches.set(c.id,branch);return branch;
     });}
     list.append(...rows(null));const noResults=h('p.iv-muted',{hidden:true},'Ничего не найдено. Попробуйте другое название.');
     function filter(){const words=needle.value.trim().toLocaleLowerCase('ru').split(/\s+/).filter(Boolean);let matched=0;const matches=new Map();for(const c of sorted){const path=[];for(let n=c;n;n=sorted.find(x=>x.id===n.parentId))path.push(inputs.get(n.id).value);const parentLabel=parentLabels.get(c.id);parentLabel.textContent=c.parentId?path.slice(1).reverse().join(' / '):'';parentLabel.title=parentLabel.textContent;const ok=words.every(w=>path.join(' ').toLocaleLowerCase('ru').includes(w));matches.set(c.id,ok);if(ok)matched++;}function show(c){const own=matches.get(c.id),nested=sorted.filter(x=>x.parentId===c.id).map(show).some(Boolean);branches.get(c.id).hidden=!own&&!nested;return own||nested;}sorted.filter(c=>!c.parentId).forEach(show);counter.textContent=words.length?`Найдено ${matched} из ${sorted.length}`:`Всего ${sorted.length}`;noResults.hidden=matched>0;}
     needle.oninput=filter;
-    const name=input(draft?.name||'',{maxlength:200,placeholder:'Название новой категории','aria-label':'Новая категория'}),parent=select([['','Основная категория'],...sorted.filter(c=>!c.parentId).map(c=>[c.id,c.name])],sorted.some(c=>c.id===draft?.parentId&&!c.parentId)?draft.parentId:'',{'aria-label':'Родительская категория'}),save=h('button.iv-btn.primary',{type:'submit'},'Сохранить изменения');
+    const name=input(draft?.name||'',{maxlength:200,placeholder:'Название новой категории','aria-label':'Новая категория'}),parent=select([['','Основная категория'],...sorted.map(c=>[c.id,index().categoryName(c.id)])],sorted.some(c=>c.id===draft?.parentId)?draft.parentId:'',{'aria-label':'Родительская категория'}),save=h('button.iv-btn.primary',{type:'submit'},'Сохранить изменения');
     const modes=h('div.iv-actions.iv-category-modes',{'role':'group','aria-label':'Вид категорий'});
     for(const [value,label,glyph] of [['list','Список','list'],['grid','Плитки','box']]){
       const b=button(label,()=>{categoriesMode=value;localStorage.setItem('iv:categories-mode',value);paintMode();},glyph);
@@ -634,11 +732,58 @@ export async function bootInventory(root) {
     const deleteMode=button('Удалить',()=>{deleting=true;paintSelection();},'trash','danger'),selectedCount=h('span',{'aria-live':'polite'}),removeSelected=button('Удалить выбранные',confirmRemoval,'trash','danger');
     const deleteBar=h('div.iv-category-delete-bar',selectedCount,removeSelected,button('Отмена',()=>{deleting=false;selectedCategories.clear();for(const el of checks.values())el.checked=false;paintSelection();},'close'));
     const saveBar=h('div.iv-category-save',save);
+    const dragHint=h('p.iv-category-drag-hint',{'role':'status','aria-live':'polite'},'Перетащите категорию за точки в другую категорию. Нажмите на значок, чтобы изменить его.');
+    const rootDrop=h('div.iv-category-root-drop',{'aria-label':'Основные категории: перенос на верхний уровень'},icon('folder',17),h('span','Основные категории — перетащите сюда для возврата на верхний уровень'));categoryDropTarget(rootDrop,null);
+    function pendingCategoryDraft(){return {names:new Map([...inputs].map(([id,el])=>[id,el.value])),name:name.value,parentId:parent.value,query:needle.value,createOpen:!createFields.hidden,sub:!parentField.hidden};}
+    function clearCategoryDrag(){draggedCategoryId=null;form.querySelectorAll('.iv-category-drop-target,.iv-category-dragging').forEach(el=>el.classList.remove('iv-category-drop-target','iv-category-dragging'));dragHint.textContent='Перетащите категорию за точки в другую категорию. Нажмите на значок, чтобы изменить его.';}
+    function categoryDropTarget(el,parentId){
+      el.addEventListener('dragover',e=>{
+        if(!draggedCategoryId||deleting||busy)return;e.stopPropagation();
+        try{const plan=planCategoryMove(doc,draggedCategoryId,parentId);if(!plan.changed)return;e.preventDefault();e.dataTransfer.dropEffect='move';el.classList.add('iv-category-drop-target');const text=parentId?'Сделать подкатегорией: '+inputs.get(parentId).value:'Перенести на верхний уровень';if(dragHint.textContent!==text)dragHint.textContent=text;}
+        catch{e.dataTransfer.dropEffect='none';el.classList.remove('iv-category-drop-target');dragHint.textContent='Нельзя перенести категорию в себя или свою подкатегорию.';}
+      });
+      el.addEventListener('dragleave',e=>{if(!el.contains(e.relatedTarget))el.classList.remove('iv-category-drop-target');});
+      el.addEventListener('drop',e=>{if(!draggedCategoryId||deleting||busy)return;e.preventDefault();e.stopPropagation();const categoryId=draggedCategoryId,transferred=e.dataTransfer.getData('application/x-inventory-category');clearCategoryDrag();if(transferred!==categoryId)return;performCategoryMove(categoryId,parentId);});
+    }
+    async function performCategoryMove(categoryId,parentId){
+      const pending=pendingCategoryDraft();error.textContent='';
+      try{const plan=planCategoryMove(doc,categoryId,parentId);if(!plan.changed)return;await change(d=>moveCategory(d,categoryId,parentId),{retryable:false,action:'Перемещение категории: '+index().categoryName(categoryId)});drawCategories(pending);say(parentId?'Категория перенесена вместе с подкатегориями':'Категория перенесена на верхний уровень');return true;}
+      catch(e){drawCategories({...pending,error:e.message});return false;}
+    }
+    async function performCategoryPlacement(categoryId,targetId,position){
+      const pending=pendingCategoryDraft();error.textContent='';
+      try{await change(d=>placeCategory(d,categoryId,targetId,position),{retryable:false,action:'Перестановка категории: '+index().categoryName(categoryId),actionSection:'categories'});drawCategories(pending);say('Категория перемещена');}
+      catch(e){drawCategories({...pending,error:e.message});}
+    }
+    function chooseCategoryParent(c){
+      if(deleting||busy)return;
+      modal('Переместить категорию',(body,close)=>{
+        const destinations=[['','Основные категории'],...sorted.filter(target=>{try{planCategoryMove(doc,c.id,target.id);return true;}catch{return false;}}).map(target=>[target.id,index().categoryName(target.id)])];
+        const target=select(destinations,c.parentId||'',{'aria-label':'Куда перенести категорию'}),failure=h('p.iv-form-error',{role:'alert'}),submit=button('Переместить',async()=>{submit.disabled=true;try{await change(d=>moveCategory(d,c.id,target.value||null),{retryable:false,action:'Перемещение категории: '+index().categoryName(c.id)});close();drawCategories(pending);say('Категория перенесена');}catch(e){failure.textContent=e.message;submit.disabled=false;}},'folder','primary');
+        const pending=pendingCategoryDraft();body.append(h('p',index().categoryName(c.id)),field('Новый родитель',target),h('p.iv-muted','Категория переместится вместе со всеми вложенными подкатегориями.'),failure,h('div.iv-actions',button('Отмена',close,'close'),submit));
+      });
+    }
+    function chooseCategoryIcon(c){
+      if(deleting||busy)return;
+      const pending=pendingCategoryDraft();
+      modal('Значок категории',(body,close)=>{
+        let chosen=c.icon||null;const preview=h('div.iv-category-icon-preview'),choices=h('div.iv-category-icon-grid',{'role':'group','aria-label':'Значки категорий'}),failure=h('p.iv-form-error',{role:'alert'});
+        const options=[[null,'Автоматически'],...CATEGORY_ICONS];
+        const render=()=>{
+          const previewDoc={...doc,categories:doc.categories.map(x=>{if(x.id!==c.id)return x;const next={...x};if(chosen)next.icon=chosen;else delete next.icon;return next;})},appearance=categoryAppearance(previewDoc,c.id);
+          preview.replaceChildren(icon(appearance.glyph,34),h('span',h('strong',inputs.get(c.id).value||c.name),h('small',chosen?CATEGORY_ICONS.find(([id])=>id===chosen)?.[1]||'Текущий значок':'По категории или родителю')));
+          choices.replaceChildren(...options.map(([glyph,label])=>{const b=button(label,()=>{chosen=glyph;render();choices.querySelector(`[data-icon-choice="${glyph||'auto'}"]`)?.focus();},glyph||categoryAppearance({...previewDoc,categories:previewDoc.categories.map(x=>{if(x.id!==c.id)return x;const next={...x};delete next.icon;return next;})},c.id).glyph);b.dataset.iconChoice=glyph||'auto';b.setAttribute('aria-pressed',String(chosen===glyph));return b;}));
+        };
+        const submit=button('Сохранить значок',async()=>{submit.disabled=true;try{await change(d=>setCategoryIcon(d,c.id,chosen),{retryable:false,action:'Значок категории: '+index().categoryName(c.id)});close();drawCategories(pending);say('Значок категории сохранён');}catch(e){failure.textContent=e.message;submit.disabled=false;}},'check','primary');
+        body.append(preview,h('p.iv-muted','Значок используется у категории и её вещей. Подкатегории без собственного значка наследуют его.'),choices,failure,h('div.iv-actions',button('Отмена',close,'close'),submit));render();
+      });
+    }
     function paintSelection(){
       deleteMode.hidden=deleting;deleteMode.disabled=!sorted.length;deleteBar.hidden=!deleting;saveBar.hidden=deleting;
       addRoot.disabled=deleting;addSub.disabled=deleting||!sorted.length;name.disabled=parent.disabled=deleting;
       selectedCount.textContent=`Выбрано: ${selectedCategories.size}`;removeSelected.disabled=!selectedCategories.size;
-      for(const [id,check]of checks){check.hidden=!deleting;inputs.get(id).readOnly=deleting;editRows.get(id).classList.toggle('is-selecting',deleting);}
+      rootDrop.hidden=dragHint.hidden=deleting;
+      for(const [id,check]of checks){check.hidden=!deleting;inputs.get(id).readOnly=deleting;handles.get(id).hidden=deleting;handles.get(id).draggable=!deleting;iconButtons.get(id).disabled=deleting;editRows.get(id).classList.toggle('is-selecting',deleting);}
     }
     function confirmRemoval(){
       const ids=[...selectedCategories];let removal;
@@ -652,7 +797,7 @@ export async function bootInventory(root) {
         body.append(h('p',`Будут удалены категории: ${ids.length}. Их назначения исчезнут из карточек: ${removal.cleared}. Сами вещи сохранятся.`),h('ul.iv-category-delete-list',...ids.map(id=>h('li',inputs.get(id).value||index().categoryName(id)))),removal.parents.size?h('p.iv-muted','Невыбранные подкатегории сохранятся и перейдут к ближайшей оставшейся родительской категории или в основной список.'):h('p.iv-muted','Действие можно отменить кнопкой «Отменить».'),failure,h('div.iv-actions',button('Отмена',close,'close'),submit));
       });
     }
-    form.append(modes,h('div.iv-category-search',needle,counter),h('div.iv-actions',addRoot,addSub,deleteMode),deleteBar,createFields,list,noResults,error,saveBar);paintSelection();
+    form.append(modes,h('div.iv-category-search',needle,counter),h('div.iv-actions',addRoot,addSub,deleteMode),deleteBar,createFields,dragHint,rootDrop,list,noResults,error,saveBar);paintSelection();
     form.onsubmit=async e=>{e.preventDefault();if(deleting){if(selectedCategories.size)confirmRemoval();return;}error.textContent='';save.disabled=true;try{const names=[...inputs].map(([id,el])=>[id,el.value.trim()]);if(names.some(([,value])=>!value))throw Error('Название категории не может быть пустым');await change(d=>{for(const [id,value]of names)d.categories.find(c=>c.id===id).name=value;if(name.value.trim())d.categories.push({id:M.id(),name:name.value.trim(),parentId:parent.value||null,kind:'default'});},{retryable:false});say('Категории сохранены');}catch(e){error.textContent=e.message;save.disabled=false;}};
     content.replaceChildren(h('div.iv-category-back',button('К вещам',()=>go('catalog'),'back')),title('Категории','Готовые наборы, категории и подборки по занятиям'),h('section.iv-category-tools',h('div',h('strong','Настройте каталог под себя'),h('p','Быт, работа и увлечения — выберите готовые наборы и проверьте категории перед добавлением.')),button('Настроить категории',()=>{if(name.value.trim()||[...inputs].some(([id,el])=>el.value!==doc.categories.find(c=>c.id===id).name)){say('Сначала сохраните изменения категорий.',true);return;}configureCategories();},'sparkles','primary')),form,collectionSection());filter();
   }
@@ -685,25 +830,99 @@ export async function bootInventory(root) {
   function setupHome(){modal('Начать свою квартиру',(body,close)=>{const mode=select([['empty','Пустая квартира — одна комната'],['plan','Текущий план с мебелью, без демо-вещей']],'empty',{'aria-label':'Начало своей квартиры'});const error=h('p.iv-form-error',{role:'alert'}),start=button('Сохранить копию и начать',async()=>{start.disabled=true;try{const result=await exportBackup();if(result===false){start.disabled=false;return;}const next=M.createHome(doc,{mode:mode.value});await change(d=>{Object.keys(d).forEach(k=>delete d[k]);Object.assign(d,next);},{restore:true});detailId=null;place=null;sectionState.clear();close();go('space');say('Своя квартира создана. Предыдущие данные сохранены в копии.');}catch(e){error.textContent=e.message;start.disabled=false;}},'home','primary');body.append(h('p','Сначала сохраним резервную копию текущих данных. В новой квартире не будет демо-вещей, цен и истории.'),field('С чего начать',mode),error,start);});}
   function translateNames(){const translationSpace=M.PRIMARY_SPACE_ID,candidates=translationCandidates(doc.plan);modal('Перевод стандартных названий',(body,close)=>{const selected=new Set(candidates.map(c=>c.key));body.append(h('p.iv-muted','Проверьте список. Снимите отметку с названий, которые хотите сохранить. Пользовательские названия вне списка не меняются.'),...candidates.map(c=>{const box=h('input',{type:'checkbox'});box.checked=true;box.onchange=()=>box.checked?selected.add(c.key):selected.delete(c.key);return h('label.iv-translation-row',box,h('span',`${c.from} → ${c.to}`,h('small',c.label)));}),...(!candidates.length?[empty('Известных английских стандартных названий нет')]:[]),button('Перевести выбранные',async()=>{try{await change(d=>{translatePlan(d.plan,[...selected]);M.syncPlan(d,d.plan,{spaceId:translationSpace});});close();say('Выбранные названия переведены');}catch(e){say(e.message,true);}},'check','primary'));});}
   function drawSettings(){
-    const motion=select([['system','Как в системе'],['on','Плавная анимация'],['off','Без анимации']],doc.settings.motion||'system',{'aria-label':'Анимации интерфейса и камеры',onchange:e=>run(d=>d.settings.motion=e.target.value)});
-    if(isLAN){
-      content.replaceChildren(title('Настройки','Телефон подключён к общей базе на Mac'),h('div.iv-settings-grid',
-        phoneAccessCard({native:false,remote:true}),appearance.settings(),
-        h('section.iv-card',h('h2','Резервные копии'),h('p','Автоматические копии настраиваются на Mac. Можно скачать копию на телефон или выгрузить вещи в Excel.'),button('Скачать копию',exportBackup,'download'),button('Все вещи в Excel',exportExcel,'download')),
-        h('section.iv-card',h('h2','Приложение'),h('p',`Версия ${APP_VERSION}`),button('Что нового',showWhatsNew,'sparkles'),field('Анимации интерфейса и камеры',motion),h('p.iv-muted','Настройки запуска Mac-приложения, обновлений и уведомлений доступны на Mac.'))));
-      return;
+    const note=text=>h('p.iv-muted',text);
+    const actions=(...items)=>h('div.iv-actions',...items);
+    const card=(name,...children)=>h('section.iv-card.iv-settings-card',h('h2',name),...children);
+    const toggle=(label,checked,description,onchange,disabled=false)=>{
+      const control=h('input',{type:'checkbox','aria-label':label,disabled});control.checked=checked;
+      control.onchange=async()=>{const next=control.checked;control.disabled=true;try{await onchange(next);}catch(e){control.checked=!next;say(e.message,true);}finally{control.disabled=disabled;}};
+      return h('label.iv-setting-row',h('span',h('strong',label),h('small',description)),control);
+    };
+    const nativeAction=(label,command,glyph,enabled=true,after)=>{
+      const control=button(label,async()=>{control.disabled=true;try{
+        nativeSettings={...nativeSettings,...await call(command)};await after?.();draw(true);
+      }catch(e){say(e.message,true);}finally{control.disabled=!enabled;}},glyph);
+      control.disabled=!enabled;return control;
+    };
+    const motion=select([['system','Как в системе'],['on','Плавная анимация'],['off','Без анимации']],doc.settings.motion||'system',{
+      'aria-label':'Анимации интерфейса и камеры',onchange:e=>run(d=>d.settings.motion=e.target.value)});
+    const appearanceCard=appearance.settings();
+    appearanceCard.append(h('div.iv-settings-divider'),
+      toggle('Компактное боковое меню',appearance.prefs.collapsed,'Только значки. На телефоне меню открывается отдельной кнопкой.',value=>appearance.set({collapsed:value})),
+      field('Анимации интерфейса и камеры',motion),note('Режим анимаций общий для базы. «Как в системе» учитывает настройку уменьшения движения.'));
+
+    const days=input(reminderDraft??doc.settings.reminderDays,{type:'number',min:0,max:365,step:1,required:true,'aria-label':'За сколько дней напоминать',oninput:e=>{reminderDraft=e.target.value;}});
+    const saveDays=button('Сохранить',null,'check','primary');saveDays.type='submit';
+    const reminderForm=h('form.iv-reminder-form',{onsubmit:async e=>{
+      e.preventDefault();if(!days.reportValidity())return;
+      saveDays.disabled=true;const previous=reminderDraft;reminderDraft=null;
+      try{await change(d=>d.settings.reminderDays=Number(days.value));say('Интервал напоминаний сохранён');}
+      catch{reminderDraft=previous;}finally{saveDays.disabled=false;}
+    }},h('div.iv-settings-inline',field('За сколько дней до срока напоминать',days),saveDays),
+      note('От 0 до 365 дней. 0 — напомнить в день окончания срока. Применяется к срокам годности и гарантии во всех пространствах.'));
+    const notifications=isNative?toggle('Уведомления macOS',Boolean(doc.settings.notifications),
+      nativeSettings.notificationAuthorization==='denied'?'Разрешите уведомления Life Assistant в системных настройках macOS.':'Напоминания вне приложения, когда подходит важная дата.',async enabled=>{
+        if(enabled){const result=await call('inventoryNotifications');if(!result.allowed)throw Error('Разрешите уведомления Life Assistant в системных настройках macOS');}
+        await change(d=>d.settings.notifications=enabled);
+      }):note(isLAN?'Уведомления настраиваются в приложении Life Assistant на Mac. Интервал выше общий для всех устройств.':'Системные уведомления доступны в приложении Life Assistant на Mac. В браузере важные даты видны в общей сводке.');
+    const remindersCard=card('Сроки и напоминания',reminderForm,h('div.iv-settings-divider'),notifications);
+
+    const exports=card('Скачать данные',note(isLAN?'Общая база хранится на Mac. Скачанные файлы останутся на этом устройстве.':isNative?'База хранится на этом Mac. Сохраняйте копию в другом месте, чтобы её можно было восстановить.':'В этом просмотре база хранится в браузере. Скачайте резервную копию перед очисткой данных браузера.'),
+      h('div.iv-setting-action',h('div',h('h3','Полная резервная копия'),note('Все пространства, вещи, фотографии и история. Подходит для восстановления базы.')),button('Скачать копию',exportBackup,'download')),
+      h('div.iv-setting-action',h('div',h('h3','Таблица вещей'),note('Excel для просмотра и работы с перечнем имущества. Не заменяет резервную копию.')),button('Все вещи в Excel',exportExcel,'download')));
+    const backups=isNative?card('Автоматические копии',
+      note('Одна копия в день, пока приложение запущено. Хранятся последние 5, фотографии включены.'),
+      h('dl.iv-settings-facts',h('dt','Последняя копия'),h('dd',nativeSettings.lastBackupAt?new Date(nativeSettings.lastBackupAt).toLocaleString('ru-RU'):'Ещё не создана'),
+        h('dt','Сохранено копий'),h('dd',String(nativeSettings.backupCount||0)),h('dt','Папка'),h('dd',nativeSettings.backupFolder||'Не выбрана')),
+      nativeSettings.lastBackupError?h('p.iv-form-error',{role:'alert'},nativeSettings.lastBackupError):null,
+      actions(nativeAction(nativeSettings.backupFolder?'Изменить папку':'Выбрать папку','inventoryBackupFolder','folder'),
+        nativeAction('Создать копию сейчас','inventoryBackupNow','copy',Boolean(nativeSettings.backupFolder),()=>change(()=>{},{undoable:false,retryable:false}))),
+      !nativeSettings.backupFolder?note('Сначала выберите папку для автоматических копий.'):null):null;
+    const restore=isLAN?null:card('Восстановление',note('Заменяет текущую базу данными из выбранной копии. Перед заменой сохраняется защитная копия.'),
+      button('Выбрать резервную копию…',importBackup,'undo'));
+    const dataCards=[exports,backups,restore,...(!isNative?[card('Автоматическое сохранение копий',note('Настраивается в приложении Life Assistant на Mac. Здесь можно скачать копию вручную.'))]:[])].filter(Boolean);
+
+    const phone=phoneAccessCard({native:isNative,remote:isLAN,status:nativeSettings.phoneAccess,call,error:text=>say(text,true)});
+    const appCards=[card('Демо-режим',note('10 карточек с объяснениями, затем живая демо-квартира, автомобиль и заполненные разделы. Примеры исчезают при завершении и не попадают в вашу базу.'),
+      isShowcase?note('Сейчас открыта демонстрация. Чтобы вернуться к своей базе, нажмите «Завершить демо» вверху.'):
+        actions(button('Включить демо-режим',()=>demoTour.open(),'book'),button('Посмотреть демо-квартиру и разделы',()=>startShowcase(),'home'))),
+      card('Life Assistant',h('p.iv-settings-version',`Версия ${APP_VERSION}`),
+      actions(button('Что нового',showWhatsNew,'sparkles'),isNative?nativeAction('Проверить обновления…','inventoryCheckUpdates','download',Boolean(nativeSettings.updatesConfigured)):null),
+      isNative?toggle('Проверять обновления автоматически',Boolean(nativeSettings.automaticUpdateChecks),
+        nativeSettings.updatesConfigured?'Установка — после вашего подтверждения. Данные сохраняются.':'В этой сборке канал обновлений ещё не настроен.',
+        async on=>{nativeSettings={...nativeSettings,...await call('inventoryAutomaticUpdates',{on})};},!nativeSettings.updatesConfigured):
+        note('Обновления и запуск при входе настраиваются в приложении Life Assistant на Mac.'))];
+    if(isNative)appCards.push(card('Запуск приложения',toggle('Открывать при входе в macOS',nativeSettings.login==='on',
+      nativeSettings.login==='needsApproval'?'Разрешите запуск Life Assistant при входе в системных настройках macOS.':'После закрытия окна приложение продолжает работать. Полный выход — через меню приложения.',async on=>{
+        nativeSettings={...nativeSettings,...await call('inventoryLogin',{on})};draw(true);
+      })));
+    if(!isLAN)appCards.push(card('Значок приложения',appIconPicker()),card('Стандартные названия',
+      note('Просмотрите перевод стандартных названий комнат и мебели перед применением.'),button('Перевести названия…',translateNames,'list')));
+
+    const groups=[
+      ['appearance','Внешний вид','palette',[appearanceCard]],
+      ['reminders','Напоминания','clock',[remindersCard]],
+      ['data','Данные и копии','shield',dataCards],
+      ['phone','Доступ с телефона','phone',[phone]],
+      ['app','Приложение','gear',appCards],
+    ];
+    const tabs=h('div.iv-settings-tabs',{role:'tablist','aria-label':'Разделы настроек','aria-orientation':'horizontal'});
+    const panels=h('div.iv-settings-panels');
+    const activate=id=>{
+      settingsSection=id;
+      for(const tab of tabs.children){const active=tab.id===`settings-tab-${id}`;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;}
+      for(const panel of panels.children)panel.hidden=panel.id!==`settings-panel-${id}`;
+    };
+    for(const [id,label,glyph,cards] of groups){
+      const tab=h('button.iv-btn.iv-settings-tab',{type:'button',role:'tab',id:`settings-tab-${id}`,'aria-controls':`settings-panel-${id}`,onclick:()=>activate(id)},icon(glyph,17),label);
+      tab.onkeydown=e=>{const current=groups.findIndex(([key])=>key===id);let next;
+        if(e.key==='ArrowRight')next=(current+1)%groups.length;else if(e.key==='ArrowLeft')next=(current-1+groups.length)%groups.length;
+        else if(e.key==='Home')next=0;else if(e.key==='End')next=groups.length-1;else return;
+        e.preventDefault();activate(groups[next][0]);tabs.children[next].focus();
+      };
+      tabs.append(tab);panels.append(h('section.iv-settings-panel',{id:`settings-panel-${id}`,role:'tabpanel','aria-labelledby':tab.id,tabindex:0},...cards));
     }
-    const days=input(doc.settings.reminderDays,{type:'number',min:0,max:365,'aria-label':'За сколько дней напоминать'});
-    const login=h('input',{type:'checkbox','aria-label':'Открывать при входе в macOS'});login.checked=nativeSettings.login==='on';login.disabled=!isNative;
-    login.addEventListener('change',async()=>{try{const r=await call('inventoryLogin',{on:login.checked});nativeSettings={...nativeSettings,...r};draw();}catch(e){login.checked=!login.checked;say(e.message,true);}});
-    const automatic=h('input',{type:'checkbox','aria-label':'Автоматически проверять обновления'});automatic.checked=Boolean(nativeSettings.automaticUpdateChecks);automatic.disabled=!isNative||!nativeSettings.updatesConfigured;automatic.onchange=async()=>{try{nativeSettings={...nativeSettings,...await call('inventoryAutomaticUpdates',{on:automatic.checked})};}catch(e){automatic.checked=!automatic.checked;say(e.message,true);}};
-    const checkUpdates=button('Проверить обновления…',async()=>{try{await call('inventoryCheckUpdates');}catch(e){say(e.message,true);}},'download');checkUpdates.disabled=!isNative||!nativeSettings.updatesConfigured;
-    const nativeNote=!isNative?h('p.iv-muted',isLAN?'Вы подключены к общей базе на Mac по домашней сети.':'В браузерном просмотре данные хранятся в браузере. Автокопии и уведомления доступны в приложении macOS.'):null;
-    content.replaceChildren(title('Настройки','Локальные данные и поведение приложения'),h('div.iv-settings-grid',appearance.settings(),h('section.iv-card',h('h2','Напоминания'),field('За сколько дней до срока предупреждать',days),button('Сохранить интервал',()=>run(d=>d.settings.reminderDays=Number(days.value)),'check'),h('p',doc.settings.notifications?'Уведомления включены в приложении':'Уведомления macOS пока выключены'),h('p.iv-muted',!isNative?'Уведомления доступны в приложении macOS':nativeSettings.notificationAuthorization==='denied'?'macOS запретила уведомления. Разрешите их в системных настройках.':nativeSettings.notificationAuthorization==='authorized'?'macOS разрешает уведомления':'Разрешение macOS ещё не получено'),button('Включить уведомления macOS',async()=>{try{if(!isNative)throw Error('Откройте приложение macOS');const r=await call('inventoryNotifications');if(r.allowed){await change(d=>d.settings.notifications=true);say('Уведомления включены');}else say('Разрешите уведомления в системных настройках macOS',true);}catch(e){say(e.message,true);}},'clock'),button('Выключить уведомления',()=>run(d=>d.settings.notifications=false),'close')),
-      phoneAccessCard({native:isNative,remote:isLAN,status:nativeSettings.phoneAccess,call,error:text=>say(text,true)}),
-      isLAN?h('section.iv-card',h('h2','Резервные копии'),h('p','Автоматические копии настраиваются на Mac. Можно скачать копию на телефон или выгрузить вещи в Excel.'),button('Скачать копию',exportBackup,'download'),button('Все вещи в Excel',exportExcel,'download')):
-      h('section.iv-card',h('h2','Резервные копии'),h('p.iv-muted',nativeSettings.lastBackupAt?'Последняя успешная копия: '+new Date(nativeSettings.lastBackupAt).toLocaleString('ru-RU'):'Успешных автоматических копий пока нет'),nativeSettings.lastBackupError?h('p.iv-form-error',nativeSettings.lastBackupError):null,h('p.iv-muted',`Доступно копий: ${nativeSettings.backupCount||0}`),h('p','Ежедневная автоматическая копия. Хранятся последние 5. Фотографии входят в копию.'),h('p.iv-address',nativeSettings.backupFolder||'Папка для автокопий ещё не выбрана'),button('Выбрать папку',async()=>{try{nativeSettings={...nativeSettings,...await call('inventoryBackupFolder')};draw();}catch(e){say(e.message,true);}},'folder'),button('Создать копию сейчас',async()=>{try{nativeSettings={...nativeSettings,...await call('inventoryBackupNow')};await change(()=>{},{undoable:false,retryable:false});draw();say('Резервная копия сохранена');}catch(e){say(e.message,true);}},'copy'),button('Экспортировать…',exportBackup,'download'),button('Все вещи в Excel',exportExcel,'download'),button('Восстановить из копии…',importBackup,'undo'),h('small.iv-muted','Перед восстановлением сохраняется защитная копия текущих данных.')),
-      h('section.iv-card',h('h2','Приложение'),h('p',`Версия ${APP_VERSION}`),checkUpdates,field('Автоматически проверять обновления',automatic),h('p.iv-muted',nativeSettings.updatesConfigured?'Новая версия загрузится и установится после вашего подтверждения. Данные квартиры сохраняются.':'Обновления появятся в сборке с настроенным каналом релизов.'),button('Что нового',showWhatsNew,'sparkles'),appIconPicker(),field('Анимации интерфейса и камеры',motion),button('Перевести стандартные названия…',translateNames,'list'),field('Открывать при входе в macOS',login),h('p.iv-muted','После закрытия окна приложение остаётся в фоне. Открыть его можно из Dock или строки меню.'),h('p.iv-muted','Островок у выреза экрана добавим в следующих версиях.'),nativeNote)));
+    content.replaceChildren(title('Настройки','Оформление, напоминания и ваши данные'),h('div.iv-settings-page',tabs,panels));activate(settingsSection);
   }
   function appIconPicker(){
     const selected=nativeSettings.appIcon||localStorage.getItem('iv:app-icon')||'aurora';
@@ -716,21 +935,48 @@ export async function bootInventory(root) {
     const dialog=modal('Импорт вещей из Excel',(body,close)=>{
       const file=h('input',{type:'file',accept:'.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','aria-label':'Файл Excel с вещами'});
       const message=h('p.iv-muted',{'role':'status','aria-live':'polite'}),error=h('p.iv-form-error',{role:'alert'});
-      body.append(h('p','Выберите .xlsx — вещи сразу добавятся в «Без места».'),
-        h('ol',h('li','Название'),h('li','Категория — необязательно'),h('li','Подкатегория — необязательно, с категорией во втором столбце'),h('li','Вес в граммах — необязательно')),
-        h('p.iv-muted','Можно заполнить только название. Новые категории создадутся автоматически. Читается первый лист. Заголовки необязательны, пустые строки пропускаются. Одинаковые названия добавляются как отдельные вещи. До 5 000 вещей и 10 МБ за раз.'),
-        field('Файл Excel .xlsx',file),message,error,
-        h('p.iv-muted','Импорт можно целиком отменить кнопкой «Отменить».'),h('div.iv-actions',button('Отмена',close,'close')));
+      const previewBox=h('div.iv-import-preview'),duplicateBox=h('div.iv-import-duplicates');
+      const duplicateMode=select([['skip','Пропустить совпадения'],['add','Добавить все как отдельные вещи']],'skip',{'aria-label':'Что делать с дубликатами'});
+      const submit=button('Импортировать',async()=>{
+        if(!rows)return;
+        submit.disabled=true;file.disabled=true;duplicateMode.disabled=true;error.textContent='';message.textContent='Добавляем вещи…';
+        try{
+          let count=0;await change(d=>{count=importInventoryRows(d,rows,{duplicateMode:duplicateMode.value}).length;},{action:'Импорт вещей из Excel',retryable:false});
+          close();go('unplaced');say(count?`В «Без места» добавлено: ${plural(count,['вещь','вещи','вещей'])}`:'Новых вещей не найдено');
+        }catch(e){message.textContent='';error.textContent=e.message;submit.disabled=false;file.disabled=false;duplicateMode.disabled=false;}
+      },'check','primary');
+      let rows=null;
+      submit.disabled=true;previewBox.hidden=true;duplicateBox.hidden=true;
+      duplicateMode.addEventListener('change',()=>{
+        if(!rows)return;
+        const preview=previewInventoryImport(doc,rows);
+        submit.disabled=duplicateMode.value==='skip'&&!preview.newItems.length;
+        submit.textContent=duplicateMode.value==='skip'?`Импортировать ${preview.newItems.length}`:`Импортировать ${preview.items.length}`;
+      });
+      body.append(h('p','Выберите .xlsx, проверьте найденные вещи и подтвердите импорт в «Без места».'),
+        h('ol',h('li','Название'),h('li','Категория — необязательно'),h('li','Подкатегория — необязательно, с категорией во втором столбце'),h('li','Вес в граммах — необязательно'),h('li','Цена в рублях — необязательно')),
+        h('p.iv-muted','Можно заполнить только название. Новые категории создадутся автоматически. Читается первый лист. Заголовки необязательны, пустые строки пропускаются. До 5 000 вещей и 10 МБ за раз.'),
+        field('Файл Excel .xlsx',file),message,previewBox,duplicateBox,error,
+        h('p.iv-muted','Импорт можно целиком отменить кнопкой «Отменить».'),h('div.iv-actions',button('Отмена',close,'close'),submit));
       file.addEventListener('change',async()=>{
         const selected=file.files?.[0];if(!selected)return;
+        rows=null;previewBox.hidden=true;duplicateBox.hidden=true;submit.disabled=true;
         file.disabled=true;error.textContent='';message.textContent='Читаем и проверяем файл…';
         try{
-          const rows=await readInventoryExcel(selected);if(!dialog.isConnected)return;
-          message.textContent='Добавляем вещи…';let count=0;
-          await change(d=>{count=importInventoryRows(d,rows).length;},{action:'Импорт вещей из Excel',retryable:false});
-          close();go('unplaced');say(`В «Без места» добавлено: ${plural(count,['вещь','вещи','вещей'])}`);
-        }catch(e){message.textContent='';error.textContent=e.message;}
-        finally{file.disabled=false;file.value='';}
+          rows=await readInventoryExcel(selected);if(!dialog.isConnected)return;
+          const preview=previewInventoryImport(doc,rows),duplicates=preview.existingDuplicates.length+preview.fileDuplicates.length;
+          message.textContent=`Файл «${selected.name}» проверен. Пока ничего не добавлено.`;
+          previewBox.hidden=false;previewBox.replaceChildren(h('strong',`Всего: ${preview.items.length} · новых: ${preview.newItems.length}`));
+          duplicateBox.hidden=!duplicates;
+          if(duplicates){
+            const examples=[...preview.existingDuplicates,...preview.fileDuplicates].slice(0,5);
+            duplicateBox.replaceChildren(h('p.iv-import-warning',`Внимание: совпадений с уже внесёнными вещами — ${preview.existingDuplicates.length}; повторов внутри файла — ${preview.fileDuplicates.length}.`),
+              h('p.iv-muted','Совпадения определяются по названию без учёта регистра и лишних пробелов. Выберите, что делать с дубликатами:'),
+              field('Дубликаты',duplicateMode),h('p.iv-muted',`Примеры: ${examples.map(item=>item.name).join(', ')}${duplicates>examples.length?'…':''}.`));
+          }
+          duplicateMode.value='skip';duplicateMode.dispatchEvent(new Event('change'));
+        }catch(e){rows=null;message.textContent='';error.textContent=e.message;}
+        finally{file.disabled=false;}
       });
     });
   }
@@ -744,7 +990,7 @@ export async function bootInventory(root) {
   async function exportBackup(){try{if(isNative){const result=await call('inventoryExport');return !result.cancelled;}const a=h('a',{href:URL.createObjectURL(new Blob([JSON.stringify(doc,null,2)],{type:'application/json'})),download:`Life-Assistant-${M.today()}.json`});a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);return true;}catch(e){say(e.message,true);return false;}}
   async function importBackup(){
     const apply=async raw=>{try{M.migrate(raw);M.validate(raw);M.listSpaces(raw).forEach(s=>normalize(s.plan));if(!confirm(`Восстановить «${raw.plan.name||'Квартира'}»? В копии ${M.totals(raw).items} вещей, пространств: ${M.listSpaces(raw).length}. Текущие данные будут сохранены в защитную копию.`))return;
-      if(!isNative&&!isLAN)localStorage.setItem(LOCAL_KEY+':before-restore',JSON.stringify(doc));
+      if(!isNative&&!isLAN)localStorage.setItem(storageKey+':before-restore',JSON.stringify(doc));
       await change(d=>{Object.keys(d).forEach(k=>delete d[k]);Object.assign(d,structuredClone(raw));},{restore:true});place=null;say('Копия восстановлена');draw();}catch(e){say('Восстановление: '+e.message,true);}};
     try{if(isNative){const r=await call('inventoryImport');if(r.document)await apply(r.document);}else{const file=h('input',{type:'file',accept:'application/json,.json'});file.addEventListener('change',async()=>{try{if(!file.files[0])return;if(file.files[0].size>100*1024*1024)throw Error('Размер копии больше 100 МБ');await apply(JSON.parse(await file.files[0].text()));}catch(e){say(e.message,true);}});file.click();}}catch(e){say(e.message,true);}
   }
@@ -810,14 +1056,32 @@ export async function bootInventory(root) {
   window.addEventListener('pagehide',()=>clearTimeout(sharedTimer));
   window.addEventListener('pageshow',()=>{if(lan){refreshSharedDocument();scheduleSharedRefresh();}});
   document.addEventListener('visibilitychange',()=>{if(lan&&!document.hidden){refreshSharedDocument();scheduleSharedRefresh();}});
-  window.addEventListener('keydown',e=>{if(editor)return;const editing=editingText(e.target),command=historyShortcut(e);if(command&&!editing&&!document.querySelector('dialog[open]')){e.preventDefault();undo(command==='redo');return;}if(e.key==='Escape'&&focusId&&view==='space'&&!editing&&!document.querySelector('dialog[open]')){e.preventDefault();leaveStorage();return;}if(e.key==='Escape'&&detailId&&!document.querySelector('dialog[open]')){detailId=null;drawDetails();}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();searchInput.focus();searchInput.select();}if(e.metaKey&&e.key===','){e.preventDefault();go('settings');}});
+  window.addEventListener('keydown',e=>{if(editor)return;const editing=editingText(e.target),command=historyShortcut(e);if(command&&!editing&&!document.querySelector('dialog[open]')){e.preventDefault();undo(command==='redo');return;}if(e.key==='Escape'&&focusId&&view==='space'&&!editing&&!document.querySelector('dialog[open]')){e.preventDefault();leaveStorage();return;}if(e.key==='Escape'&&detailId&&!document.querySelector('dialog[open]')){detailId=null;drawDetails();}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();if(view==='monitoring')monitoring.focusSearch();else if(view==='automobile')automobile.focusSearch();else if(view==='travel')travel.focusSearch();else{searchInput.focus();searchInput.select();}}if(e.metaKey&&e.key===','){e.preventDefault();go('settings');}});
   window.addEventListener('keydown',e=>{if(e.key==='Escape')setMobileMenu(false);});
-  document.addEventListener('visibilitychange',()=>{world?.setRunning(!document.hidden);sceneUI?.weatherFx.setRunning(!document.hidden);if(!document.hidden)refreshSceneWeather();});
-  window.addEventListener('focus',()=>world?.setRunning(!document.hidden));
+  document.addEventListener('visibilitychange',()=>{monitoring.setRunning(!document.hidden);automobile.setRunning(!document.hidden);travel.setRunning(!document.hidden);world?.setRunning(!document.hidden);sceneUI?.weatherFx.setRunning(!document.hidden);if(!document.hidden)refreshSceneWeather();});
+  window.addEventListener('focus',()=>{world?.setRunning(!document.hidden);monitoring.setRunning(!document.hidden);automobile.setRunning(!document.hidden);travel.setRunning(!document.hidden);});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)recordAwardVisit();});
+  window.addEventListener('focus',recordAwardVisit);
+  root.addEventListener('pointerdown',recordAwardVisit,{passive:true});
+  root.addEventListener('keydown',recordAwardVisit);
+  window.addEventListener('pagehide',()=>{itemMaster.stop();monitoring.dispose();automobile.dispose();travel.dispose();});
+  incoming.monitoringOpenApartment=id=>{monitoring.openApartment(id);go('monitoring');};
   // Explicit inspection surface for local UI checks; no network or external API.
-  window.__inventory={get document(){return structuredClone(doc);},go,open:nId=>open(M.getNode(doc,nId)),get world(){return world;}};
+  window.__inventory={get document(){return structuredClone(doc);},go,open:nId=>open(M.getNode(doc,nId)),get world(){return view==='travel'?travel.world:view==='automobile'?automobile.world:view==='monitoring'?monitoring.world:world;}};
+  if(isShowcase){
+    // Used only by the surrounding guide; it never has access to a personal document.
+    window.__inventory.showcaseGo=({section,selector,tab})=>{
+      if(editor)window.__inventoryCloseEditor();
+      for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
+      if(section==='editor'){openEditor();return;}
+      go(section);
+      if(selector&&tab){const control=[...content.querySelectorAll(`${selector} button`)].find(b=>b.textContent.trim()===tab);if(!control)throw Error('Вкладка не найдена: '+tab);control.click();}
+    };
+  }
   if(!window.__HOUSE_BOOT__?.inventory && isNative)await persist(doc);
   updateHistoryControls();draw();post('ready');if(isNative)call('inventorySystemStatus').then(next=>{nativeSettings={...nativeSettings,...next};refreshAwards();if(view==='settings')draw(true);}).catch(()=>{});if(awardsAtBoot)await change(()=>{},{undoable:false,retryable:false}).catch(()=>{});
-  if(!doc.settings.categorySetup)configureCategories();
+  if(isShowcase)window.parent.postMessage({type:'life-assistant-showcase-ready'},'*');
+  else if(demoTour.shouldResumeShowcase)startShowcase(true);
+  else if(demoTour.shouldAutoStart)demoTour.open({automatic:true});else finishFirstLaunch();
   scheduleSharedRefresh();
 }

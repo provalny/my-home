@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as M from './model.js';
 import { createActionHistory } from './action-history.js';
-import { EXCEL_FILE_LIMIT, EXCEL_IMPORT_LIMIT, inventoryImportRows, importInventoryRows, readInventoryExcel } from './excel-import.js';
+import { EXCEL_FILE_LIMIT, EXCEL_IMPORT_LIMIT, inventoryImportRows, importInventoryRows, previewInventoryImport, readInventoryExcel } from './excel-import.js';
 
 const seed = () => M.demo(JSON.parse(readFileSync(new URL('../../public/plans/home.json', import.meta.url), 'utf8')));
 const fixture = () => new File([readFileSync(new URL('./fixtures/quick-import.xlsx', import.meta.url))], 'Вещи.xlsx');
@@ -11,19 +11,21 @@ const fixture = () => new File([readFileSync(new URL('./fixtures/quick-import.xl
 test('optional headings, sparse columns, empty rows, decimal comma and zero weight preserve column positions', () => {
   const items = inventoryImportRows([[], ['Название', 'Категория', 'Подкатегория', 'Вес, г'], ['  Ложка  '], [], ['Гайка', null, null, 0], ['Футболка', 'Одежда', 'Летняя', '12,5']]);
   assert.deepEqual(items, [
-    { row: 3, name: 'Ложка', category: '', subcategory: '', weight: '' },
-    { row: 5, name: 'Гайка', category: '', subcategory: '', weight: '0' },
-    { row: 6, name: 'Футболка', category: 'Одежда', subcategory: 'Летняя', weight: '12.5' },
+    { row: 3, name: 'Ложка', category: '', subcategory: '', weight: '', priceCents: null },
+    { row: 5, name: 'Гайка', category: '', subcategory: '', weight: '0', priceCents: null },
+    { row: 6, name: 'Футболка', category: 'Одежда', subcategory: 'Летняя', weight: '12.5', priceCents: null },
   ]);
   assert.equal(inventoryImportRows([['Название'], ['Кружка']])[0].name, 'Кружка');
   assert.equal(inventoryImportRows([['Кружка']])[0].name, 'Кружка');
+  assert.equal(inventoryImportRows([['Название', '', '', '', 'Цена, ₽'], ['Чайник', '', '', '', '1 299,50']])[0].priceCents, 129950);
+  assert.equal(inventoryImportRows([['Чайник', '', '', '', 0]])[0].priceCents, 0);
 });
 
 test('import creates separate unplaced things and reuses categories only under the same parent', () => {
   const d = seed(), before = structuredClone(d), root = d.categories.find(c => c.id === 'clothes');
   d.categories.push({ id: 'existing-child', name: 'Летняя', parentId: root.id, kind: 'default' });
   const rows = [['Название', 'Категория', 'Подкатегория', 'Вес'], ['Футболка', root.name.toUpperCase(), ' летняя ', 250], ['Кабель', 'Новая категория', 'Летняя', '0,5'], ['Кружка'], ['Кружка']];
-  const added = importInventoryRows(d, rows);
+  const added = importInventoryRows(d, rows, { duplicateMode:'add' });
   M.validate(d);
   assert.equal(added.length, 4);
   for (const node of added) {
@@ -44,6 +46,33 @@ test('import creates separate unplaced things and reuses categories only under t
   assert.equal(d.categories.length, count);
 });
 
+test('preview warns about catalogue matches and file repeats without changing data; default import skips both', () => {
+  const d=seed(), before=JSON.stringify(d);
+  const rows=[['Название','Категория','Подкатегория','Вес','Цена'],
+    [' macbook ','Электроника',null,null,149990],['Ноутбук','Электроника',null,null,'3 500,25'],
+    ['НОУТБУК',null,null,null,50],['Зарядка',null,null,null,0]];
+  const preview=previewInventoryImport(d,rows);
+  assert.equal(JSON.stringify(d),before);
+  assert.equal(preview.existingDuplicates.length,1);
+  assert.equal(preview.fileDuplicates.length,1);
+  assert.deepEqual(preview.newItems.map(item=>item.name),['Ноутбук','Зарядка']);
+  assert.equal(previewInventoryImport(d,[['Шкаф в спальне']]).existingDuplicates.length,1);
+  const added=importInventoryRows(d,rows);
+  M.validate(d);
+  assert.deepEqual(added.map(n=>n.name),['Ноутбук','Зарядка']);
+  assert.deepEqual(added.map(n=>n.purchaseCents),[350025,0]);
+  assert.equal(importInventoryRows(d,rows).length,0);
+  assert.equal(d.nodes.filter(n=>n.name==='Ноутбук').length,1);
+});
+
+test('explicit add-all can import intentional identical things', () => {
+  const d=seed();
+  const added=importInventoryRows(d,[['MacBook'],['MacBook']],{duplicateMode:'add'});
+  assert.equal(added.length,2);
+  assert.notEqual(added[0].id,added[1].id);
+  M.validate(d);
+});
+
 test('one undo removes the whole import including new categories; redo restores it', () => {
   const before = seed(), after = structuredClone(before), history = createActionHistory();
   importInventoryRows(after, [['Рюкзак', 'Поход', 'Снаряжение', 500], ['Карабин']]);
@@ -61,7 +90,10 @@ test('invalid rows reject the entire import before any mutation and report the E
     [['Вещь', '', '', true], /Строка 2.*вес/],
     [[new Date()], /Строка 2.*текстом/],
     [['Вещь', {}, ''], /Строка 2.*текстом/],
-    [['Вещь', '', '', '', 'Лишнее'], /Строка 2.*четыре/],
+    [['Вещь', '', '', '', '', 'Лишнее'], /Строка 2.*пять/],
+    [['Вещь', '', '', '', 'не цена'], /Строка 2.*цена/],
+    [['Вещь', '', '', '', -1], /Строка 2.*цена/],
+    [['Вещь', '', '', '', '1,234'], /Строка 2.*цена/],
     [['А'.repeat(201)], /Строка 2.*200/],
   ];
   for (const [row, error] of invalid) {

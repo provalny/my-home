@@ -17,6 +17,7 @@ function branch(parentKey, entries) {
   for (const [key,name,icon] of entries) categories.push({key:`${parentKey}.${key}`,name,icon,parentKey});
 }
 branch('clothes', [['outer','Верхняя одежда'],['tops','Футболки'],['trousers','Брюки'],['shoes','Обувь','shoes'],['sportswear','Спортивная одежда']]);
+branch('clothes.shoes', [['sneakers','Кроссовки'],['dress','Туфли'],['sandals','Сандалии'],['slides','Шлёпанцы'],['boots','Ботинки'],['winter','Зимняя обувь'],['home','Домашняя обувь'],['sport','Спортивная обувь']]);
 branch('accessories', [['bags','Сумки и рюкзаки'],['photo-bags','Фотосумки'],['jewelry','Украшения и часы']]);
 branch('electronics', [['computers','Компьютеры','laptop'],['peripherals','Периферия','plug'],['phones','Телефоны','phone'],['photo','Фото и видео','camera'],['audio','Аудио','film'],['network','Сетевое оборудование','bridge'],['gaming','Игровая техника','games']]);
 branch('electronics.photo', [['cameras','Камеры'],['lenses','Объективы'],['lighting','Свет'],['supports','Штативы и крепления']]);
@@ -27,6 +28,7 @@ branch('linen', [['bedding','Постельное бельё'],['towels','Пол
 branch('dishes', [['tableware','Столовая посуда'],['cookware','Приготовление пищи'],['storage','Хранение продуктов'],['baking','Выпечка']]);
 branch('food', [['grains','Крупы'],['dairy','Молочные продукты','milk'],['vegetables','Овощи'],['drinks','Напитки'],['stock','Долгосрочные запасы']]);
 branch('tools', [['hand','Ручные инструменты'],['power','Электроинструменты'],['materials','Материалы и крепёж'],['measuring','Измерительные приборы'],['garden','Садовые инструменты','leaf']]);
+branch('tools.power', [['drills','Дрели'],['drivers','Шуруповёрты'],['impact','Гайковёрты'],['saws','Электропилы'],['jigsaws','Лобзики'],['grinders','Шлифмашины'],['cutters','Болгарки'],['rotary','Перфораторы'],['heat','Строительные фены'],['multitools','Мультитулы'],['batteries','Аккумуляторы и зарядные устройства']]);
 branch('sport', [['cycling','Велосипеды и аксессуары'],['fitness','Тренировки и фитнес'],['winter','Зимние виды спорта'],['fishing','Рыболовные снасти'],['protection','Спортивная защита']]);
 branch('outdoor', [['shelter','Палатки и укрытия'],['sleep','Спальные мешки и коврики'],['cooking','Походная кухня'],['navigation','Навигация и фонари']]);
 branch('books', [['fiction','Художественная литература'],['professional','Профессиональная литература'],['magazines','Журналы'],['media','Пластинки и диски']]);
@@ -46,6 +48,18 @@ const photo = all('electronics.photo').concat('accessories.photo-bags');
 const it = ['electronics.computers','electronics.peripherals','electronics.network','books.professional'];
 const repair = all('tools').filter(k=>k!=='tools.garden').concat('books.professional');
 export const CATEGORY_PACKS = [
+  pack('common-shoes','common','Обувь','shoes','Кроссовки, туфли, шлёпанцы и другие виды обуви',all('clothes.shoes')),
+  pack('common-power-tools','common','Электроинструмент','tools','Дрели, шуруповёрты, пилы, перфораторы и другое',all('tools.power')),
+  pack('common-clothes','common','Одежда','clothes','Футболки, брюки, верхняя и спортивная одежда',all('clothes').filter(k=>!k.startsWith('clothes.shoes'))),
+  pack('common-electronics','common','Электроника','laptop','Компьютеры, телефоны, фото, видео и звук',all('electronics').filter(k=>!k.startsWith('appliances'))),
+  pack('common-home','common','Дом и интерьер','furniture','Мебель, домашний текстиль, уют и освещение',all('furniture').concat(all('linen'),all('decor'))),
+  pack('common-kitchen','common','Кухня','dishes','Посуда, продукты и кухонная техника',all('dishes').concat(all('food'),all('appliances.kitchen'))),
+  pack('common-health','common','Здоровье и уход','medicine','Аптечка, гигиена, косметика и уход',all('medicine').concat(all('cosmetics'))),
+  pack('common-books','common','Книги и документы','book','Литература, документы и канцелярия',all('books').concat(all('documents'))),
+  pack('common-hobbies','common','Хобби и спорт','sport','Спорт, походы, игры и творчество',all('sport').concat(all('outdoor'),all('hobby'))),
+  pack('common-other-tools','common','Ручной инструмент и ремонт','tools','Ручные инструменты, крепёж, измерение и сад',all('tools').filter(k=>!k.startsWith('tools.power'))),
+  pack('common-pets','common','Для животных','pets','Корм, уход и принадлежности',all('pets')),
+  pack('common-auto','common','Автомобиль','car','Запчасти, уход и принадлежности',all('auto')),
   pack('base-clothes','base','Одежда и аксессуары','clothes','Одежда, обувь, сумки и украшения',all('clothes').concat(all('accessories').filter(k=>k!=='accessories.photo-bags'))),
   pack('base-kitchen','base','Кухня и продукты','dishes','Посуда, продукты и кухонная техника',all('dishes').concat(all('food'),'appliances.kitchen')),
   pack('base-electronics','base','Техника','laptop','Компьютеры, телефоны, аудио и бытовая техника',it.concat('electronics.phones','electronics.audio',all('appliances'))),

@@ -20,12 +20,46 @@
 }
 .mode-inventory[data-inventory-theme] .iv-thumb[data-rarity] { color:var(--rarity-ink);background:color-mix(in srgb,var(--rarity-color) 12%,var(--glass));border-color:color-mix(in srgb,var(--rarity-color) 40%,var(--line)); }
 .mode-inventory .iv-thumb:is([data-rarity=epic],[data-rarity=legendary]) {
-  box-shadow:0 0 12px color-mix(in srgb,var(--rarity-color) 50%,transparent),0 0 24px color-mix(in srgb,var(--rarity-color) 22%,transparent);
+  box-shadow:0 0 16px color-mix(in srgb,var(--rarity-color) 75%,transparent),0 0 36px color-mix(in srgb,var(--rarity-color) 45%,transparent),inset 0 0 14px color-mix(in srgb,var(--rarity-color) 30%,transparent);
 }
-.mode-inventory .iv-thumb:is([data-rarity=epic],[data-rarity=legendary]) .icon { filter:drop-shadow(0 0 4px var(--rarity-color)); }
+.mode-inventory .iv-thumb:is([data-rarity=epic],[data-rarity=legendary]) .icon { filter:drop-shadow(0 0 3px #ffffffaa) drop-shadow(0 0 7px var(--rarity-color)); }
 .mode-inventory .iv-rarity-label { display:inline-flex;align-items:center;gap:4px;color:var(--rarity-ink);font-size:10px;line-height:14px;white-space:nowrap; }
 .mode-inventory .iv-rarity-label::before { content:'';width:5px;height:5px;flex:none;border-radius:50%;background:var(--rarity-ink); }
 .mode-inventory .iv-detail-hero[data-rarity] { padding:12px;border:1px solid color-mix(in srgb,var(--rarity-color) 32%,var(--line));border-radius:14px; }
 .mode-inventory .if-rarity-help { margin:5px 0 0;font-size:11px;line-height:1.4;color:var(--muted); }
 .mode-inventory .if-rarity-preview { margin-top:5px; }
 .mode-inventory .if-rarity-field { grid-column:1/-1; }
+
+/* The whole detail panel takes the quality, including the scrolled lower sections. */
+.mode-inventory .iv-detail-panel[data-rarity=epic] {
+  --quality-base:#220d37;--quality-top:#3c185a;--quality-hot:#b743ff66;--quality-soft:#9338e052;
+  --quality-edge:#ca78ff;--quality-button:#8030b5;--quality-button-end:#582080;
+  --text:#fff3ff;--muted:#dfbde9;--faint:#c79cda;--iv-blue:#e4bcff;
+}
+.mode-inventory .iv-detail-panel[data-rarity=legendary] {
+  --quality-base:#351707;--quality-top:#57290c;--quality-hot:#ff9b3266;--quality-soft:#ef720052;
+  --quality-edge:#ffbf61;--quality-button:#a44d0b;--quality-button-end:#753407;
+  --text:#fff5df;--muted:#ffe3b4;--faint:#e6c597;--iv-blue:#ffe2b0;
+}
+.mode-inventory .iv-detail-panel:is([data-rarity=epic],[data-rarity=legendary]) {
+  --bg:var(--quality-base);--iv-solid:var(--quality-base);--iv-sidebar:var(--quality-base);
+  --iv-panel:var(--quality-base);--iv-field:#00000030;--glass:#ffffff0c;--glass-hi:#ffffff19;
+  --line:var(--quality-soft);--iv-edge:var(--quality-edge);--iv-selected:var(--quality-soft);--accent:var(--iv-blue);
+  --palette-button-top:var(--quality-button);--palette-button-bottom:var(--quality-button-end);
+  color:var(--text);border-color:var(--quality-edge);
+  background:radial-gradient(ellipse at 0% 0%,var(--quality-hot),transparent 68%),radial-gradient(ellipse at 100% 80%,var(--quality-soft),transparent 70%),linear-gradient(155deg,var(--quality-top),var(--quality-base));
+  box-shadow:inset 3px 0 24px var(--quality-hot),inset 0 0 65px var(--quality-soft),-10px 0 35px var(--quality-soft);
+}
+.mode-inventory[data-inventory-theme=light] .iv-detail-panel[data-rarity=epic] {
+  --quality-base:#f6e7ff;--quality-top:#e7bcff;--quality-hot:#b94aff55;--quality-soft:#a335ee38;
+  --quality-edge:#a34ce1;--text:#37124e;--muted:#724185;--faint:#865f94;--iv-blue:#68228f;
+}
+.mode-inventory[data-inventory-theme=light] .iv-detail-panel[data-rarity=legendary] {
+  --quality-base:#fff1d7;--quality-top:#ffd18e;--quality-hot:#ff961e55;--quality-soft:#ed860038;
+  --quality-edge:#ce791b;--text:#472406;--muted:#765025;--faint:#886540;--iv-blue:#7e3e09;
+}
+.mode-inventory[data-inventory-theme=light] .iv-detail-panel:is([data-rarity=epic],[data-rarity=legendary]) { --glass:#ffffff70;--glass-hi:#ffffffb0;--iv-field:#ffffff85; }
+.mode-inventory .iv-detail-panel:is([data-rarity=epic],[data-rarity=legendary]) .iv-btn.primary {
+  color:#fff;background:linear-gradient(165deg,#ffffff20,transparent 55%),linear-gradient(var(--quality-button),var(--quality-button-end));
+  border-color:var(--quality-edge);box-shadow:0 0 18px var(--quality-soft),inset 0 1px #ffffff50;
+}

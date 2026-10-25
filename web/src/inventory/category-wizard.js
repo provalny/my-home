@@ -3,14 +3,15 @@ import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { CATEGORY_PACKS, previewCategoryPacks, applyCategoryPacks } from './category-presets.js';
 
-const steps=[['base','Быт','Что вы хотите учитывать дома?'],['work','Работа','Что нужно для работы или учёбы?'],['hobby','Увлечения','Чем вы любите заниматься?'],['preview','Предпросмотр','Проверьте, что будет добавлено']];
+const activitySteps=[['base','Быт','Что вы хотите учитывать дома?'],['work','Работа','Что нужно для работы или учёбы?'],['hobby','Увлечения','Чем вы любите заниматься?'],['preview','Предпросмотр','Проверьте, что будет добавлено']];
+const commonSteps=[['common','Общие категории','Выберите нужные категории и подкатегории'],['preview','Предпросмотр','Проверьте итоговый набор категорий']];
 const button=(label,onclick,primary=false)=>h('button.iv-btn'+(primary?'.primary':''),{type:'button',onclick},label);
 export function openCategoryWizard({getDoc,change,onSaved}) {
   if(document.querySelector('dialog[open]'))return;
   const first=!getDoc().settings.categorySetup;
   const setup=getDoc().settings.categorySetup;
   const chosen=new Set(setup?.packIds||[]),excluded=new Set(setup?.excludedCategories||[]),excludedCollections=new Set(setup?.excludedCollections||[]);
-  let step=0,saving=false;
+  let mode=null,step=0,saving=false;
   const dialog=h('dialog.iv-dialog.cw-dialog',{'aria-label':'Настройка категорий'});
   const heading=h('h2',{tabindex:-1}),progress=h('ol.cw-progress',{'aria-label':'Шаги настройки'});
   const selectionCount=h('span.iv-muted',{'aria-live':'polite'});
@@ -24,7 +25,8 @@ export function openCategoryWizard({getDoc,change,onSaved}) {
     catch(e){error.textContent=e.message;saving=false;lock();}
   }
   const cancel=button(first?'Настроить позже':'Отмена',dismiss);
-  dialog.append(h('div.iv-dialog-title',h('h2','Категории под вашу жизнь'),cancel),progress,h('div.cw-scroll',heading,body,error),footer);
+  const dialogTitle=h('h2','Настроить категории');
+  dialog.append(h('div.iv-dialog-title',dialogTitle,cancel),progress,h('div.cw-scroll',heading,body,error),footer);
   function lock(){for(const control of dialog.querySelectorAll('button,input'))control.disabled=saving||control.dataset.existing==='true';}
   function choice(label,checked,onchange,{description,existing=false,depth=0,glyph}={}){
     const checkbox=h('input',{type:'checkbox','aria-label':label,onchange:e=>onchange(e.target.checked)});
@@ -32,15 +34,34 @@ export function openCategoryWizard({getDoc,change,onSaved}) {
     return h('label.cw-choice',{vars:{'--cw-depth':String(depth)}},checkbox,glyph?icon(glyph,21):null,h('span',h('strong',label),description?h('small',description):null),existing?h('small.cw-existing','Уже есть'):null);
   }
   function render(){
-    const [group,,caption]=steps[step];heading.textContent=caption;error.textContent='';
+    error.textContent='';body.replaceChildren();
+    if(!mode){
+      dialogTitle.textContent='Настроить категории';heading.textContent='Как хотите подобрать категории?';progress.replaceChildren();
+      body.append(h('p.iv-muted','Можно выбрать готовые наборы под занятия или собрать общие категории по отдельности. Перед сохранением вы увидите весь список и сможете убрать лишнее.'),
+        h('div.cw-mode-grid',button('Настроить категории под деятельность',()=>{mode='activity';step=0;render();},true),button('Настроить общие категории',()=>{mode='common';step=0;render();},true)));
+      footer.replaceChildren(selectionCount);selectionCount.textContent=`Выбрано наборов: ${chosen.size}`;heading.focus();return;
+    }
+    const steps=mode==='common'?commonSteps:activitySteps,[group,,caption]=steps[step];heading.textContent=caption;
+    dialogTitle.textContent=mode==='common'?'Общие категории':'Категории под вашу жизнь';
     progress.replaceChildren(...steps.map(([,label],i)=>h('li',{'aria-current':i===step?'step':null,class:i===step?'active':i<step?'complete':''},h('span',String(i+1)),label)));
-    body.replaceChildren();
-    if(step<3){
+    if(group!=='preview'){
+      const commonTree=h('div.cw-preview-tree'),commonCount=h('p.iv-muted');
+      const paintCommon=()=>{
+        if(group!=='common')return;
+        const preview=previewCategoryPacks(getDoc(),[...chosen]),rows=preview.categories.slice().sort((a,b)=>a.path.localeCompare(b.path,'ru'));
+        commonCount.textContent=rows.length?`Отметьте нужные пункты внутри выбранных групп: ${rows.filter(c=>!excluded.has(c.key)).length} из ${rows.length}`:'Выберите группу выше — здесь появятся её категории.';
+        commonTree.replaceChildren(...rows.map(c=>choice(c.name,!excluded.has(c.key)||Boolean(c.existingId),checked=>{
+          if(checked){for(let key=c.key;key;key=preview.categories.find(x=>x.key===key)?.parentKey)excluded.delete(key);}
+          else for(const child of rows.filter(x=>x.key===c.key||x.key.startsWith(c.key+'.')))if(!child.existingId)excluded.add(child.key);
+          paintCommon();
+        },{existing:Boolean(c.existingId),depth:c.depth})));
+      };
       body.append(h('p.iv-muted','Выберите несколько наборов или переходите дальше. Категории из разных наборов объединятся без повторов.'),
-        h('div.cw-pack-grid',...CATEGORY_PACKS.filter(p=>p.group===group).map(p=>choice(p.name,chosen.has(p.id),checked=>{if(checked)chosen.add(p.id);else chosen.delete(p.id);selectionCount.textContent=`Выбрано наборов: ${chosen.size}`;},{description:p.description,glyph:p.icon}))));
+        h('div.cw-pack-grid',...CATEGORY_PACKS.filter(p=>p.group===group).map(p=>choice(p.name,chosen.has(p.id),checked=>{if(checked)chosen.add(p.id);else chosen.delete(p.id);selectionCount.textContent=`Выбрано наборов: ${chosen.size}`;paintCommon();},{description:p.description,glyph:p.icon}))));
+      if(group==='common'){body.append(h('h3','Категории и подкатегории'),commonCount,commonTree);paintCommon();}
     }else renderPreview();
     selectionCount.textContent=`Выбрано наборов: ${chosen.size}`;
-    footer.replaceChildren(selectionCount,h('div.iv-actions',step?button('Назад',()=>{step--;render();}):null,button(step===3?'Применить':'Далее',step===3?save:()=>{step++;render();},true)));
+    footer.replaceChildren(selectionCount,h('div.iv-actions',button('Назад',()=>{if(step)step--;else mode=null;render();}),button(group==='preview'?'Применить':'Далее',group==='preview'?save:()=>{step++;render();},true)));
     dialog.querySelector('.cw-scroll').scrollTop=0;
     heading.focus();
   }

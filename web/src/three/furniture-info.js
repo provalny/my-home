@@ -1,6 +1,10 @@
 // Dimensions are metres: width (X), height (Y), depth (Z). IDs stay stable in saved plans.
 import { IKEA_STORAGE } from '../inventory/ikea-storage.js';
 export const EXTRA_MODEL_INFO = {
+  trailSuv:{name:'Экспедиционный внедорожник',size:[2.12,2.35,4.45],category:'other',area:'Балкон и гараж',color:'#278cb7'},
+  duffel60:{name:'Багажная сумка · 60 л',size:[.66,.44,.37],category:'other',area:'Сумки и рюкзаки',color:'#637653',capacityLiters:60,fixedSize:true,exportFile:'duffel-60l.glb'},
+  backpack20:{name:'Рюкзак · 20 л',size:[.31,.48,.25],category:'other',area:'Сумки и рюкзаки',color:'#477e94',capacityLiters:20,fixedSize:true,exportFile:'backpack-20l.glb'},
+  travelBag30:{name:'Дорожная сумка · 30 л',size:[.50,.39,.29],category:'other',area:'Сумки и рюкзаки',color:'#b66c50',capacityLiters:30,fixedSize:true,exportFile:'travel-bag-30l.glb'},
   woodShelfLow:{name:'Деревянный стеллаж · 120 см, 3 полки',size:[.89,1.2,.30],category:'furniture',color:'#d5b78b',area:'Хранение'},
   parrotCage:{name:'Клетка с попугаями',size:[.64,.82,.45],category:'decor',color:'#526b72'},
   kallaxShelf:{name:'Стеллаж IKEA KALLAX · 4 × 4',size:[1.47,1.465,.39],category:'furniture',color:'#eeeae1',area:'Хранение'},

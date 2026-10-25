@@ -1,4 +1,4 @@
-// swiftc InventoryStore.swift InventoryLANServer.swift test-inventory-lan.swift -o /tmp/life-lan-checks
+// swiftc InventoryStore.swift InventoryLANServer.swift ItemMasterHTTP.swift test-inventory-lan.swift -o /tmp/life-lan-checks
 // Uses a disposable store only. --serve <web-root> <fixture> keeps a QA server alive.
 import Foundation
 import CoreImage
@@ -84,6 +84,7 @@ import CoreImage
         }
         func code(_ path:String) throws -> Int { try request(path).0 }
         check(try code("/api/state") == 401,"Inventory must require pairing")
+        check(try request("/api/item-master/page",method:"POST",body:["url":"https://example.com"]).0 == 401,"Item search must require pairing")
         check(try request("/api/pair",method:"POST",body:["key":"wrong"]).0 == 401)
         check(try request("/api/pair",method:"POST",body:["key":key],originOverride:"http://evil.test").0 == 403)
         let paired = try request("/api/pair",method:"POST",body:["key":key])
@@ -91,6 +92,8 @@ import CoreImage
         let cookie = paired.2.value(forHTTPHeaderField:"Set-Cookie")!.components(separatedBy:";")[0]
         check(paired.2.value(forHTTPHeaderField:"Set-Cookie")!.contains("HttpOnly; SameSite=Strict"))
         let loaded = try request("/api/state",cookie:cookie)
+        check(try request("/api/item-master/page",method:"POST",body:["url":"https://example.com"],cookie:cookie,originOverride:"http://evil.test").0 == 403,"Item search must check origin")
+        check(try request("/api/item-master/page",method:"POST",body:["url":"https://127.0.0.1"],cookie:cookie).0 == 502,"Item search must reject local targets asynchronously")
         check(loaded.0 == 200)
         let payload = try JSONSerialization.jsonObject(with:loaded.1) as! [String:Any]
         check((payload["document"] as? [String:Any])?["revision"] as? Int == 1)

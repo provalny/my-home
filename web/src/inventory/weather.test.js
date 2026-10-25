@@ -30,3 +30,42 @@ test('weather can receive cached conditions before the detached scene obtains it
   globalThis.document={createElement:()=>canvas};globalThis.ResizeObserver=class{observe(){}disconnect(){}};
   try{const effect=createWeatherScene(host,{reducedMotion:true});assert.doesNotThrow(()=>effect.setWeather({day:true,kind:'clouds'}));effect.dispose();}finally{globalThis.document=oldDocument;globalThis.ResizeObserver=oldObserver;}
 });
+
+function exteriorFixture(){
+  const calls=[],flags=new Map(),pending=new Map();let sequence=0,removed=false;
+  const makeContext=tag=>{
+    const ctx={};for(const method of ['clearRect','setTransform','fillRect','save','restore','beginPath','rect','moveTo','lineTo','closePath','clip','drawImage','arc','fill','ellipse','stroke'])ctx[method]=(...args)=>calls.push([tag,method,...args]);
+    for(const method of ['createLinearGradient','createRadialGradient'])ctx[method]=()=>({addColorStop(){}});return ctx;
+  };
+  const main=makeContext('main'),back=makeContext('back');let created=0;
+  const host={prepend(){},getBoundingClientRect:()=>({width:320,height:180}),classList:{toggle:(key,on)=>flags.set(key,on)}};
+  const saved={document:globalThis.document,ResizeObserver:globalThis.ResizeObserver,requestAnimationFrame:globalThis.requestAnimationFrame,cancelAnimationFrame:globalThis.cancelAnimationFrame};
+  globalThis.document={createElement:()=>{const context=created++?back:main;return {setAttribute(){},getContext:()=>context,remove(){removed=true;}};}};
+  globalThis.ResizeObserver=class{observe(){}disconnect(){}};
+  globalThis.requestAnimationFrame=fn=>{pending.set(++sequence,fn);return sequence;};globalThis.cancelAnimationFrame=id=>pending.delete(id);
+  return {host,calls,flags,pending,get removed(){return removed;},restore(){for(const [key,value]of Object.entries(saved)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}};
+}
+test('cozy scenery exists without a city and is clipped outside the live apartment mask',async()=>{
+  const {createWeatherScene}=await import('./weather-scene.js'),fixture=exteriorFixture();
+  try{
+    const effect=createWeatherScene(fixture.host,{reducedMotion:true});
+    assert.equal(fixture.flags.get('has-environment'),true);assert.ok(fixture.calls.some(c=>c[0]==='main'&&c[1]==='drawImage'));
+    fixture.calls.length=0;effect.setMask([[20,20],[300,20],[300,160],[20,160]]);
+    const operations=fixture.calls.filter(c=>c[0]==='main').map(c=>c[1]);assert.ok(operations.indexOf('clip')<operations.indexOf('drawImage'));
+    assert.ok(fixture.calls.some(c=>c[1]==='clip'&&c[2]==='evenodd'));
+    const count=fixture.calls.length;effect.setMask([[20,20],[300,20],[300,160],[20,160]]);assert.equal(fixture.calls.length,count);
+    effect.setWeather({day:true,kind:'snow'});assert.equal(fixture.flags.get('has-weather'),true);
+    effect.setWeather(null);assert.equal(fixture.flags.get('has-weather'),false);assert.equal(fixture.flags.get('has-environment'),true);
+    assert.equal(fixture.pending.size,0);effect.dispose();assert.equal(fixture.flags.get('has-environment'),false);assert.equal(fixture.removed,true);
+  }finally{fixture.restore();}
+});
+test('ambient animation stops while hidden and releases its frame on disposal',async()=>{
+  const {createWeatherScene}=await import('./weather-scene.js'),fixture=exteriorFixture();
+  try{const effect=createWeatherScene(fixture.host);assert.equal(fixture.pending.size,1);effect.setRunning(false);assert.equal(fixture.pending.size,0);effect.setRunning(true);assert.equal(fixture.pending.size,1);effect.dispose();assert.equal(fixture.pending.size,0);}finally{fixture.restore();}
+});
+test('outside light follows weather day/night, with a theme fallback before city selection',async()=>{
+  const {cozyAtmosphere}=await import('./cozy-exterior.js');
+  assert.equal(cozyAtmosphere(null,'light').day,true);assert.equal(cozyAtmosphere(null,'dark').day,false);
+  assert.equal(cozyAtmosphere({day:false,kind:'rain'},'light').day,false);
+  assert.notDeepEqual(cozyAtmosphere({day:true,kind:'snow'}).sky,cozyAtmosphere({day:false,kind:'snow'}).sky);
+});

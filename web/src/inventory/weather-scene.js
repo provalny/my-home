@@ -1,3 +1,4 @@
+import { cozyAtmosphere, paintExteriorSky, paintCozyBackdrop, paintNeighbourhoodLights } from './cozy-exterior.js';
 // An exterior layer behind the WebGL canvas. A projected silhouette excludes
 // precipitation from the apartment even where a wall becomes transparent.
 export function convexHull(points){
@@ -7,15 +8,29 @@ export function convexHull(points){
   return [...half(sorted).slice(0,-1),...half(sorted.slice().reverse()).slice(0,-1)];
 }
 const noise=i=>{const n=Math.sin(i*127.1+311.7)*43758.5453;return n-Math.floor(n);};
-export function createWeatherScene(host,{reducedMotion=false}={}){
+export function createWeatherScene(host,{reducedMotion=false,theme='dark'}={}){
   const canvas=document.createElement('canvas');canvas.className='iv-weather-canvas';canvas.setAttribute('aria-hidden','true');host.prepend(canvas);
-  const ctx=canvas.getContext('2d');let weather=null,mask=[],width=1,height=1,raf=0,running=true,time=0,last=0;
-  function draw(){if(!ctx||width<1||height<1)return;ctx.clearRect(0,0,width,height);if(!weather)return;
-    const day=weather.day,kind=weather.kind,gradient=ctx.createLinearGradient(0,0,0,height);
-    const colors=kind==='snow'?(day?['#7c9db8','#d3dce4']:['#152438','#384d64']):kind==='rain'||kind==='storm'?(day?['#344f70','#8497ab']:['#101c33','#263a52']):day?['#75abdb','#c6dbe7']:['#0d1730','#243750'];
-    gradient.addColorStop(0,colors[0]);gradient.addColorStop(1,colors[1]);ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
+  const ctx=canvas.getContext('2d'),backdrop=document.createElement('canvas'),backdropContext=backdrop.getContext('2d'),city=document.createElement('canvas'),cityContext=city.getContext('2d');
+  let weather=null,mask=[],maskKey='',width=1,height=1,raf=0,running=true,time=0,last=0,cacheKey='';
+  host.classList.toggle('has-environment',true);
+  function draw(){if(!ctx||width<1||height<1)return;ctx.clearRect(0,0,width,height);
+    const atmosphere=cozyAtmosphere(weather,theme),{day,kind}=atmosphere;
+    paintExteriorSky(ctx,width,height,atmosphere);
+    const key=[Math.round(width),Math.round(height),atmosphere.period,kind,theme].join(':');
+    if(backdropContext&&cityContext&&key!==cacheKey){
+      backdrop.width=city.width=Math.max(1,Math.round(width*.33));
+      backdrop.height=city.height=Math.max(1,Math.round(height*.33));
+      paintCozyBackdrop(cityContext,city.width,city.height,atmosphere);
+      backdropContext.filter='blur(5px)';
+      backdropContext.drawImage(city,0,0);
+      backdropContext.filter='none';
+      cacheKey=key;
+    }
     // Everything moving is clipped outside the projected model, including clouds.
     ctx.save();ctx.beginPath();ctx.rect(0,0,width,height);if(mask.length>2){ctx.moveTo(...mask[0]);for(const p of mask.slice(1))ctx.lineTo(...p);ctx.closePath();}ctx.clip('evenodd');
+    if(backdropContext)ctx.drawImage(backdrop,0,0,width,height);
+    paintNeighbourhoodLights(ctx,width,height,time,atmosphere);
+    if(!weather){ctx.restore();return;}
     if(kind==='clear'&&day){const sx=width*(.82+Math.sin(time*.08)*.025),sy=height*(.14+Math.cos(time*.07)*.02),sun=ctx.createRadialGradient(sx,sy,2,sx,sy,width*(.3+Math.sin(time*.15)*.015));sun.addColorStop(0,'#fff3c666');sun.addColorStop(1,'#fff3c600');ctx.fillStyle=sun;ctx.fillRect(0,0,width,height);}
     if(!day&&kind==='clear'){ctx.fillStyle='#e6eeff99';for(let i=0;i<45;i++){const x=noise(i+1)*width,y=noise(i+60)*height;ctx.globalAlpha=(.3+.5*noise(i+90))*(.8+.2*Math.sin(time*.5+i));ctx.fillRect(x,y,1.2,1.2);}ctx.globalAlpha=1;}
     if(['clouds','fog','rain','storm','snow'].includes(kind))for(let i=0;i<6;i++){
@@ -34,9 +49,9 @@ export function createWeatherScene(host,{reducedMotion=false}={}){
     }
     ctx.restore();
   }
-  function frame(now){raf=0;if(!running||!weather)return;time+=Math.min(.05,(now-last)/1000);last=now;draw();if(!reducedMotion)raf=requestAnimationFrame(frame);}
-  function wake(){draw();if(!raf&&running&&weather&&!reducedMotion){last=performance.now();raf=requestAnimationFrame(frame);}}
+  function frame(now){raf=0;if(!running)return;if(now-last>=1000/16){time+=Math.min(.08,(now-last)/1000);last=now;draw();}if(!reducedMotion)raf=requestAnimationFrame(frame);}
+  function wake(){draw();if(!raf&&running&&!reducedMotion){last=performance.now();raf=requestAnimationFrame(frame);}}
   function resize(){const r=host.getBoundingClientRect(),ratio=Math.min(globalThis.devicePixelRatio||1,2);width=r.width;height=r.height;canvas.width=Math.max(1,Math.round(width*ratio));canvas.height=Math.max(1,Math.round(height*ratio));ctx?.setTransform(ratio,0,0,ratio,0,0);wake();}
   const observer=new ResizeObserver(resize);observer.observe(host);resize();
-  return {setWeather(value){weather=value;host.classList.toggle('has-weather',Boolean(value));wake();},setMask(points){mask=convexHull(points);if(reducedMotion)draw();},setRunning(on){running=on;if(!on&&raf){cancelAnimationFrame(raf);raf=0;}else wake();},dispose(){running=false;if(raf)cancelAnimationFrame(raf);observer.disconnect();canvas.remove();}};
+  return {setWeather(value){weather=value;host.classList.toggle('has-weather',Boolean(value));wake();},setMask(points){const next=convexHull(points),key=next.map(p=>p.map(v=>Math.round(v*2)).join(',')).join(';');if(key!==maskKey){mask=next;maskKey=key;if(running)draw();}},setRunning(on){running=on;if(!on&&raf){cancelAnimationFrame(raf);raf=0;}else wake();},dispose(){running=false;if(raf)cancelAnimationFrame(raf);observer.disconnect();canvas.remove();host.classList.toggle('has-environment',false);}};
 }

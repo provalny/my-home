@@ -7,8 +7,8 @@ export function animateFurniture(animators,time,{reduceMotion=false}={}){
  for(const object of animators){
   let visible=true;for(let p=object;p;p=p.parent)if(!p.visible){visible=false;break;}
   if(!visible)continue;
-  object.userData.furnitureAnimate(reduceMotion?0:time);
-  active||=!reduceMotion;
+  const moving=object.userData.furnitureAnimate(reduceMotion?0:time,{reduceMotion});
+  active||=!reduceMotion&&moving!==false;
  }
  return active;
 }
