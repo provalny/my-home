@@ -1,4 +1,5 @@
 import {weightKg,estimatedWeight} from '../inventory/weights.js';
+import {vehicleModelType} from '../automobile/vehicle-model.js';
 import { randomID } from '../uuid.js';
 
 export const MODES = {car:'Авто',foot:'Пешком',bike:'Велосипед',train:'Поезд',plane:'Самолёт',manual:'Вручную'};
@@ -13,6 +14,7 @@ export const trips = d => d.travel?.trips || [];
 export const loadouts = d => d.travel?.loadouts || [];
 export const getTrip = (d,id) => trips(d).find(t=>t.id===id);
 export const isPossession = n => Boolean(n && !n.archived && !n.autoSection && !n.virtual && ['item','furniture','box'].includes(n.kind));
+export const isStorageCandidate=n=>isPossession(n)&&n.storageEnabled!==false;
 export function state(d) { return d.travel ??= {version:1,trips:[],loadouts:[]}; }
 export function validDate(s) { return s === '' || typeof s==='string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) && new Date(s+'T12:00:00Z').toISOString().slice(0,10)===s; }
 export function decimal(value,{required=false,min=0}={}) {
@@ -25,7 +27,7 @@ export {estimatedWeight};
 export const storageKind=b=>b.kind||'bag';
 export const storageNode=(d,b)=>d.nodes.find(n=>n.id===b.nodeId);
 export const storageCar=(d,b)=>storageKind(b)==='car'?d.automobiles?.vehicles.find(c=>c.rootId===b.nodeId):null;
-export const storageExists=(d,b)=>storageKind(b)==='car'?!!storageCar(d,b):isPossession(storageNode(d,b));
+export const storageExists=(d,b)=>storageKind(b)==='car'?!!storageCar(d,b):isStorageCandidate(storageNode(d,b));
 export function itemVolumeLiters(n){const raw=n?.fields?.['Транспортный объём, л']??n?.fields?.['Объём, л']??n?.volumeLiters;try{return decimal(raw);}catch{return null;}}
 export function setWeight(d,id,grams) {
   const n=d.nodes.find(n=>n.id===id);if(!isPossession(n))throw Error('Вещь недоступна');
@@ -35,7 +37,7 @@ export function memberships(d,nodeId,{includeCompleted=false}={}) {
   return trips(d).filter(t=>(includeCompleted||t.status!=='completed')&&t.bags.some(b=>b.nodeId===nodeId||b.items.includes(nodeId)));
 }
 export function bagStats(d,b) {
-  const ownWeight=storageKind(b)==='car'?0:isPossession(storageNode(d,b))?itemWeightKg(storageNode(d,b)):null;
+  const ownWeight=storageKind(b)==='car'?0:isStorageCandidate(storageNode(d,b))?itemWeightKg(storageNode(d,b)):null;
   const ids=[...(storageKind(b)==='car'?[]:[b.nodeId]),...b.items],missing=[],deleted=[],estimated=[];let weight=0;
   if(!storageExists(d,b))deleted.push(b.nodeId);
   for(const id of ids){const n=d.nodes.find(n=>n.id===id);if(!isPossession(n)){if(!deleted.includes(id))deleted.push(id);continue;}const w=itemWeightKg(n);if(w==null)missing.push(n);else weight+=w;if(estimatedWeight(n))estimated.push(n);}
@@ -51,10 +53,10 @@ export function deleteTrip(d,id){state(d).trips=trips(d).filter(t=>t.id!==id);}
 export function saveBag(d,tripId,value) {
   const t=getTrip(d,tripId);if(!t)throw Error('Поездка не найдена');const old=t.bags.find(b=>b.id===value.id),kind=value.kind||old?.kind||'bag',node=d.nodes.find(n=>n.id===value.nodeId);
   if(kind==='car'){if(!d.automobiles?.vehicles.some(c=>c.rootId===node?.id))throw Error('Выберите автомобиль из раздела машин');}
-  else {if(!isPossession(node))throw Error('Выберите хранилище из общего каталога');if(itemWeightKg(node)==null)throw Error('Сначала укажите собственный вес хранилища');}
+  else {if(!isStorageCandidate(node))throw Error('Выберите хранилище из общего каталога');if(itemWeightKg(node)==null)throw Error('Сначала укажите собственный вес хранилища');}
   if(t.bags.some(b=>b.id!==value.id&&b.nodeId===node.id))throw Error('Это хранилище уже добавлено');
   if(t.bags.some(b=>b.items.includes(node.id)))throw Error('Сначала уберите хранилище из другого багажа');
-  const b={id:randomID(),nodeId:node.id,kind,modelType:kind==='car'?'trailSuv':kind==='box'?'box':'backpack20',color:'#637653',capacityLiters:kind==='bag'?20:null,usedLiters:null,maxWeightKg:null,items:[],...(old||{}),...value};
+  const b={id:randomID(),nodeId:node.id,kind,modelType:kind==='car'?vehicleModelType(storageCar(d,{kind:'car',nodeId:node.id})):kind==='box'?'box':'backpack20',color:'#637653',capacityLiters:kind==='bag'?20:null,usedLiters:null,maxWeightKg:null,items:[],...(old||{}),...value};
   checkBag(b);const i=t.bags.findIndex(x=>x.id===b.id);i<0?t.bags.push(b):t.bags.splice(i,1,b);return b.id;
 }
 export function removeBag(d,tripId,bagId){const t=getTrip(d,tripId);if(t)t.bags=t.bags.filter(b=>b.id!==bagId);}
@@ -90,7 +92,7 @@ export function saveEvent(d,tripId,value){const t=getTrip(d,tripId);if(!t)throw 
 export function tripDays(t){const days=new Set(t.events.map(e=>e.date));if(t.startDate&&t.endDate){let d=new Date(t.startDate+'T12:00:00Z'),end=new Date(t.endDate+'T12:00:00Z');for(let i=0;d<=end&&i<366;i++,d.setUTCDate(d.getUTCDate()+1))days.add(d.toISOString().slice(0,10));}else if(t.startDate)days.add(t.startDate);return [...days].sort();}
 function text(v,label){if(typeof v!=='string'||!v.trim()||v.length>500)throw Error('Укажите '+label);}
 function unique(rows,label){if(!Array.isArray(rows)||rows.length>10000||rows.some(r=>!r||typeof r.id!=='string'||!r.id)||new Set(rows.map(r=>r.id)).size!==rows.length)throw Error('Некорректный список: '+label);}
-function checkBag(b){const kind=storageKind(b),modelOK=kind==='car'?b.modelType==='trailSuv':kind==='box'?b.modelType==='box':Object.hasOwn(BAG_MODELS,b.modelType);if(!['bag','box','car'].includes(kind)||typeof b.nodeId!=='string'||!modelOK||!/^#[\da-f]{6}$/i.test(b.color)||b.capacityLiters!=null&&(!finite(b.capacityLiters)||b.capacityLiters<=0)||kind==='bag'&&b.capacityLiters==null||b.usedLiters!=null&&!nonnegative(b.usedLiters)||b.maxWeightKg!=null&&(!finite(b.maxWeightKg)||b.maxWeightKg<=0)||!Array.isArray(b.items)||b.items.some(id=>typeof id!=='string')||new Set(b.items).size!==b.items.length)throw Error('Проверьте параметры хранилища');}
+function checkBag(b){const kind=storageKind(b),modelOK=kind==='car'?['trailSuv','vestaSwCross2019'].includes(b.modelType):kind==='box'?b.modelType==='box':Object.hasOwn(BAG_MODELS,b.modelType);if(!['bag','box','car'].includes(kind)||typeof b.nodeId!=='string'||!modelOK||!/^#[\da-f]{6}$/i.test(b.color)||b.capacityLiters!=null&&(!finite(b.capacityLiters)||b.capacityLiters<=0)||kind==='bag'&&b.capacityLiters==null||b.usedLiters!=null&&!nonnegative(b.usedLiters)||b.maxWeightKg!=null&&(!finite(b.maxWeightKg)||b.maxWeightKg<=0)||!Array.isArray(b.items)||b.items.some(id=>typeof id!=='string')||new Set(b.items).size!==b.items.length)throw Error('Проверьте параметры хранилища');}
 function checkStop(s){text(s.name,'название точки');if(!finite(s.lat)||Math.abs(s.lat)>85||!finite(s.lon)||Math.abs(s.lon)>180||!Object.hasOwn(MODES,s.mode)||typeof s.manual!=='boolean')throw Error('Некорректная точка маршрута');if(s.route){const r=s.route;if(!Array.isArray(r.coordinates)||r.coordinates.length<2||r.coordinates.length>200000||r.coordinates.some(p=>!Array.isArray(p)||p.length!==2||!finite(p[0])||Math.abs(p[0])>180||!finite(p[1])||Math.abs(p[1])>85)||r.distanceM!=null&&!nonnegative(r.distanceM)||r.durationS!=null&&!nonnegative(r.durationS))throw Error('Некорректный путь');}}
 function checkEvent(e){text(e.name,'название события');if(!validDate(e.date)||e.time&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(e.time)||!Object.hasOwn(EVENT_TYPES,e.type)||typeof e.notes!=='string'||!Array.isArray(e.attachments)||e.attachments.length>8||e.attachments.some(a=>!a||typeof a.name!=='string'||typeof a.dataUrl!=='string'||a.dataUrl.length>4000000||!/^data:(application\/pdf|image\/(png|jpeg|webp));base64,[A-Za-z0-9+/=]+$/.test(a.dataUrl)))throw Error('Проверьте событие и вложения');}
 function checkTrip(t){text(t.name,'название поездки');if(!validDate(t.startDate)||!validDate(t.endDate)||t.startDate&&t.endDate&&t.endDate<t.startDate||!Number.isInteger(t.participants)||t.participants<1||t.participants>1000||!['planned','active','completed'].includes(t.status)||t.carId!=null&&typeof t.carId!=='string')throw Error('Проверьте даты и участников поездки');unique(t.stops,'точки');unique(t.events,'события');unique(t.bags,'сумки');t.stops.forEach(checkStop);t.events.forEach(checkEvent);t.bags.forEach(checkBag);const ids=t.bags.flatMap(b=>[b.nodeId,...b.items]);if(new Set(ids).size!==ids.length)throw Error('Одна вещь не может находиться в двух сумках одной поездки');}

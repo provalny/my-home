@@ -1,4 +1,6 @@
 import {ensureFurnitureWeight} from './weights.js';
+import {canStore} from './storage-role.js';
+export {canStore} from './storage-role.js';
 import {validateResearch} from '../item-master/model.js';
 import { validateTravel, migrateTravel } from '../travel/model.js';
 import { randomID } from '../uuid.js';
@@ -93,7 +95,7 @@ export function createReadIndex(d) {
   const nodeAddress=n=>path(n,byId,addresses,' → '),catName=id=>path(cats.get(id),cats,categoryNames,' / ');
   const empty=()=>({count:0,items:0,storage:0,purchase:0,current:0});
   const add=(a,b)=>{for(const k of Object.keys(a))a[k]+=b[k];return a;};
-  function own(n) {return !n||n.kind==='room'||n.archived?empty():{count:1,items:['item','furniture'].includes(n.kind)?1:0,storage:['furniture','shelf','drawer','compartment','box'].includes(n.kind)?1:0,purchase:isSection(n)?0:n.purchaseCents??0,current:isSection(n)?0:n.currentCents??0};}
+  function own(n) {return !n||n.kind==='room'||n.archived?empty():{count:1,items:['item','furniture'].includes(n.kind)?1:0,storage:canStore(n)?1:0,purchase:isSection(n)?0:n.purchaseCents??0,current:isSection(n)?0:n.currentCents??0};}
   function sum(id) {
     const stack=[[id,false]],visiting=new Set();
     while(stack.length){
@@ -138,7 +140,7 @@ export function totals(d, nodeId = null) { return createReadIndex(d).totals(node
 export function destinations(d, movingId) {
   const exclude = movingId ? new Set([movingId, ...descendants(d,movingId).map(n => n.id)]) : new Set();
   const moving=getNode(d,movingId);
-  return d.nodes.filter(n => n.kind !== 'item' && !n.archived && !exclude.has(n.id)&&!(isBasicSection(moving)&&isSection(n)&&!n.kitchenModule&&!n.fridgeChamber&&!n.equipmentStorage)).sort((a,b) => address(d,a).localeCompare(address(d,b),'ru'));
+  return d.nodes.filter(n => canStore(n) && !n.archived && !exclude.has(n.id)&&!(isBasicSection(moving)&&isSection(n)&&!n.kitchenModule&&!n.fridgeChamber&&!n.equipmentStorage)).sort((a,b) => address(d,a).localeCompare(address(d,b),'ru'));
 }
 export function record(d, type, node, extra = {}) {
   d.events.push({ id: id(), type, date: new Date().toISOString(), nodeId: node.id, name: node.name, ...extra });
@@ -171,7 +173,7 @@ function preserveContents(d,nodeId,destination) {
 export function move(d, nodeId, parentId) {
   const n = getNode(d,nodeId); const p = getNode(d,parentId);
   if(n?.carCompartment&&getNode(d,n.parentId)?.automobileId)throw Error('Встроенный отсек остаётся в автомобиле. Перемещайте его содержимое');
-  if (!n || n.kind === 'room' || n.archived || !p || p.archived || p.kind === 'item') throw Error('Недопустимое место хранения');
+  if (!n || n.kind === 'room' || n.archived || !p || p.archived || !canStore(p)) throw Error('Недопустимое место хранения');
   if (!destinations(d,nodeId).some(x => x.id === parentId)) throw Error('Нельзя поместить контейнер внутрь самого себя');
   if (n.parentId === parentId) return;
   const affected = [n,...descendants(d,nodeId)].filter(x => !x.archived);
@@ -196,7 +198,7 @@ export function archive(d, nodeId, {reason, date, saleCents = null, together = t
 }
 export function restore(d,nodeId,parentId) {
   const n = getNode(d,nodeId); if (!n?.archived) throw Error('Вещь не в архиве');
-  const p = getNode(d,parentId); if (!p || p.archived || p.kind === 'item' || p.id === n.id || descendants(d,n.id).some(x => x.id === p.id)) throw Error('Выберите действующее место');
+  const p = getNode(d,parentId); if (!p || p.archived || !canStore(p) || p.id === n.id || descendants(d,n.id).some(x => x.id === p.id)) throw Error('Выберите действующее место');
   const group = n.archived.group;
   n.parentId = parentId;
   const restored = [n,...descendants(d,nodeId)].filter(x => x.archived?.group === group);
@@ -226,7 +228,7 @@ export function remove(d,nodeId,{together=true,destination=null}={}) {
 export function removeMany(d,nodeIds,{together=true,destination=UNPLACED_ID}={}) {
   const ids=[...new Set(nodeIds)],byId=new Map(d.nodes.map(n=>[n.id,n]));
   if(!ids.length||ids.some(id=>!byId.has(id)||byId.get(id).kind==='room'))throw Error('Выберите вещи для удаления');
-  if(!together){const parent=byId.get(destination),selected=new Set(ids);if(!parent||parent.archived||parent.kind==='item')throw Error('Выберите место содержимого');for(let p=parent;p;p=byId.get(p.parentId))if(selected.has(p.id))throw Error('Нельзя переносить вещи в удаляемый объект');}
+  if(!together){const parent=byId.get(destination),selected=new Set(ids);if(!parent||parent.archived||!canStore(parent))throw Error('Выберите место содержимого');for(let p=parent;p;p=byId.get(p.parentId))if(selected.has(p.id))throw Error('Нельзя переносить вещи в удаляемый объект');}
   const depth=id=>{let n=byId.get(id),count=0,seen=new Set();while(n?.parentId){if(seen.has(n.id))throw Error('Цикл мест хранения');seen.add(n.id);count++;n=byId.get(n.parentId);}return count;};
   // Process ancestors first. When contents are preserved, explicitly selected
   // children are still deleted rather than silently surviving the bulk action.
@@ -237,7 +239,7 @@ export function recover(d,entryId,parentId) {
   const entry=d.trash?.find(x=>x.id===entryId);
   const parent=getNode(d,parentId);
   if (!entry) throw Error('Объект не найден в корзине');
-  if (!parent || parent.archived || parent.kind==='item') throw Error('Выберите действующее место хранения');
+  if (!parent || parent.archived || !canStore(parent)) throw Error('Выберите действующее место хранения');
   if (entry.nodes.some(n=>getNode(d,n.id)) || entry.furniture.some(f=>allFurniture(d).some(x=>x.id===f.id))) throw Error('Объекты с такими идентификаторами уже существуют');
   const restored=structuredClone(entry.nodes);
   const root=restored.find(n=>n.id===entry.rootId);
@@ -257,6 +259,7 @@ export function reorder(d,nodeId,beforeId) {
 }
 export function newNode(d, props) {
   const parent=getNode(d,props.parentId);if(isBasicSection(props)&&isSection(parent)&&!parent.kitchenModule&&!parent.fridgeChamber)throw Error('Внутри полки или ящика нельзя создавать подполки. Добавьте вещь или контейнер.');
+  if(props.kind!=='room'&&parent&&!canStore(parent))throw Error('Этот объект не используется как хранилище');
   if(isSection(props)&&(props.purchaseCents!=null||props.currentCents!=null))throw Error('У встроенной секции нет собственной стоимости');
   const n = { id: id(), name: '', kind: 'item', parentId: null, categoryId: '', fields: {}, purchaseCents: null, currentCents: null, wear: null, fill: null, condition: 'Хорошее', photo: null, notes: '', acquisition:'existing', purchasedAt: '', expiry: '', warranty: '', quantity: 1, unit: 'шт.', order: d.nodes.length, archived: null, createdAt: new Date().toISOString(), ...props };
   checkAcquisition(n);
@@ -287,6 +290,11 @@ export function updateNode(d,nodeId,props) {
   if(isSection(n)&&!SECTION_KINDS.some(([kind])=>kind===updated.kind))throw Error('Встроенная секция не может стать вещью');
   checkAcquisition(updated);
   validateRarity(updated);
+  if(updated.storageEnabled!=null&&typeof updated.storageEnabled!=='boolean')throw Error('Некорректная настройка хранилища');
+  if(n.kind==='furniture'&&updated.storageEnabled===false&&n.storageEnabled!==false){
+    if(descendants(d,n.id).some(child=>!child.archived&&!isSection(child)))throw Error('Сначала переместите содержимое мебели в другое место. Вещи сохранятся.');
+    for(const child of children(d,n.id).filter(isSection))remove(d,child.id);
+  }
   if (updated.kind === 'room' && n.kind !== 'room' || n.kind === 'room' && updated.kind !== 'room') throw Error('Нельзя превратить вещь в комнату');
   const beforePurchase = n.purchaseCents, beforeCurrent = n.currentCents;
   if (updated.parentId !== n.parentId) move(d,n.id,updated.parentId);
@@ -424,8 +432,8 @@ export function initializeStorage(d){
   // Old nested shelves move up intact; containers and their contents remain intact.
   for(const n of d.nodes.filter(isBasicSection)){let p=getNode(d,n.parentId);if(!isBasicSection(p))continue;const seen=new Set([n.id]);while(isBasicSection(p)&&!seen.has(p.id)){seen.add(p.id);p=getNode(d,p.parentId);}if(p&&!seen.has(p.id))n.parentId=p.id;}
   const add=(parent,props)=>{const n=newNode(d,{...props,parentId:parent.id,autoSection:true,...(parent.demo?{demo:true}:{})});return n;};
-  for(const shape of allFurniture(d)){const root=d.nodes.find(n=>n.furnitureId===shape.id);if(!root||root.archived)continue;
-    if(shape.type==='trailSuv')for(const [key,name]of [['trunk','Багажник'],['cabin','Салон']])if(!children(d,root.id).some(n=>n.carCompartment===key))add(root,{kind:'compartment',name,carCompartment:key});
+  for(const shape of allFurniture(d)){const root=d.nodes.find(n=>n.furnitureId===shape.id);if(!root||root.archived||!canStore(root))continue;
+    if(EXTRA_MODEL_INFO[shape.type]?.vehicleParts)for(const [key,name]of [['trunk','Багажник'],['cabin','Салон']])if(!children(d,root.id).some(n=>n.carCompartment===key))add(root,{kind:'compartment',name,carCompartment:key});
     if(['simCockpit','simCockpitTriple'].includes(shape.type)&&!children(d,root.id).some(n=>n.equipmentStorage))add(root,{kind:'compartment',name:'Внутреннее хранилище',equipmentStorage:true});
     if(EXTRA_MODEL_INFO[shape.type]?.storageSections&&!children(d,root.id).some(n=>n.kind!=='item'))for(let i=0;i<EXTRA_MODEL_INFO[shape.type].storageSections;i++)add(root,{kind:'shelf',name:sectionName('shelf',i+1)});
     if(shape.type==='fridge'){initializeFridge(d,shape,root);}
@@ -577,6 +585,7 @@ export function validate(d, {limitNodes=true}={}) {
     validateStorageLayout(n);
     validateWear(n);
     validateRarity(n);
+    if(n.storageEnabled!=null&&typeof n.storageEnabled!=='boolean')throw Error('Некорректная настройка хранилища');
     for (const key of ['purchaseCents','currentCents']) if (n[key] != null && (!Number.isSafeInteger(n[key]) || n[key] < 0)) throw Error('Некорректная стоимость');
     for (const key of ['fill','wear']) if (n[key] != null && (!Number.isFinite(n[key]) || n[key] < 0 || n[key] > 100)) throw Error('Процент должен быть от 0 до 100');
     if (n.photo && (typeof n.photo !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(n.photo) || n.photo.length > 5000000)) throw Error('Некорректная фотография');
@@ -613,7 +622,7 @@ export function validate(d, {limitNodes=true}={}) {
       if (n.kind !== 'furniture' || inventoryFurnitureLinks.has(n.furnitureId)) throw Error('Мебель на плане связана с несколькими карточками');
       inventoryFurnitureLinks.add(n.furnitureId);
     }
-    if (n.kind !== 'room' && (!ids.has(n.parentId) || byId.get(n.parentId).kind === 'item')) throw Error('Место хранения не найдено');
+    if (n.kind !== 'room' && (!ids.has(n.parentId) || byId.get(n.parentId).kind === 'item'||!n.archived&&!canStore(byId.get(n.parentId)))) throw Error('Место хранения не найдено или отключено');
     if (!n.archived && n.parentId && byId.get(n.parentId)?.archived) throw Error('Действующая вещь внутри архива');
     readIndex.address(n);
   }

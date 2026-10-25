@@ -1,4 +1,4 @@
-// swiftc InventoryStore.swift InventoryLANServer.swift ItemMasterHTTP.swift test-inventory-lan.swift -o /tmp/life-lan-checks
+// swiftc InventoryStore.swift InventoryLANServer.swift ItemMasterHTTP.swift ItemMasterTavily.swift test-inventory-lan.swift -o /tmp/life-lan-checks
 // Uses a disposable store only. --serve <web-root> <fixture> keeps a QA server alive.
 import Foundation
 import CoreImage
@@ -84,6 +84,7 @@ import CoreImage
         }
         func code(_ path:String) throws -> Int { try request(path).0 }
         check(try code("/api/state") == 401,"Inventory must require pairing")
+        check(try request("/api/item-master/connection",method:"POST",body:["action":"status"]).0 == 401,"Connection status requires pairing")
         check(try request("/api/item-master/search",method:"POST",body:["input":["name":"Thing"],"domains":[]]).0 == 401,"Free search must require pairing")
         check(try request("/api/item-master/page",method:"POST",body:["url":"https://example.com"]).0 == 401,"Item search must require pairing")
         check(try request("/api/pair",method:"POST",body:["key":"wrong"]).0 == 401)
@@ -96,6 +97,8 @@ import CoreImage
         check(try request("/api/item-master/page",method:"POST",body:["url":"https://example.com"],cookie:cookie,originOverride:"http://evil.test").0 == 403,"Item search must check origin")
         check(try request("/api/item-master/search",method:"POST",body:["input":["name":"Thing"],"domains":[]],cookie:cookie,originOverride:"http://evil.test").0 == 403,"Free search must check origin")
         check(try request("/api/item-master/search",method:"POST",body:["input":["name":""],"domains":[]],cookie:cookie).0 == 502,"Free search rejects missing names without a network request")
+        check(try request("/api/item-master/connection",method:"POST",body:["action":"connect","apiKey":"tvly-test-not-a-real-key"],cookie:cookie).0 == 403,"A phone must never transmit credentials over LAN HTTP")
+        check(try request("/api/item-master/connection",method:"POST",body:["action":"disconnect"],cookie:cookie).0 == 403,"Connection management belongs to Mac")
         check(try request("/api/item-master/page",method:"POST",body:["url":"https://127.0.0.1"],cookie:cookie).0 == 502,"Item search must reject local targets asynchronously")
         check(loaded.0 == 200)
         let payload = try JSONSerialization.jsonObject(with:loaded.1) as! [String:Any]

@@ -6,6 +6,7 @@ import { WORKSPACE_BUILDERS } from './workspace-models.js';
 import { IKEA_SHELF_BUILDERS } from './ikea-shelves.js';
 import { buildParrotCage } from './parrot-cage.js';
 import { buildTrailSuv } from './trail-suv.js';
+import { buildVestaSwCross } from './vesta-sw-cross.js';
 import { BAG_BUILDERS } from './luggage-models.js';
 import { EQUIPMENT_BUILDERS } from './equipment.js';
 import { EXTRA_BUILDERS } from './furniture-extra.js';
@@ -80,6 +81,7 @@ const builders = {
   ...IKEA_SHELF_BUILDERS,
   parrotCage:buildParrotCage,
   trailSuv:buildTrailSuv,
+  vestaSwCross2019:buildVestaSwCross,
   ...BAG_BUILDERS,
   rug({ size = [2, 1.4], color = '#3b4a66' }) {
     const g = group(

@@ -1,7 +1,8 @@
 // Dimensions are metres: width (X), height (Y), depth (Z). IDs stay stable in saved plans.
 import { IKEA_STORAGE } from '../inventory/ikea-storage.js';
 export const EXTRA_MODEL_INFO = {
-  trailSuv:{name:'Экспедиционный внедорожник',size:[2.12,2.35,4.45],category:'other',area:'Балкон и гараж',color:'#278cb7'},
+  trailSuv:{name:'Экспедиционный внедорожник',size:[2.12,2.35,4.45],category:'other',area:'Балкон и гараж',color:'#278cb7',vehicleParts:['frontLeft','frontRight','tailgate','hood']},
+  vestaSwCross2019:{name:'Lada Vesta SW Cross · 2019',size:[2.045,1.537,4.424],category:'other',area:'Балкон и гараж',color:'#d65b24',fixedSize:true,exportFile:'lada-vesta-sw-cross-2019.glb',vehicleParts:['frontLeft','frontRight','rearLeft','rearRight','tailgate','hood']},
   duffel60:{name:'Багажная сумка · 60 л',size:[.66,.44,.37],category:'other',area:'Сумки и рюкзаки',color:'#637653',capacityLiters:60,fixedSize:true,exportFile:'duffel-60l.glb'},
   backpack20:{name:'Рюкзак · 20 л',size:[.31,.48,.25],category:'other',area:'Сумки и рюкзаки',color:'#477e94',capacityLiters:20,fixedSize:true,exportFile:'backpack-20l.glb'},
   travelBag30:{name:'Дорожная сумка · 30 л',size:[.50,.39,.29],category:'other',area:'Сумки и рюкзаки',color:'#b66c50',capacityLiters:30,fixedSize:true,exportFile:'travel-bag-30l.glb'},

@@ -155,6 +155,15 @@ final class InventoryApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKU
     func receive(_ m: [String: Any]) {
         do {
             switch m["type"] as? String {
+            case "inventoryItemMasterConnection":
+                ItemMasterHTTP.tavily.connection(action: m["action"] as? String ?? "status", apiKey: m["apiKey"] as? String ?? "") { result in
+                    DispatchQueue.main.async {
+                        switch result {
+                        case .success(let value): self.host.reply(to: m, value)
+                        case .failure(let error): self.host.reply(to: m, ["error": error.localizedDescription])
+                        }
+                    }
+                }
             case "inventoryItemMasterSearch":
                 ItemMasterHTTP.search(m["input"] as? [String: Any] ?? [:], domains: m["domains"] as? [String] ?? []) { result in
                     DispatchQueue.main.async {

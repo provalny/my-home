@@ -4,7 +4,7 @@ import { KITCHEN_MODULE_TYPES } from './ikea-storage.js';
 // One resolver for every inventory view, including location pickers.
 export const FURNITURE_GLYPHS = {
   duffel60:'bag',backpack20:'backpack',travelBag30:'bag',
-  trailSuv:'car',
+  trailSuv:'car',vestaSwCross2019:'car',
   woodShelfLow:'rack',parrotCage:'pets',
   kallaxShelf:'shelf',ivarRack:'rack',
   officeChair:'furniture',gamingDesktop:'games',monitorStand:'tv',desktopMonitor:'tv',smallDesk:'desk',neonPorsche:'car',ikeaFloorLamp:'bulb',whiteSpeaker:'film',bookcaseTall:'shelf',bookcaseMedium:'shelf',

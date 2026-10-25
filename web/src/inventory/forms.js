@@ -161,6 +161,8 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   const name = input(starting.name, { required: true, maxlength: 200, placeholder: family==='item'?'Например, футболка Nike':'Например, полка для одежды', 'aria-label': 'Название' });
   const kind = select(Object.entries(M.KINDS).filter(([key]) => family==='item'?key==='item':!['room','item'].includes(key)), starting.kind || 'item', { 'aria-label': 'Тип объекта' });
   kind.disabled = Boolean(existing?.furnitureId || existing && M.descendants(doc, existing.id).length);
+  const notStorage=input('',{type:'checkbox','aria-label':'Не быть хранилищем',checked:starting.storageEnabled===false});
+  const storageRole=h('label.if-storage-role',notStorage,'Не быть хранилищем');
   const location = createLocationPicker({ getDoc, value: starting.parentId, movingId: existing?.id, required: true, label: 'Место хранения' });
   const categoryOptions = [['', 'Без категории'], ...doc.categories.slice().sort((a, b) => M.categoryName(doc, a.id).localeCompare(M.categoryName(doc, b.id), 'ru')).map(c => [c.id, M.categoryName(doc, c.id)])];
   const category = select(categoryOptions, starting.categoryId, { 'aria-label': 'Категория' });
@@ -269,7 +271,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     purchaseField.querySelector('label').textContent = batch ? 'Цена покупки партии, ₽' : 'Цена покупки, ₽';
     currentField.querySelector('label').textContent = batch ? 'Текущая оценка партии, ₽' : 'Текущая оценка, ₽';
     const primary=[], extras=[purchaseField,currentField];
-    if(isStorage){storageBasics.replaceChildren(kindField,fillField);extras.push(categoryField,field('Состояние',condition));}
+    if(isStorage){fillField.hidden=kind.value==='furniture'&&notStorage.checked;storageBasics.replaceChildren(kindField,fillField,...(kind.value==='furniture'?[storageRole]:[]));extras.push(categoryField,field('Состояние',condition));}
     else{storageBasics.replaceChildren(categoryField,field('Состояние',condition));}
     if(hasRarity({...starting,kind:kind.value}))storageBasics.append(rarityField);
     if(batch||Number(starting.quantity)>1)primary.push(field('Количество',quantity),field('Единица',unit));
@@ -284,15 +286,16 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
       extra.open=true;
     }else{purchased.required=false;purchasedField.querySelector('label').textContent='Дата покупки (если известна)';extras.push(purchasedField);}
     primaryGrid.replaceChildren(...primary);extraGrid.replaceChildren(...extras);
+    const storageHint=dialog.querySelector('.if-storage-hint');if(storageHint)storageHint.textContent=kind.value==='furniture'&&notStorage.checked?'Мебель или техника без хранения вещей':'Полка, ящик, коробка или мебель, внутри которых хранятся вещи';
     heading.textContent=family==='item'?title:kind.value==='furniture'?(existing?'Редактировать мебель или технику':'Добавить мебель или технику'):title;
     dialog.setAttribute('aria-label',heading.textContent);
-    submit.textContent=existing?'Сохранить':family==='item'?'Создать вещь':'Создать место';
+    submit.textContent=existing?'Сохранить':family==='item'?'Создать вещь':kind.value==='furniture'&&notStorage.checked?'Создать объект':'Создать место';
     refreshRarity();
   }
   renderFields();
   function state() {
     captureAttributes();
-    return { name: name.value, kind: kind.value, parentId: location.value, categoryId: category.value, rarity:rarity.value||null, collectionIds:collections.value, acquisition: acquisition.value,
+    return {storageEnabled:!notStorage.checked, name: name.value, kind: kind.value, parentId: location.value, categoryId: category.value, rarity:rarity.value||null, collectionIds:collections.value, acquisition: acquisition.value,
       fields: { ...allFields }, photo: photoValue, purchaseText: purchase.value, currentText: current.value,
       wearMode:wearMode.value,usefulLifeMonths:usefulLife.value,wear: wear.value, fill: fill.value, condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: quantity.value, unit: unit.value, notes: notes.value };
   }
@@ -305,7 +308,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     starting = structuredClone(base); allFields = { ...(base.fields || {}) }; attrInputs = {}; photoValue = base.photo || null;
     collections.value=base.collectionIds||[];
     name.value = base.name || ''; kind.value = base.kind || 'item'; location.value = base.parentId || ''; category.value = base.categoryId || '';
-    rarity.value=base.rarity||'';
+    rarity.value=base.rarity||'';notStorage.checked=base.storageEnabled===false;
     acquisition.value = base.acquisition || 'existing'; purchased.value = base.purchasedAt || ''; condition.value = base.condition || 'Хорошее';
     purchase.value = base.purchaseCents == null ? '' : (base.purchaseCents / 100).toFixed(2); current.value = base.currentCents == null ? '' : (base.currentCents / 100).toFixed(2);
     wearMode.value=resolvedWearMode(base);usefulLife.value=base.usefulLifeMonths??'';
@@ -324,7 +327,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     dirty = restoredDirty || JSON.stringify(state()) !== cleanState;
     if (dirty) persistDraft(); else { removeDraft(); draftNote.textContent = ''; }
   }
-  function setSavingState() { if (!submit) return; submit.disabled = saving || photoLoading; more.disabled = saving || photoLoading; closeButton.disabled = saving; submit.textContent = photoLoading ? 'Обработка фото…' : saving ? 'Сохранение…' : existing ? 'Сохранить' : family==='item'?'Создать вещь':'Создать место'; }
+  function setSavingState() { if (!submit) return; submit.disabled = saving || photoLoading; more.disabled = saving || photoLoading; closeButton.disabled = saving; submit.textContent = photoLoading ? 'Обработка фото…' : saving ? 'Сохранение…' : existing ? 'Сохранить' : family==='item'?'Создать вещь':kind.value==='furniture'&&notStorage.checked?'Создать объект':'Создать место'; }
   function finishClose() { if (closed) return; closed = true; dialog.close(); dialog.remove(); onClose?.(); }
   function requestClose() {
     if (saving) return;
@@ -336,6 +339,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   form.addEventListener('input', () => {refreshRarity();track();});
   form.addEventListener('change', () => {refreshRarity();track();});
   category.addEventListener('change', () => { renderFields(); track(); });
+  notStorage.addEventListener('change',()=>{renderFields();track();});
   kind.addEventListener('change', () => { renderFields(); track(); });
   acquisition.addEventListener('change', () => { renderFields(); track(); });
   dialog.addEventListener('cancel', e => { e.preventDefault(); requestClose(); });
@@ -350,7 +354,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
       if (acquisition.value === 'purchase' && !purchased.value) { purchased.focus(); throw Error('Для новой покупки укажите дату покупки.'); }
       if (!form.reportValidity()) return;
       captureAttributes();
-      const props = { name: name.value.trim(), kind: kind.value, parentId: location.value, categoryId: category.value, rarity:hasRarity({...starting,kind:kind.value})?rarity.value||null:null, collectionIds:collections.value, acquisition: acquisition.value,
+      const props = {...(kind.value==='furniture'?{storageEnabled:!notStorage.checked}:{}), name: name.value.trim(), kind: kind.value, parentId: location.value, categoryId: category.value, rarity:hasRarity({...starting,kind:kind.value})?rarity.value||null:null, collectionIds:collections.value, acquisition: acquisition.value,
         fields: Object.fromEntries(Object.entries(allFields).map(([key, value]) => [key, String(value).trim()]).filter(([, value]) => value)), photo: photoValue,
         purchaseCents: M.parseMoney(purchase.value), currentCents: M.parseMoney(current.value), wearMode:wearMode.value,usefulLifeMonths:usefulLife.value===''?null:Number(usefulLife.value), wear: wear.value === '' ? null : Number(wear.value), fill: fill.value === '' ? null : Number(fill.value),
         condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: Number(quantity.value), unit: unit.value, notes: notes.value.trim() };

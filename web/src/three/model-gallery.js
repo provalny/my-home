@@ -11,6 +11,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { trailOpeningClips } from './trail-suv.js';
 import { BAG_TYPES,BAG_COLORS } from './luggage-models.js';
 
+const isCar=type=>Boolean(EXTRA_MODEL_INFO[type]?.vehicleParts);
+
 function stage(canvas) {
   const renderer=new THREE.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:true});
   renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.5));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
@@ -27,17 +29,18 @@ function stage(canvas) {
   function clear(){if(!model)return;scene.remove(model);disposeObject(model);model=null;animators=[];}
   function show(type,options={}){
     clear();model=buildFurniture([{id:'preview',type,pos:[0,0],...options}]);
-    if(type==='trailSuv'&&!studio){const generator=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();studio=generator.fromScene(room,.05);room.dispose();generator.dispose();}
-    scene.environment=type==='trailSuv'?studio.texture:null;scene.environmentIntensity=.25;
-    ambient.intensity=type==='trailSuv'?.6:2;
-    key.color.set(type==='trailSuv'?'#ffaea1':'#fff1d8');key.intensity=type==='trailSuv'?4.5:4;key.position.set(type==='trailSuv'?-3:4,6,4);
-    rim.color.set(type==='trailSuv'?'#5edcff':'#8faeff');rim.intensity=type==='trailSuv'?3:1.5;rim.position.set(type==='trailSuv'?4:-3,3,-4);
-    renderer.toneMappingExposure=type==='trailSuv'?1:1.25;
+    if(isCar(type)&&!studio){const generator=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();studio=generator.fromScene(room,.05);room.dispose();generator.dispose();}
+    scene.environment=isCar(type)?studio.texture:null;scene.environmentIntensity=.25;
+    ambient.intensity=isCar(type)?.6:2;
+    key.color.set(isCar(type)?'#ffaea1':'#fff1d8');key.intensity=isCar(type)?4.5:4;key.position.set(isCar(type)?-3:4,6,4);
+    rim.color.set(isCar(type)?'#5edcff':'#8faeff');rim.intensity=isCar(type)?3:1.5;rim.position.set(isCar(type)?4:-3,3,-4);
+    renderer.toneMappingExposure=isCar(type)?1:1.25;
+    if(type==='vestaSwCross2019'){key.color.set('#fff2df');rim.color.set('#bedcff');ambient.intensity=1.0;renderer.toneMappingExposure=1.15;}
     animators=collectFurnitureAnimators(model);time=0;last=null;
     const bounds=new THREE.Box3().setFromObject(model),size=bounds.getSize(new THREE.Vector3()),scale=2.2/Math.max(size.x,size.y,size.z);
     model.scale.setScalar(scale);scene.add(model);
     model.traverse(o=>o.userData.vehicle?.setLightingScale(scale));
-    const height=size.y*scale;if(type==='trailSuv')camera.position.set(2.75,1.72,3.35);else camera.position.set(3.25,2.25,type==='simCockpitTriple'?-3.75:3.75);camera.lookAt(0,height*0.45,0);return height;
+    const height=size.y*scale;if(isCar(type))camera.position.set(2.75,1.72,3.35);else camera.position.set(3.25,2.25,type==='simCockpitTriple'?-3.75:3.75);camera.lookAt(0,height*0.45,0);return height;
   }
   function resize(width,height){renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();}
   return {renderer,scene,camera,show,resize,get exporting(){return exporting;},bag(){let bag=null;model?.traverse(o=>{if(o.userData.bag)bag=o.userData.bag;});return bag;},vehicle(){let car=null;model?.traverse(o=>{if(o.userData.vehicle)car=o.userData.vehicle;});return car;},async exportModel(){
@@ -59,13 +62,13 @@ export function openModelGallery({root=null,onChoose=null}={}) {
   const updateSwatches=()=>swatches.forEach(([color,button])=>button.setAttribute('aria-pressed',String(color===bagColor.value)));
   bagColor.oninput=()=>{bagColors[type]=bagColor.value;viewer?.bag()?.setColor(bagColor.value);updateSwatches();};
   for(const [color,label]of BAG_COLORS){const button=h('button.mg-swatch',{type:'button','aria-label':label,title:label,style:{backgroundColor:color},onclick:()=>{bagColor.value=color;bagColor.oninput();}});swatches.push([color,button]);bagControls.append(button);}
-  const carOpen={},carColor=h('input',{type:'color',value:'#278cb7','aria-label':'Цвет внедорожника'}),carDirt=h('input',{type:'range',min:0,max:100,value:45,'aria-label':'Грязь на кузове'});
+  let carOpen={};const carStates=new Map(),carToggles=new Map(),carColor=h('input',{type:'color',value:'#278cb7','aria-label':'Цвет кузова'}),carDirt=h('input',{type:'range',min:0,max:100,value:45,'aria-label':'Грязь на кузове'});
   const carLights=h('input',{type:'checkbox',checked:true,'aria-label':'Фары',onchange:e=>viewer?.vehicle()?.setHeadlights(e.target.checked)});
   const carOptions=()=>({color:carColor.value,dirt:Number(carDirt.value)/100,vehicleOpen:{...carOpen},headlights:carLights.checked});
   const carControls=h('div.mg-car-controls',h('label','Цвет кузова',carColor),h('label','Грязь на кузове',carDirt));
-  for(const [key,label]of [['frontLeft','Передняя левая'],['frontRight','Передняя правая'],['tailgate','Багажник'],['hood','Капот']]){
+  for(const [key,label]of [['frontLeft','Передняя левая'],['frontRight','Передняя правая'],['rearLeft','Задняя левая'],['rearRight','Задняя правая'],['tailgate','Багажник'],['hood','Капот']]){
     const toggle=h('input',{type:'checkbox','aria-label':label,onchange:e=>{carOpen[key]=e.target.checked?1:0;viewer?.vehicle()?.animateOpen(key,carOpen[key]);}});
-    carControls.append(h('label',toggle,label));
+    const row=h('label',toggle,label);carToggles.set(key,{toggle,row});carControls.append(row);
   }
   carColor.oninput=()=>viewer?.vehicle()?.setColor(carColor.value);carDirt.oninput=()=>viewer?.vehicle()?.setDirt(Number(carDirt.value)/100);
   carControls.append(h('label',carLights,'Фары'));
@@ -74,12 +77,14 @@ export function openModelGallery({root=null,onChoose=null}={}) {
   }},'Скачать модель GLB');carControls.append(exportCar);
   const types=Object.keys(EXTRA_MODEL_INFO),buttons=new Map(),requested=new URLSearchParams(location.search).get('model');let type=types.includes(requested)?requested:types[0],viewer=null,controls=null,frame=null,observer=null,closed=false;
   const close=()=>{if(closed)return;closed=true;window.removeEventListener('pagehide',close);cancelAnimationFrame(frame);observer?.disconnect();controls?.dispose();viewer?.dispose();if(!standalone)host.close();host.remove();};
-  const add=h('button.mg-btn.primary',{type:'button',onclick:()=>{const selected=type,options=BAG_TYPES.includes(type)?{color:bagColor.value}:type==='trailSuv'?carOptions():type==='tireStack'?{layout:selectLayout.value}:type==='parrotCage'?{parrotCount:Number(selectParrots.value)}:{};close();onChoose?.(selected,options);}},'Разместить на плане');add.hidden=!onChoose;
-  function select(next){if(viewer?.exporting)return;type=next;const info=EXTRA_MODEL_INFO[type];name.textContent=info.name;note.textContent=type==='woodShelfLow'?'Деревянный стеллаж высотой 120 см: три полки и сплошная верхняя крышка в цвет дерева.':type==='parrotCage'?'Один или два попугая прыгают между жердочками. Иногда появляются ноты, а изредка — %@?$.':type==='kallaxShelf'?'Сетка 4 × 4: 16 равных квадратных отсеков. У каждой ячейки своё хранение; содержимое появляется по заполненности.':type==='ivarRack'?'Открытый сосновый стеллаж с пятью досками, четырьмя зонами хранения и задней крестовиной. Содержимое зависит от заполненности.':type==='kitchenBase'?'Тот же нижний ряд кухни, без верхних шкафчиков. Столешница — 92 см; высота 116 см указана вместе со смесителем.':type==='hoodCabinet'?'Отдельный верхний шкаф с полками и встроенной вытяжкой. Этот тип также доступен для верхних модулей кухонного гарнитура.':type==='neonPorsche'?'Сине-розовый свет. В редакторе привязывается к ближайшей стене; высоту можно задать вручную.':type==='gamingDesktop'?'Единый RGB-комплект с привязкой к поверхности. Размер коврика — 80 × 35 см.':type==='ikeaFloorLamp'?'Высокий светящийся торшер в стиле IKEA, высота 160 см.':type==='printerCabinet'?'Столешница 50 × 50 см, по ширине обеих моделей принтера. Высота — 76 см. Внутри две полки.':['printer3dOpen','printer3dEnclosed'].includes(type)?'Ширина и глубина — 50 см. Установите на тумбочку высотой 76 см; для пола задайте высоту размещения 0.':info.fixedSize?'Один размер корпуса. Характеристики доступны в редакторе и карточке.':['simCockpit','simCockpitTriple'].includes(type)?'Кокпит без ПК, с внутренним хранилищем. Комплектация не меняет внешний вид.':type==='crossover'?'Универсальный кроссовер без марки. Модель для будущего раздела автомобиля.':'Модель для редактора квартиры. Размеры и цвет можно изменить.';selectLayout.hidden=type!=='tireStack';
+  const add=h('button.mg-btn.primary',{type:'button',onclick:()=>{const selected=type,options=BAG_TYPES.includes(type)?{color:bagColor.value}:isCar(type)?carOptions():type==='tireStack'?{layout:selectLayout.value}:type==='parrotCage'?{parrotCount:Number(selectParrots.value)}:{};close();onChoose?.(selected,options);}},'Разместить на плане');add.hidden=!onChoose;
+  function select(next){if(viewer?.exporting)return;if(isCar(type)&&viewer?.vehicle())carStates.set(type,carOptions());type=next;const info=EXTRA_MODEL_INFO[type];
+    if(isCar(type)){const state=carStates.get(type)||{color:info.color,dirt:type==='vestaSwCross2019'?0:.45,headlights:true,vehicleOpen:{}};carColor.value=state.color;carDirt.value=state.dirt*100;carLights.checked=state.headlights;carOpen={...state.vehicleOpen};for(const [key,{toggle,row}]of carToggles){row.hidden=!info.vehicleParts.includes(key);toggle.checked=Boolean(carOpen[key]);}}
+    name.textContent=info.name;note.textContent=type==='woodShelfLow'?'Деревянный стеллаж высотой 120 см: три полки и сплошная верхняя крышка в цвет дерева.':type==='parrotCage'?'Один или два попугая прыгают между жердочками. Иногда появляются ноты, а изредка — %@?$.':type==='kallaxShelf'?'Сетка 4 × 4: 16 равных квадратных отсеков. У каждой ячейки своё хранение; содержимое появляется по заполненности.':type==='ivarRack'?'Открытый сосновый стеллаж с пятью досками, четырьмя зонами хранения и задней крестовиной. Содержимое зависит от заполненности.':type==='kitchenBase'?'Тот же нижний ряд кухни, без верхних шкафчиков. Столешница — 92 см; высота 116 см указана вместе со смесителем.':type==='hoodCabinet'?'Отдельный верхний шкаф с полками и встроенной вытяжкой. Этот тип также доступен для верхних модулей кухонного гарнитура.':type==='neonPorsche'?'Сине-розовый свет. В редакторе привязывается к ближайшей стене; высоту можно задать вручную.':type==='gamingDesktop'?'Единый RGB-комплект с привязкой к поверхности. Размер коврика — 80 × 35 см.':type==='ikeaFloorLamp'?'Высокий светящийся торшер в стиле IKEA, высота 160 см.':type==='printerCabinet'?'Столешница 50 × 50 см, по ширине обеих моделей принтера. Высота — 76 см. Внутри две полки.':['printer3dOpen','printer3dEnclosed'].includes(type)?'Ширина и глубина — 50 см. Установите на тумбочку высотой 76 см; для пола задайте высоту размещения 0.':info.fixedSize?'Один размер корпуса. Характеристики доступны в редакторе и карточке.':['simCockpit','simCockpitTriple'].includes(type)?'Кокпит без ПК, с внутренним хранилищем. Комплектация не меняет внешний вид.':type==='crossover'?'Универсальный кроссовер без марки. Модель для будущего раздела автомобиля.':'Модель для редактора квартиры. Размеры и цвет можно изменить.';selectLayout.hidden=type!=='tireStack';
     const dims=extraDimensions({type,layout:selectLayout.value});dimensions.textContent=`${dims.map(n=>Math.round(n*100)).join(' × ')} см · ширина × высота × глубина`;
     for(const [key,b]of buttons)b.setAttribute('aria-pressed',String(key===type));
     selectParrots.hidden=type!=='parrotCage';
-    carControls.hidden=type!=='trailSuv';
+    carControls.hidden=!isCar(type);
     bagControls.hidden=!BAG_TYPES.includes(type);
     if(BAG_TYPES.includes(type)){
       bagColor.value=bagColors[type]||info.color;updateSwatches();bagControls.append(exportCar);
@@ -87,7 +92,8 @@ export function openModelGallery({root=null,onChoose=null}={}) {
       dimensions.textContent=`${info.capacityLiters} л · ${dims.map(n=>Math.round(n*100)).join(' × ')} см с ручками`;
     }else carControls.append(exportCar);
     if(type==='trailSuv')note.textContent='Внедорожник по референсу: белая крыша, две байдарки, силовой бампер с лебёдкой и внедорожные колёса. Двери, багажник и капот открываются плавно. Фары освещают землю; сквозь тонированные стёкла виден салон. Внутри — отдельное хранение вещей.';
-    if(viewer){const height=viewer.show(type,{layout:selectLayout.value,parrotCount:Number(selectParrots.value),...(BAG_TYPES.includes(type)?{color:bagColor.value}:type==='trailSuv'?carOptions():{})});controls.target.set(0,height*0.45,0);controls.update();viewer.render();}
+    if(type==='vestaSwCross2019'){note.textContent='Lada Vesta SW Cross 2019: дорестайлинговый универсал с обвесом Cross, рейлингами и двухцветными дисками. Открываются четыре двери, капот и багажник. Есть салон, смена цвета, фары и дорожная пыль.';dimensions.textContent='442 × 179 × 154 см · длина × ширина кузова × высота; с зеркалами — 205 см';}
+    if(viewer){const height=viewer.show(type,{layout:selectLayout.value,parrotCount:Number(selectParrots.value),...(BAG_TYPES.includes(type)?{color:bagColor.value}:isCar(type)?carOptions():{})});controls.target.set(0,height*0.45,0);controls.update();viewer.render();}
   }
   selectLayout.onchange=()=>select(type);
   selectParrots.onchange=()=>select(type);

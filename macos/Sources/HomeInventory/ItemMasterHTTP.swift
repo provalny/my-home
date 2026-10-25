@@ -6,6 +6,8 @@ enum ItemMasterHTTP {
     private static let workers = DispatchQueue(label: "life-assistant.item-master", qos: .utility, attributes: .concurrent)
     private static let slots = DispatchSemaphore(value: 3)
 
+    static let tavily = ItemMasterTavily()
+
     static func search(_ input: [String: Any], domains: [String], completion: @escaping (Result<[String: Any], Error>) -> Void) {
         var values: [String] = []
         for (key, length) in [("name", 200), ("brand", 100), ("model", 100)] {
@@ -20,29 +22,15 @@ enum ItemMasterHTTP {
             "include_answer": false, "include_raw_content": "markdown", "include_images": false, "auto_parameters": false]
         workers.async {
             guard slots.wait(timeout: .now()) == .success else { completion(.failure(failure("Дождитесь завершения текущего запроса"))); return }
-            var request = URLRequest(url: URL(string: "https://api.tavily.com/search")!)
-            request.httpMethod = "POST"; request.timeoutInterval = 35
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("keyless", forHTTPHeaderField: "X-Tavily-Access-Mode")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil; configuration.urlCache = nil
-            configuration.timeoutIntervalForResource = 40
-            let session = URLSession(configuration: configuration)
-            session.dataTask(with: request) { data, response, error in
-                defer { slots.signal(); session.finishTasksAndInvalidate() }
-                guard error == nil, let response = response as? HTTPURLResponse, response.url?.host == "api.tavily.com" else {
-                    completion(.failure(failure("Сервис поиска не ответил. Проверка не завершена."))); return
+            tavily.authorize { authorization in
+                switch authorization {
+                case .failure(let error): slots.signal(); completion(.failure(error))
+                case .success(let key):
+                    ItemMasterTavily.request("search", key: key, body: body) { result in
+                        slots.signal(); completion(result)
+                    }
                 }
-                guard response.statusCode == 200 else {
-                    let limited = [402, 429, 432, 433].contains(response.statusCode)
-                    completion(.failure(failure(limited ? "Достигнут лимит бесплатного поиска. Попробуйте позже. Платный поиск не включён." : "Бесплатный поиск временно недоступен. Попробуйте позже или добавьте ссылку на товар."))); return
-                }
-                guard let data, data.count <= 2_000_000, let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    completion(.failure(failure("Не удалось прочитать ответ поиска"))); return
-                }
-                completion(.success(result))
-            }.resume()
+            }
         }
     }
 

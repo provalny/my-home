@@ -9,6 +9,7 @@ import { itemWear, validateWear, resolvedWearMode, wearSchedule } from './wear.j
 import './workspace.css';
 import { openItemForm, createLocationPicker } from './forms.js';
 import { h, openMenu } from '../ui/dom.js';
+import { bindStorageDrag } from './storage-drag.js';
 import { icon } from '../ui/icons.js';
 import { call, post, incoming, isNative } from '../bridge.js';
 import { normalize } from '../config.js';
@@ -21,6 +22,7 @@ import { awardToday, calculateAwards, syncAwards } from './awards.js';
 import { renderAwards } from './awards-view.js';
 import { ROOM_ICONS, setRoomIcon } from './room-icons.js';
 import { renderRoomPreviews } from '../three/room-previews.js';
+import {renderCarPreviews} from '../three/car-previews.js';
 import { APP_ICONS, appIconPath } from './app-icons.js';
 import { roomPresentationForm } from './room-form.js';
 import { roomColor } from './room-types.js';
@@ -207,7 +209,7 @@ export async function bootInventory(root) {
       next.revision=(doc.revision || 0)+1;
       rememberCategoryIcons(next);syncAwards(next,nativeSettings,{now:new Date().toISOString(),previous:restore?null:doc,visitDay:document.hidden?null:awardToday()});
       M.validate(next); M.listSpaces(next).forEach(s=>normalize(s.plan)); await persist(next,restore);
-      if(place&&!M.getNode(next,place)){let parent=M.getNode(doc,place);while(parent&&!M.getNode(next,parent.id))parent=M.getNode(doc,parent.parentId);place=parent?.id||null;}
+      if(place&&!M.canStore(M.getNode(next,place))){let parent=M.getNode(doc,place);while(parent&&!M.canStore(M.getNode(next,parent.id)))parent=M.getNode(doc,parent.parentId);place=parent?.id||null;focusId=null;selectedSection=null;}
       if(historyStep)history.complete(historyStep==='redo');
       else if(undoable)history.record(doc,{...(action?{label:action,section:actionSection}:describeAction(doc,next,actionSection)),spaceId:activeSpaceId},next);
       doc=next;if(!M.getSpace(doc,activeSpaceId)){activeSpaceId=M.PRIMARY_SPACE_ID;localStorage.setItem('iv:active-space',activeSpaceId);sceneMemory=null;}readIndex=null;failedAction=null;alertBar.hidden=true;
@@ -234,7 +236,9 @@ export async function bootInventory(root) {
   const currentPlace = () => M.getNode(doc,place) || activeRooms()[0] || M.getNode(doc,M.UNPLACED_ID) || doc.nodes.find(n=>n.kind==='room');
   function rememberSection(){sectionState.set(view,{spaceId:activeSpaceId,place,query,category,collection,condition,roomFilter,sort,detailId,scroll:content.scrollTop});}
   function go(page){rememberSection();locatedId=null;view=page;const saved=sectionState.get(page);if(page==='space'&&saved?.spaceId&&saved.spaceId!==activeSpaceId)selectSpace(saved.spaceId);({place=null,query='',category='',collection='',condition='',roomFilter='',sort='name',detailId=null}=saved||{});if(page==='unplaced')place=M.UNPLACED_ID;searchInput.value=query;selected.clear();draw();content.scrollTop=saved?.scroll||0;if(page==='personal-metrics')personalMetrics.maybePrompt();recordAwardVisit();}
-  const open = n => {if(!n)return;if(n.kind==='item'){details(n);return;}if(automobile.openNode(n.id)){go('automobile');return;}followSpace(n);
+  const open = n => {if(!n)return;if(!M.canStore(n)){details(n);return;}
+    if(view==='unplaced'){place=n.id;selected.clear();detailId=null;detailsPane.hidden=true;draw(true);return;}
+    if(automobile.openNode(n.id)){go('automobile');return;}followSpace(n);
     locatedId=null;
     if(isBasicSection(n)){const parent=M.getNode(doc,n.parentId);if(world&&view==='space'&&spaceMode==='3d'){if(parent&&focusId!==parent.id)enterStorage(parent);selectStorageSection(n.id);return;}rememberSection();view='space';place=n.id;focusId=parent?.id||null;selectedSection=n.id;focusTrail=[];draw();return;}
     if(world&&view==='space'&&spaceMode==='3d'&&!n.virtual){
@@ -297,9 +301,19 @@ export async function bootInventory(root) {
   }
 
   function drawNav() {
-    nav.replaceChildren(...[['overview','Общая сводка','home'],['space','Пространство','map'],['catalog','Все вещи','box'],['item-master','Мастер предметов','sparkles'],['categories','Категории','list'],['unplaced','Без места','unplaced'],['archive','Архив','folder'],['editor','Редактор пространства','sliders']].map(([key,label,glyph])=>{const b=button(label,()=>key==='editor'?openEditor():go(key),glyph,view===key?'active':'');if(key==='editor')b.append(h('span.iv-new','NEW'));return b;}),button('Мониторинг квартиры',()=>go('monitoring'),'homeassistant',view==='monitoring'?'active':''),automobileNav(),button('Походы и отпуска',()=>go('travel'),'map',view==='travel'?'active':''),button('Личные метрики',()=>go('personal-metrics'),'activity',view==='personal-metrics'?'active':''));
-    const spaces=h('div.iv-space-nav',{'aria-label':'Мои пространства'},...M.listSpaces(doc).map(s=>button(s.name,()=>{selectSpace(s.id);view='space';query='';searchInput.value='';draw();},s.type==='garage'?'car':s.type==='work'?'sliders':'home',view==='space'&&s.id===activeSpace().id?'active':'')));nav.children[1]?.after(spaces);
-    secondaryNav.replaceChildren(...[['settings','Настройки','gear'],['trash','Корзина','trash'],['history','История','clock'],['awards','Награды','trophy']].map(([key,label,glyph])=>button(label,()=>go(key),glyph,view===key?'active':'')));
+    const inventoryActive=['overview','space','catalog','item-master','categories','unplaced','archive'].includes(view);
+    const primary=h('div.iv-main-sections',{'aria-label':'Основные разделы'},
+      button('Инвентарь',()=>go('overview'),'box',inventoryActive?'active':''),automobileNav(),
+      button('Походы и отпуска',()=>go('travel'),'map',view==='travel'?'active':''),
+      button('Личные метрики',()=>go('personal-metrics'),'activity',view==='personal-metrics'?'active':''),
+      button('Мониторинг квартиры',()=>go('monitoring'),'homeassistant',view==='monitoring'?'active':''));
+    const inventoryNav=h('div.iv-inventory-subnav',{'aria-label':'Разделы инвентаря',hidden:!inventoryActive});
+    for(const [key,label,glyph]of [['overview','Общая сводка','home'],['space','Пространство','map'],['catalog','Все вещи','box'],['item-master','Мастер предметов','sparkles'],['categories','Категории','list'],['unplaced','Без места','unplaced'],['archive','Архив','folder']]){
+      inventoryNav.append(button(label,()=>go(key),glyph,view===key?'active':''));
+      if(key==='space')inventoryNav.append(h('div.iv-space-nav',{'aria-label':'Мои пространства'},...M.listSpaces(doc).map(s=>button(s.name,()=>{selectSpace(s.id);view='space';query='';searchInput.value='';draw();},s.type==='garage'?'car':s.type==='work'?'sliders':'home',view==='space'&&s.id===activeSpace().id?'active':''))));
+    }
+    nav.replaceChildren(primary,inventoryNav);
+    secondaryNav.replaceChildren(button('Редактор пространства',openEditor,'sliders'),...[['settings','Настройки','gear'],['trash','Корзина','trash'],['history','История','clock'],['awards','Награды','trophy']].map(([key,label,glyph])=>button(label,()=>go(key),glyph,view===key?'active':'')));
     for(const b of [...nav.querySelectorAll('button'),...secondaryNav.querySelectorAll('button'),...root.querySelectorAll('.iv-whats-new')]){const label=b.textContent.replace(/NEW$/,'').trim();b.title=label;b.setAttribute('aria-label',label);}
   }
   function automobileNav(){
@@ -369,7 +383,13 @@ export async function bootInventory(root) {
   function fillMeter(n,mini=false){const value=fillPercent(n);return h(`div.iv-fill${mini?'.iv-fill-mini':''}`,h('span',`Заполненность: ${value==null?'не указана':value+'%'}`),h('progress',{max:100,value:value??0,'aria-label':`Заполненность ${n?.name||'квартиры'}: ${value==null?'не указана':value+'%'}`,class:value==null?'is-unknown':''}));}
   function configurePlace(n){if(n.kind==='room')editRoomIcon(n);else editFill(n);}
   function fillControl(n){const value=fillPercent(n),summary=!n?M.apartmentFill(doc):null;return h('div.iv-fill',h('div.iv-fill-label',h('span',`Заполненность ${value==null?'не указана':value+'%'}`),n?button('Настроить',()=>configurePlace(n),'sliders'):null),h('progress',{max:100,value:value??0,'aria-label':`Заполненность ${n?.name||'квартиры'}`,class:value==null?'is-unknown':''}),summary?h('small.iv-muted',`Среднее по комнатам · учтено ${summary.known} из ${summary.total}`):null);}
-  function editFill(n){modal('Заполненность — '+(n?.name||'вся квартира'),(body,close)=>{const amount=input(fillPercent(n),{type:'number',min:0,max:100,step:1,'aria-label':'Заполненность, %'});body.append(h('p.iv-muted','Оцените физическую заполненность вручную, от 0 до 100%. Это не доля вещей, внесённых в каталог.'),field('Заполненность, %',amount),button('Сохранить',async()=>{const value=amount.value===''?null:Number(amount.value);if(value!=null&&(!Number.isFinite(value)||value<0||value>100))return say('Укажите процент от 0 до 100',true);try{await change(d=>{if(n)M.getNode(d,n.id).fill=value;else d.settings.apartmentFill=value;});close();}catch{}},'check','primary'));});}
+  function editFill(n){modal('Настройка — '+(n?.name||'вся квартира'),(body,close)=>{
+    const amount=input(fillPercent(n),{type:'number',min:0,max:100,step:1,'aria-label':'Заполненность, %'}),disabled=input('',{type:'checkbox','aria-label':'Не быть хранилищем',checked:n?.storageEnabled===false});
+    const refresh=()=>amount.disabled=n?.kind==='furniture'&&disabled.checked;disabled.onchange=refresh;refresh();
+    body.append(h('p.iv-muted','Оцените физическую заполненность вручную, от 0 до 100%.'),field('Заполненность, %',amount));
+    if(n?.kind==='furniture')body.append(h('label.if-storage-role',disabled,'Не быть хранилищем'),h('p.iv-muted','Объект останется на плане и в инвентаре. Перед отключением переместите его вещи в другое место.'));
+    body.append(button('Сохранить',async()=>{const value=amount.value===''||disabled.checked?null:Number(amount.value);if(value!=null&&(!Number.isFinite(value)||value<0||value>100))return say('Укажите процент от 0 до 100',true);try{await change(d=>{if(n)M.updateNode(d,n.id,{fill:value,...(n.kind==='furniture'?{storageEnabled:!disabled.checked}:{})});else d.settings.apartmentFill=value;},{action:'Настройка мебели и хранения'});close();}catch{}},'check','primary'));
+  });}
   function editFridge(n){modal(n.name==='Холодильник'?'Настройка холодильника':'Холодильник — '+n.name,(body,close)=>{
     const shape=M.planForNode(doc,n).furniture.find(f=>f.id===n.furnitureId),config=fridgeConfig(shape),installation=select(FRIDGE_INSTALLATIONS,config.installation,{'aria-label':'Тип холодильника'}),count=select([['1','1'],['2','2'],['3','3']],String(config.chambers),{'aria-label':'Количество отделений'}),freezer=select(FREEZER_POSITIONS,config.freezerPosition,{'aria-label':'Морозилка'}),preview=h('div.iv-grid-preview',{'aria-label':'Схема холодильника',style:{width:'130px',height:'190px'}}),notice=h('p.iv-muted'),error=h('p.iv-form-error',{role:'alert'});
     const options=()=>({installation:installation.value,chambers:Number(count.value),freezerPosition:freezer.value});
@@ -409,7 +429,7 @@ export async function bootInventory(root) {
     const t=index().totals(),today=new Date(),month=today.getFullYear()*12+today.getMonth();
     const active=doc.nodes.filter(n=>{if(n.archived||!n.createdAt)return false;const added=new Date(n.createdAt);return !Number.isNaN(added.getTime())&&added.getFullYear()*12+added.getMonth()===month;});
     const addedItems=active.filter(n=>['item','furniture'].includes(n.kind)).length;
-    const addedStorage=active.filter(n=>['furniture','shelf','drawer','compartment','box'].includes(n.kind)).length;
+    const addedStorage=active.filter(n=>n.kind!=='room'&&M.canStore(n)).length;
     const growth=(label,value,glyph,count)=>{const card=metric(label,value,glyph,`+${count} за месяц`);card.classList.add('iv-metric-growth');return card;};
     return h('div.iv-metrics',metric('Стоимость покупки',M.money(t.purchase),'box'),metric('Текущая оценка',M.money(t.current),'activity'),growth('Вещи',t.items,'box',addedItems),growth('Места хранения',t.storage,'folder',addedStorage));
   }
@@ -418,13 +438,13 @@ export async function bootInventory(root) {
     const recent=doc.nodes.filter(n=>n.kind!=='room'&&!isSection(n)&&!n.archived).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,4);
     const rooms=doc.nodes.filter(n=>n.kind==='room'&&!n.virtual);
     const recentCard=h('section.iv-card',h('h2','Недавние вещи'),...(recent.length?recent.map(n=>h('div.iv-recent',nodeThumb(n),button(n.name,()=>details(n)),h('small.iv-muted',index().address(n)))):[empty('Добавьте первую вещь')]),button('Все вещи',()=>{go('catalog');sort='date';draw();},'next'));
-    const carCards=automobileCars(doc).map(car=>h('div.iv-room-card.iv-car-summary',h('div.iv-room-card-heading',button(car.name,()=>{automobile.openNode(car.rootId);go('automobile');},'car')),h('small.iv-muted',countText(car.rootId))));
+    const carCards=automobileCars(doc).map(car=>h('div.iv-room-card.iv-car-summary',{'data-car-id':car.id},h('div.iv-room-card-heading',button(car.name,()=>{automobile.openNode(car.rootId);go('automobile');},'car')),h('small.iv-muted',countText(car.rootId)),h('button.iv-car-preview',{type:'button','aria-label':'Открыть автомобиль: '+car.name,onclick:()=>{automobile.openNode(car.rootId);go('automobile');}},icon('car',60))));
     content.replaceChildren(title('Общая сводка','Имущество, важные даты и последние вещи'),stats(),
       h('section.iv-card.iv-overview-fill',h('h2','Все пространства'),fillControl(null),h('div.iv-room-summary',...rooms.map(n=>h('div.iv-room-card',{'data-room-id':n.roomId,style:{borderColor:roomColor(n)+'80',backgroundColor:roomColor(n)+'22'}},h('div.iv-room-card-heading',button(n.name,()=>open(n),nodeIcon(n)),button('Настроить комнату',()=>editRoomIcon(n),'palette')),h('small.iv-muted',countText(n.id)),fillControl(n))))),
       h('div.iv-overview-grid',rarityChart(doc),categorySummary(),monthSummary()),
       h('div.iv-overview-grid',attention(),recentCard));
     content.querySelector('.iv-room-summary')?.append(...carCards);
-    requestAnimationFrame(()=>{if(view!=='overview')return;const excluded=doc.nodes.filter(n=>n.archived).map(n=>n.furnitureId).filter(Boolean),images=new Map(M.listSpaces(doc).flatMap(s=>[...renderRoomPreviews(s.plan,rooms.filter(n=>(n.spaceId||M.PRIMARY_SPACE_ID)===s.id).map(n=>n.roomId),excluded)]));for(const card of content.querySelectorAll('.iv-room-card')){const src=images.get(card.dataset.roomId);if(src){card.style.backgroundImage=`linear-gradient(0deg,rgba(8,13,24,.88),rgba(8,13,24,.38)),url("${src}")`;card.classList.add('has-preview');}}});
+    requestAnimationFrame(()=>{if(view!=='overview')return;const carImages=renderCarPreviews(automobileCars(doc));for(const card of carCards){const src=carImages.get(card.dataset.carId);if(src){card.style.backgroundImage=`linear-gradient(0deg,rgba(8,13,24,.45),rgba(8,13,24,.12)),url("${src}")`;card.classList.add('has-preview');card.querySelector('.iv-car-preview').replaceChildren();}}const excluded=doc.nodes.filter(n=>n.archived).map(n=>n.furnitureId).filter(Boolean),images=new Map(M.listSpaces(doc).flatMap(s=>[...renderRoomPreviews(s.plan,rooms.filter(n=>(n.spaceId||M.PRIMARY_SPACE_ID)===s.id).map(n=>n.roomId),excluded)]));for(const card of content.querySelectorAll('.iv-room-card')){const src=images.get(card.dataset.roomId);if(src){card.style.backgroundImage=`linear-gradient(0deg,rgba(8,13,24,.88),rgba(8,13,24,.38)),url("${src}")`;card.classList.add('has-preview');}}});
   }
   function editRoomIcon(n){modal('Настройка комнаты — '+n.name,(body,close)=>{
     const form=roomPresentationForm(n),amount=input(n.fill??'',{type:'number',min:0,max:100,step:1,'aria-label':'Заполненность, %'}),error=h('p.iv-form-error',{role:'alert'});
@@ -442,7 +462,7 @@ export async function bootInventory(root) {
   function breadcrumbs(n){const chain=[];for(let a=n;a;a=M.getNode(doc,a.parentId))chain.unshift(a);return h('nav.iv-breadcrumbs',{'aria-label':'Адрес хранения'},button(carForNode(doc,n)?'Автомобиль':M.spaceForNode(doc,n)?.name||'Пространство',()=>{if(automobile.openNode(n.id)){go('automobile');return;}followSpace(n);place=null;view='space';draw();},carForNode(doc,n)?'car':'home'),...chain.flatMap(a=>[h('span','›'),button(a.name,()=>a.kind==='item'?details(a):open(a),nodeIcon(a))]));}
   function storageTree(){const tree=h('section.iv-tree',{'aria-label':'Дерево мест хранения'}),needle=input('',{type:'search',placeholder:'Найти место…','aria-label':'Поиск в дереве'}),branches=h('div.iv-tree-branches');
     const expanded=new Set(JSON.parse(localStorage.getItem('iv:tree-expanded')||'[]'));for(let a=M.getNode(doc,place);a;a=M.getNode(doc,a.parentId))expanded.add(a.id);
-    function paint(){const q=needle.value.trim().toLocaleLowerCase('ru');function branch(n,depth=0){const nested=M.children(doc,n.id).filter(x=>x.kind!=='item');const match=!q||index().address(n).toLocaleLowerCase('ru').includes(q)||M.descendants(doc,n.id).some(x=>x.kind!=='item'&&x.name.toLocaleLowerCase('ru').includes(q));if(!match)return null;const group=h('div.iv-tree-branch'+(n.id===M.UNPLACED_ID?'.iv-tree-unplaced':''));const toggle=button(nested.length?(expanded.has(n.id)||q?'−':'+'):'·',()=>{expanded.has(n.id)?expanded.delete(n.id):expanded.add(n.id);localStorage.setItem('iv:tree-expanded',JSON.stringify([...expanded]));paint();});toggle.setAttribute('aria-label','Развернуть: '+n.name);if(!nested.length)toggle.disabled=true;const row=h('div.iv-tree-row',{style:{paddingLeft:depth*12+'px'}},toggle,button(view==='unplaced'&&n.kind==='room'&&!n.virtual?index().address(n):n.name,()=>open(n),nodeIcon(n),place===n.id?'active':''));dropTarget(row,n.id);group.append(row);if(expanded.has(n.id)||q)group.append(...nested.map(x=>branch(x,depth+1)).filter(Boolean));return group;}const roots=view==='unplaced'?[M.getNode(doc,M.UNPLACED_ID),...doc.nodes.filter(n=>n.kind==='room'&&n.id!==M.UNPLACED_ID)].filter(Boolean):activeRooms();branches.replaceChildren(...roots.map(n=>branch(n)).filter(Boolean));}
+    function paint(){const q=needle.value.trim().toLocaleLowerCase('ru');function branch(n,depth=0){const nested=M.children(doc,n.id).filter(M.canStore);const match=!q||index().address(n).toLocaleLowerCase('ru').includes(q)||M.descendants(doc,n.id).some(x=>M.canStore(x)&&x.name.toLocaleLowerCase('ru').includes(q));if(!match)return null;const group=h('div.iv-tree-branch'+(n.id===M.UNPLACED_ID?'.iv-tree-unplaced':''));const toggle=button(nested.length?(expanded.has(n.id)||q?'−':'+'):'·',()=>{expanded.has(n.id)?expanded.delete(n.id):expanded.add(n.id);localStorage.setItem('iv:tree-expanded',JSON.stringify([...expanded]));paint();});toggle.setAttribute('aria-label','Развернуть: '+n.name);if(!nested.length)toggle.disabled=true;const row=h('div.iv-tree-row',{style:{paddingLeft:depth*12+'px'}},toggle,button(view==='unplaced'&&n.kind==='room'&&!n.virtual?index().address(n):n.name,()=>open(n),nodeIcon(n),place===n.id?'active':''));dropTarget(row,n.id);group.append(row);if(expanded.has(n.id)||q)group.append(...nested.map(x=>branch(x,depth+1)).filter(Boolean));return group;}const roots=view==='unplaced'?[M.getNode(doc,M.UNPLACED_ID),...doc.nodes.filter(n=>n.kind==='room'&&n.id!==M.UNPLACED_ID)].filter(Boolean):activeRooms();branches.replaceChildren(...roots.map(n=>branch(n)).filter(Boolean));}
     needle.oninput=paint;tree.append(h('h2','Места хранения'),needle,branches);paint();return tree;
   }
   function spaceSwitcher(){
@@ -473,11 +493,11 @@ export async function bootInventory(root) {
     weatherService.current(city).then(value=>paint(value)).catch(()=>{if(sceneUI!==ui||ui.weatherKey!==key)return;if(cached)paint(cached,true);else {ui.weather.textContent='Погода недоступна';ui.weather.title='Нажмите, чтобы проверить город';ui.weatherFx.setWeather(null);}}).finally(()=>{if(sceneUI===ui&&ui.weatherKey===key){clearTimeout(ui.weatherTimer);ui.weatherTimer=setTimeout(()=>{if(!document.hidden)refreshSceneWeather(ui);},WEATHER_TTL);};});
   }
   function drawHome(){
-    const unplaced=view==='unplaced';if(unplaced)place=M.UNPLACED_ID;
+    const unplaced=view==='unplaced';if(unplaced&&!M.getNode(doc,place))place=M.UNPLACED_ID;
     const rooms=unplaced?null:h('div.iv-room-tabs',button('Всё пространство',()=>{focusId=null;focusTrail=[];selectedSection=null;place=null;view='space';sceneMemory=null;draw();},'home',!place?'active':''),...activeRooms().map(n=>button(n.name,()=>{focusId=null;focusTrail=[];selectedSection=null;place=n.id;sceneMemory=null;draw();},nodeIcon(n),place===n.id?'active':'')));
     const modes=h('div.iv-actions',...(!unplaced?[button('3D + содержимое',()=>{spaceMode='3d';localStorage.setItem('iv:space-mode',spaceMode);draw();},'map',spaceMode==='3d'?'active':''),button('Дерево + содержимое',()=>{spaceMode='tree';localStorage.setItem('iv:space-mode',spaceMode);draw();},'list',spaceMode==='tree'?'active':'')]:[]));
     if(unplaced)modes.append(button('Импорт из Excel',importExcel,'upload'));
-    const pane=h('section.iv-storage');storagePane=pane;fillStorage(pane);
+    const pane=h('section.iv-storage'+(unplaced?'.iv-storage-unplaced':''));storagePane=pane;fillStorage(pane);
     content.replaceChildren(title(unplaced?'Без места':activeSpace().name,unplaced?'Распределите вещи по комнатам и местам хранения':'План пространства и содержимое мест хранения',[...modes.children]),...(!unplaced?[spaceSwitcher(),rooms]:[]));
     if(spaceMode==='tree'||unplaced){content.append(h('div.iv-home-grid.iv-tree-mode',storageTree(),pane));return;}
     if(world&&sceneUI){
@@ -502,31 +522,64 @@ export async function bootInventory(root) {
     }catch(e){console.warn('Не удалось открыть 3D-сцену',e);scene.append(h('div.iv-3d-error','3D недоступно. Все вещи доступны в списке справа.'));}
   }
   function roomOf(n){let a=n;while(a&&a.kind!=='room')a=M.getNode(doc,a.parentId);return a;}
+  function storageDropAllowed(ids,destination){
+    const target=M.getNode(doc,destination);if(!target||target.archived||!M.canStore(target))return false;
+    if(!ids.some(id=>M.getNode(doc,id)?.parentId!==destination))return false;
+    return !ids.some(id=>id===destination||M.descendants(doc,id).some(n=>n.id===destination));
+  }
+  async function moveDroppedNodes(ids,destination){
+    if(!storageDropAllowed(ids,destination))return;
+    const roots=ids.filter(id=>!ids.some(other=>other!==id&&M.descendants(doc,other).some(n=>n.id===id)));
+    const containers=roots.map(id=>M.getNode(doc,id)).filter(n=>n&&n.kind!=='item'&&M.children(doc,n.id).length);
+    if(containers.length&&!confirm(containers.length===1?`Переместить «${containers[0].name}» вместе со всем содержимым?`:`Переместить ${containers.length} контейнеров вместе с содержимым?`))return;
+    try{await change(d=>moveAutomobileItems(d,ids,destination),{action:'Перемещение выбранных вещей',retryable:false});say(`Перемещено: ${roots.length} · ${M.getNode(doc,destination)?.name||'новое место'}`);}catch{}
+  }
   function dropTarget(el,destination) {
-    el.ondragover=e=>{if(e.dataTransfer.types.includes('application/x-inventory-node')){e.preventDefault();el.classList.add('iv-drop');}};
+    el.dataset.storageDestination=destination;
+    el.ondragover=e=>{if(e.dataTransfer.types.includes('application/x-inventory-node')){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';el.classList.add('iv-drop');}};
     el.ondragleave=()=>el.classList.remove('iv-drop');
     el.ondrop=e=>{e.preventDefault();e.stopPropagation();el.classList.remove('iv-drop');const nodeId=e.dataTransfer.getData('application/x-inventory-node');if(!nodeId)return;
-      const n=M.getNode(doc,nodeId); if(!n || nodeId===destination)return;
-      if(n.kind!=='item' && M.children(doc,nodeId).length && !confirm(`Переместить «${n.name}» вместе со всем содержимым?`))return;
-      try{const raw=e.dataTransfer.getData('application/x-inventory-nodes'),ids=raw?JSON.parse(raw):[nodeId];if(!Array.isArray(ids)||!ids.every(v=>typeof v==='string'))return;run(d=>moveAutomobileItems(d,ids,destination));}catch(e){say(e.message,true);}
+      try{const raw=e.dataTransfer.getData('application/x-inventory-nodes'),ids=raw?JSON.parse(raw):[nodeId];if(!Array.isArray(ids)||!ids.every(v=>typeof v==='string'))return;
+        moveDroppedNodes(ids,destination);
+      }catch(e){say(e.message,true);}
     };return el;
   }
-  function draggable(el,n){if(n.kind==='room'||n.archived)return el;el.draggable=true;el.addEventListener('dragstart',e=>{e.stopPropagation();e.dataTransfer.setData('application/x-inventory-node',n.id);e.dataTransfer.setData('application/x-inventory-nodes',JSON.stringify(selected.has(n.id)?[...selected]:[n.id]));e.dataTransfer.effectAllowed='move';});return el;}
+  function draggable(el,n){
+    if(n.kind==='room'||n.archived||view==='unplaced'&&(isSection(n)||n.carCompartment))return el;
+    if(view==='unplaced')return bindStorageDrag(el,{root,getSelection:()=>busy?[]:selected.has(n.id)?[...selected]:[n.id],destinationAllowed:storageDropAllowed,move:moveDroppedNodes});
+    el.draggable=true;el.addEventListener('dragstart',e=>{if(e.target?.matches?.('input')){e.preventDefault();return;}e.stopPropagation();e.dataTransfer.setData('application/x-inventory-node',n.id);e.dataTransfer.setData('application/x-inventory-nodes',JSON.stringify(selected.has(n.id)?[...selected]:[n.id]));e.dataTransfer.setData('text/plain',n.name);e.dataTransfer.effectAllowed='move';});return el;
+  }
   function fillStorage(pane){
     const n=M.getNode(doc,place),nodes=n?M.children(doc,n.id):activeRooms(),totals=n?index().totals(n.id):activeRooms().reduce((sum,r)=>{const t=index().totals(r.id);for(const k of Object.keys(sum))sum[k]+=t[k];return sum;},{count:0,items:0,storage:0,purchase:0,current:0});
-    const head=n?h('div',breadcrumbs(n),h('h2',n.name)):h('div',h('h2','Комнаты и хранение'));
+    const head=n?h('div',view==='unplaced'?null:breadcrumbs(n),h('h2',n.name)):h('div',h('h2','Комнаты и хранение'));
     const located=M.getNode(doc,locatedId),notice=located&&(located.parentId===place||located.id===place)?h('div.iv-location-result',{role:'status'},icon('camera',18),h('div',h('strong','Показано: '+located.name),h('small',index().address(located)))):null;
     pane.replaceChildren(...[notice,head,h('div.iv-storage-total',h('strong',(isSection(n)?'Содержимое: ':'')+M.money(totals.purchase)),h('small',isSection(n)?'Место хранения без собственной стоимости':n&&n.kind!=='room'?`Объект ${M.money(n.purchaseCents)} · содержимое ${M.money(totals.purchase-(n.purchaseCents||0))}`:n?countText(n.id):`${plural(totals.items,['вещь','вещи','вещей'])} · ${plural(totals.storage,['место хранения','места хранения','мест хранения'])}`)),(!n||!n.virtual)&&fillPercent(n)>0?fillControl(n):null,
       h('div.iv-actions',n?button('Добавить вещь',()=>editNode(null,{parentId:n.id}),'plus'):null,n&&!n.virtual&&!(fillPercent(n)>0)?button('Настроить',()=>configurePlace(n),'sliders'):null,n&&!n.virtual&&n.kind!=='room'&&!isSection(n)&&n.modelType!=='fridge'?button('Отсек',()=>editNode(null,{parentId:n.id,kind:'shelf'}),'folder'):null,n&&n.kind!=='room'?button('Карточка',()=>details(n),'next'):null,n&&n.kind!=='room'?actionsButton(n):null)].filter(Boolean));
-    if(n&&n.kind!=='room'&&anchorFor(n))pane.append(h('div.iv-focus-actions.iv-actions',n.id!==focusId&&!isBasicSection(n)?button('Открыть внутри',()=>enterStorage(n),'box'):null,button(n.fridgeChamber||n.modelType==='fridge'?'Настроить холодильник':isSection(n)&&!n.kitchenModule?'Тип секции':n.kitchenModule&&!KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.storage?'Тип модуля':'Секции',()=>editStorageLayout(n),'sliders')));
-    const list=h('div.iv-storage-list');for(const child of nodes){const main=button('',()=>open(child));main.className='iv-storage-open';main.replaceChildren(nodeThumb(child),h('span.iv-row-copy',h('strong',child.name),h('small',child.kind==='item'?index().categoryName(child.categoryId)||'Вещь':countText(child.id))),h('span.iv-row-price',isSection(child)?(index().totals(child.id).purchase?M.money(index().totals(child.id).purchase)+' внутри':''):M.money(index().totals(child.id).purchase)));const row=draggable(h('div.iv-storage-row',{'data-node-id':child.id},main),child);if(child.id===locatedId){row.classList.add('is-located');main.setAttribute('aria-current','location');}row.oncontextmenu=e=>{if(child.kind!=='room'){e.preventDefault();showActions(child,row);}};
+    if(view==='unplaced'){
+      const source=createLocationPicker({getDoc:()=>doc,value:n?.id||M.UNPLACED_ID,label:'Показать вещи из хранилища',onChange:id=>{place=id;selected.clear();detailId=null;detailsPane.hidden=true;draw(true);}});
+      pane.prepend(h('div.iv-unplaced-source',field('Показать вещи из',source)));
+    }
+    if(view!=='unplaced'&&n&&n.kind!=='room'&&anchorFor(n))pane.append(h('div.iv-focus-actions.iv-actions',n.id!==focusId&&!isBasicSection(n)?button('Открыть внутри',()=>enterStorage(n),'box'):null,button(n.fridgeChamber||n.modelType==='fridge'?'Настроить холодильник':isSection(n)&&!n.kitchenModule?'Тип секции':n.kitchenModule&&!KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.storage?'Тип модуля':'Секции',()=>editStorageLayout(n),'sliders')));
+    if(view==='unplaced'){
+      const movable=nodes.filter(child=>child.kind!=='room'&&!isSection(child)&&!child.carCompartment&&!child.archived),ids=new Set(movable.map(child=>child.id));
+      for(const id of [...selected])if(!ids.has(id))selected.delete(id);
+      const refresh=()=>{const offset=pane.querySelector('.iv-storage-scroll')?.scrollTop||0;fillStorage(pane);pane.querySelector('.iv-storage-scroll').scrollTop=offset;};
+      const all=button(movable.length&&movable.every(child=>selected.has(child.id))?'Снять выделение':'Выделить все',()=>{if(movable.every(child=>selected.has(child.id)))selected.clear();else for(const child of movable)selected.add(child.id);refresh();},'check');all.disabled=!movable.length;
+      const move=button('Переместить',()=>moveDialog([...selected]),'folder','primary');move.disabled=!selected.size;
+      pane.append(h('div.iv-unplaced-bulk',h('span',`Выбрано: ${selected.size}`),all,move,selected.size&&!movable.every(child=>selected.has(child.id))?button('Снять выделение',()=>{selected.clear();refresh();},'close'):null),h('small.iv-unplaced-drag-hint','Перетащите карточки на место в дереве слева или выберите место кнопкой.'));
+    }
+    const list=h('div.iv-storage-list');for(const child of nodes){const main=button('',()=>open(child));main.className='iv-storage-open';main.replaceChildren(nodeThumb(child),h('span.iv-row-copy',h('strong',child.name),h('small',!M.canStore(child)?index().categoryName(child.categoryId)||'Вещь':countText(child.id))),h('span.iv-row-price',isSection(child)?(index().totals(child.id).purchase?M.money(index().totals(child.id).purchase)+' внутри':''):M.money(index().totals(child.id).purchase)));const row=draggable(h('div.iv-storage-row',{'data-node-id':child.id},main),child);if(child.id===locatedId){row.classList.add('is-located');main.setAttribute('aria-current','location');}row.oncontextmenu=e=>{if(child.kind!=='room'){e.preventDefault();showActions(child,row);}};
+      if(view==='unplaced'&&child.kind!=='room'&&!isSection(child)&&!child.carCompartment&&!child.archived){
+        const checkbox=h('input.iv-storage-select',{type:'checkbox','aria-label':`Выбрать ${child.name}`,onchange:e=>{e.target.checked?selected.add(child.id):selected.delete(child.id);const offset=pane.querySelector('.iv-storage-scroll')?.scrollTop||0;fillStorage(pane);pane.querySelector('.iv-storage-scroll').scrollTop=offset;},ondragstart:e=>{e.preventDefault();e.stopPropagation();}});
+        checkbox.checked=selected.has(child.id);row.classList.toggle('is-selected',checkbox.checked);row.prepend(checkbox);
+      }
       paintRarity(row,doc,child);
       if(child.kind==='item')main.querySelector('.iv-row-copy').append(rarityBadge(doc,child));
       const tripTags=travelTags(doc,child);if(tripTags)main.querySelector('.iv-row-copy').append(tripTags);
-      if(child.kind!=='item')dropTarget(row,child.id);
-      main.title=child.name+' · '+(child.kind==='item'?index().categoryName(child.categoryId)||'Вещь':countText(child.id));
+      if(M.canStore(child))dropTarget(row,child.id);
+      main.title=child.name+' · '+(!M.canStore(child)?index().categoryName(child.categoryId)||'Вещь':countText(child.id));
       if(view!=='unplaced'&&!['item','room'].includes(child.kind)){const reorder=button('↕',e=>{e.stopPropagation();const siblings=nodes.filter(x=>!['item','room'].includes(x.kind));const index=siblings.findIndex(x=>x.id===child.id);if(index>0)run(d=>M.reorder(d,child.id,siblings[index-1].id));},null,'iv-storage-reorder');reorder.title='Перетащите для порядка; нажмите, чтобы поднять выше';reorder.setAttribute('aria-label','Поднять выше: '+child.name);reorder.draggable=true;reorder.ondragstart=e=>{e.stopPropagation();e.dataTransfer.setData('application/x-inventory-order',child.id);};row.append(reorder);row.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('application/x-inventory-order'))e.preventDefault();});row.addEventListener('drop',e=>{const id=e.dataTransfer.getData('application/x-inventory-order');if(id){e.preventDefault();e.stopPropagation();run(d=>M.reorder(d,id,child.id));}});}
-      if(child.kind!=='room'&&!isSection(child))row.append(wearIndicator(child));if(child.kind!=='item'&&!child.virtual&&fillPercent(child)>0){row.classList.add('iv-storage-has-fill');row.append(fillMeter(child,true));}list.append(row);}
+      if(child.kind!=='room'&&!isSection(child))row.append(wearIndicator(child));if(M.canStore(child)&&!child.virtual&&fillPercent(child)>0){row.classList.add('iv-storage-has-fill');row.append(fillMeter(child,true));}list.append(row);}
     if(!nodes.length)list.append(empty('Здесь пока пусто. Добавьте вещь или переместите её сюда.'));pane.append(h('div.iv-storage-scroll',list));if(n)dropTarget(pane,n.id);
   }
   function wearIndicator(n){
@@ -557,6 +610,10 @@ export async function bootInventory(root) {
   function actionsButton(n){const el=button('',e=>{e.stopPropagation();showActions(n,el);},'more','iv-more');el.setAttribute('aria-label',`Действия: ${n.name}`);el.title='Действия';return el;}
   function showActions(n,anchor){
     closeActionMenu?.();
+    if(view==='unplaced'&&selected.has(n.id)&&selected.size>1){
+      const ids=[...selected];
+      closeActionMenu=openMenu(menuHost,anchor,[{label:`Переместить выбранные (${ids.length})`,icon:icon('folder',15),action:()=>moveDialog(ids)},{label:'Снять выделение',icon:icon('close',15),action:()=>{selected.clear();fillStorage(storagePane);}}]);return;
+    }
     const items=[{label:'Открыть карточку',icon:icon('next',15),action:()=>details(n)}];
     if(n.archived)items.push({label:'Вернуть из архива',icon:icon('undo',15),action:()=>restoreDialog(n)});
     else {items.push({label:'Редактировать',icon:icon('sliders',15),action:()=>editNode(n)});if(!isSection(n))items.push({label:'Переместить',icon:icon('folder',15),action:()=>moveDialog([n.id])},{label:'В архив',icon:icon('folder',15),action:()=>archiveDialog(n)});}
@@ -627,10 +684,10 @@ export async function bootInventory(root) {
     const values={'Источник веса':estimatedWeight(n)?n.weightEstimate.basis+' (≈)':null,'Категория':index().categoryName(n.categoryId),'Подборки':itemCollections(doc,n).map(c=>c.name).join(', '),'Текущая оценка':n.currentCents!=null?M.money(n.currentCents):null,'Состояние':n.condition,'Износ':itemWear(n)!=null?itemWear(n)+'%'+(resolvedWearMode(n)!=='manual'?' · по сроку службы':''):null,'Срок полезного использования':resolvedWearMode(n)!=='manual'?wearSchedule(n).months+' мес.':null,'Дата покупки':n.purchasedAt?displayDate(n.purchasedAt):null,'Срок годности':n.expiry?displayDate(n.expiry):null,'Гарантия до':n.warranty?displayDate(n.warranty):null,...n.fields};
     const detailValue=(key,value)=>{if(key!=='Цвет')return h('dd',value);const swatch=COLORS.find(([label])=>label.toLocaleLowerCase('ru')===String(value).toLocaleLowerCase('ru'))?.[1];return h('dd.iv-selected-color',{vars:swatch&&!swatch.includes('gradient')?{'--selected-color':swatch}:{}},value);};
     if(n.quantity!==1||n.unit!=='шт.')values['Количество']=n.quantity+' '+n.unit;
-    const actions=h('div.iv-actions',n.archived?button('Вернуть',()=>restoreDialog(n),'undo'):button('Редактировать',()=>editNode(n),'sliders','primary'),n.kind!=='item'&&!n.archived?button('Содержимое',()=>open(n),'folder'):null,actionsButton(n));
-    detailsPane.replaceChildren(...[h('div.iv-detail-heading',h('h2',{tabindex:-1},n.name),button('Закрыть',()=>{detailId=null;drawDetails();},'close')),breadcrumbs(n),paintRarity(h('div.iv-detail-hero',nodeThumb(n),h('div',rarityBadge(doc,n),h('strong.iv-detail-price',M.money(n.kind==='item'?n.purchaseCents:totals.purchase)),h('small.iv-muted',isSection(n)?'Стоимость содержимого':n.kind==='item'?'Стоимость покупки':`Объект ${M.money(n.purchaseCents)} · содержимое ${M.money(totals.purchase-(n.purchaseCents||0))}`))),doc,n),locateAction,actions,travelPossession(n)?h('div.iv-actions',button(n.travelEligible?'Для походов ✓':'Добавить в поход',()=>{change(d=>{M.getNode(d,n.id).travelEligible=!n.travelEligible;},{action:'Доступность вещи для походов'}).then(()=>details(M.getNode(doc,n.id))).catch(()=>{});},'map','iv-travel-toggle'),button(estimatedWeight(n)?'Уточнить вес и объём':'Вес и объём',()=>editWeightAndVolume(n),'sliders'),travelTags(doc,n)):null,!isSection(n)&&n.kind!=='room'&&!n.archived?wearControl(n):null,n.archived?h('p.iv-archive-info',`${n.archived.reason} · ${displayDate(n.archived.date)}`):null,
+    const actions=h('div.iv-actions',n.archived?button('Вернуть',()=>restoreDialog(n),'undo'):button('Редактировать',()=>editNode(n),'sliders','primary'),n.kind!=='item'&&!n.archived&&M.canStore(n)?button('Содержимое',()=>open(n),'folder'):null,actionsButton(n));
+    detailsPane.replaceChildren(...[h('div.iv-detail-heading',h('h2',{tabindex:-1},n.name),button('Закрыть',()=>{detailId=null;drawDetails();},'close')),breadcrumbs(n),paintRarity(h('div.iv-detail-hero',nodeThumb(n),h('div',rarityBadge(doc,n),h('strong.iv-detail-price',M.money(!M.canStore(n)?n.purchaseCents:totals.purchase)),h('small.iv-muted',isSection(n)?'Стоимость содержимого':!M.canStore(n)?'Стоимость покупки':`Объект ${M.money(n.purchaseCents)} · содержимое ${M.money(totals.purchase-(n.purchaseCents||0))}`))),doc,n),locateAction,actions,travelPossession(n)?h('div.iv-actions',button(n.travelEligible?'Для походов ✓':'Добавить в поход',()=>{change(d=>{M.getNode(d,n.id).travelEligible=!n.travelEligible;},{action:'Доступность вещи для походов'}).then(()=>details(M.getNode(doc,n.id))).catch(()=>{});},'map','iv-travel-toggle'),button(estimatedWeight(n)?'Уточнить вес и объём':'Вес и объём',()=>editWeightAndVolume(n),'sliders'),travelTags(doc,n)):null,!isSection(n)&&n.kind!=='room'&&!n.archived?wearControl(n):null,n.archived?h('p.iv-archive-info',`${n.archived.reason} · ${displayDate(n.archived.date)}`):null,
       h('dl.iv-details',...Object.entries(values).filter(([,v])=>v!=null&&v!=='').flatMap(([k,v])=>[h('dt',k),detailValue(k,v)])),n.notes?h('p.iv-notes',n.notes):null,!n.archived&&n.kind!=='room'?h('div.iv-actions',button('Переместить',()=>moveDialog([n.id]),'folder'),!isSection(n)?button('Создать копию',()=>{const copy=structuredClone(n);delete copy.id;delete copy.furnitureId;copy.name+=' — копия';copy.acquisition='existing';editNode(null,copy);},'copy'):null,n.kind==='furniture'?button(n.furnitureId?'Убрать с плана':'Разместить на плане',()=>n.furnitureId?detachFromPlan(n):openEditor(n.id),'map'):null):null,
-      n.kind!=='item'&&!n.virtual?fillControl(n):null,h('h3','История вещи'),...doc.events.filter(e=>e.nodeId===n.id).slice(-5).reverse().map(e=>h('p.iv-muted',`${displayDate(e.effectiveDate||e.date)} · ${eventNames[e.type]||e.type}${e.from?' · '+e.from+' → '+e.to:''}`))].filter(Boolean));
+      M.canStore(n)&&!n.virtual?fillControl(n):null,h('h3','История вещи'),...doc.events.filter(e=>e.nodeId===n.id).slice(-5).reverse().map(e=>h('p.iv-muted',`${displayDate(e.effectiveDate||e.date)} · ${eventNames[e.type]||e.type}${e.from?' · '+e.from+' → '+e.to:''}`))].filter(Boolean));
   }
   function detachFromPlan(n){modal('Убрать с плана',(body,close)=>body.append(h('p',`«${n.name}» исчезнет с плана. Карточка и всё содержимое останутся на своём месте.`),button('Убрать с плана',async()=>{try{await change(d=>M.detachFurniture(d,n.id));close();say('Убрано с плана, карточка сохранена');}catch{}},'map')));}
   function destinationSelect(value,movingId){return createLocationPicker({getDoc:()=>doc,value:value||M.UNPLACED_ID,movingId,required:true,label:'Место хранения'});}
@@ -667,7 +724,9 @@ export async function bootInventory(root) {
     if(existing?.kind==='room')return editRoomIcon(existing);if(existing&&isSection(existing))return editStorageLayout(existing);
     openItemForm({getDoc:()=>doc,existing,defaults,currentPlaceId:currentPlace().id,lastCategory,change:fn=>change(fn,{retryable:false}),onSaved:({categoryId,parentId,kind,again,nodeId})=>{if(kind==='item'){lastCategory=categoryId;localStorage.setItem('iv:last-category',categoryId);}if(again)editNode(null,{parentId,categoryId,kind});else if(nodeId){detailId=nodeId;drawDetails();}say(existing?'Изменения сохранены':kind==='item'?'Вещь добавлена':'Место хранения добавлено');}});
   }
-  function moveDialog(ids){modal('Переместить вещи',(body,close)=>{const excluded=new Set(ids.flatMap(i=>[i,...M.descendants(doc,i).map(n=>n.id)]));const destination=createLocationPicker({getDoc:()=>doc,value:M.UNPLACED_ID,excludeIds:[...excluded],required:true,label:'Новое место'});body.append(h('p',`Выбрано: ${ids.length}. Контейнеры переместятся с содержимым.`),field('Новое место',destination),button('Переместить',async()=>{try{await change(d=>{for(const i of ids.filter(i=>!ids.some(other=>other!==i&&M.descendants(d,other).some(n=>n.id===i))))M.move(d,i,destination.value);});close();}catch{}},'folder','primary'));});}
+  function moveDialog(ids){modal('Переместить вещи',(body,close)=>{const excluded=new Set(ids.flatMap(i=>[i,...M.descendants(doc,i).map(n=>n.id)]));const destination=createLocationPicker({getDoc:()=>doc,value:'',excludeIds:[...excluded],required:true,label:'Новое место'}),error=h('p.iv-form-error',{role:'alert'});
+    const submit=button('Переместить',async()=>{error.textContent='';if(!destination.checkValidity()){error.textContent='Выберите место хранения для выбранных вещей.';return;}submit.disabled=true;try{await change(d=>moveAutomobileItems(d,ids,destination.value),{action:'Перемещение выбранных вещей',retryable:false});close();say(`Перемещено: ${plural(ids.length,['вещь','вещи','вещей'])}`);}catch(e){error.textContent=e.message;submit.disabled=false;}},'folder','primary');
+    body.append(h('p',`Выбрано: ${ids.length}. Контейнеры переместятся с содержимым.`),field('Новое место',destination),error,h('div.iv-actions',button('Отмена',close,'close'),submit));});}
   function archiveDialog(n){modal('В архив',(body,close)=>{const reason=select(['Продано','Подарено','Выброшено','Израсходовано','Другое'].map(v=>[v,v]),'Продано');const date=input(M.today(),{type:'date',required:true});const amount=input('',{inputmode:'decimal',placeholder:'Не указана'});const has=M.descendants(doc,n.id).length>0;const mode=select([['all','Архивировать вместе с содержимым'],['move','Переместить содержимое в другое место']],'all');const destination=destinationSelect(null,n.id);const extras=h('div');const refresh=()=>{amount.disabled=reason.value!=='Продано';destination.disabled=mode.value!=='move';};reason.addEventListener('change',refresh);mode.addEventListener('change',refresh);refresh();
       if(has)extras.append(field('Содержимое',mode),field('Куда переместить содержимое',destination));
       body.append(h('p',n.name),field('Причина',reason),field('Дата',date),field('Сумма продажи, ₽',amount),extras,button('Архивировать',async()=>{try{const saleCents=reason.value==='Продано'?M.parseMoney(amount.value):null;await change(d=>M.archive(d,n.id,{reason:reason.value,date:date.value,saleCents,together:!has||mode.value==='all',destination:destination.value}));close();}catch(e){say(e.message,true);}},'trash','primary'));

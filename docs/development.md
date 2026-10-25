@@ -61,6 +61,7 @@ CORS; проверяет Origin, Host, специальный заголовок
 swiftc macos/Sources/HomeInventory/InventoryStore.swift \
   macos/Sources/HomeInventory/InventoryLANServer.swift \
   macos/Sources/HomeInventory/ItemMasterHTTP.swift \
+  macos/Sources/HomeInventory/ItemMasterTavily.swift \
   scripts/test-inventory-lan.swift -o /tmp/life-lan-checks
 /tmp/life-lan-checks
 ```
@@ -344,3 +345,30 @@ This is not a manufacturer specification catalog. A weight/volume editor in
 item details makes corrections available without changing trip membership.
 UI regression: `scripts/check-travel-storage-ui.cjs` plus the updated
 `check-travel-ui.cjs`, isolated browser profiles only.
+
+
+### Inventory and travel remarks (0.4.75/build81)
+
+Furniture `storageEnabled: false` is centralized through `canStore`: it preserves
+object identity, plan geometry and purchase value while excluding it from storage
+counts, trees and destinations. Occupied furniture cannot be disabled; empty
+structural sections use recoverable removal and shared undo. Migration does not
+recreate them. Travel candidates respect the role while permitting ordinary bags.
+
+Rental charges split an entered integer-cent amount across active services, excluding
+security, mobile and internet. Remainders preserve the exact total. It creates normal
+bills in the selected month without calculating consumption or marking payments.
+
+Trip checkboxes and pointer dragging transfer only trip references. The shared
+storage drag helper keeps its inventory defaults and accepts trip selectors.
+Storage search requires a selected result or explicit creation; car creation registers
+the global vehicle and trip reference in one undoable change. Time uses separate
+24-hour and minute controls. Overview previews render cached vehicle geometry.
+
+Validation: 327 unit tests; production web build; CUA checks on isolated travel-demo
+origin (creation, existing car, checkboxes, bulk pointer drag, time persistence, rental,
+storage role and search). No writes to personal/native data. Existing standalone UI
+scripts have updated locators but were not run for this batch.
+Responsive checks at 390×844 confirmed no page overflow and fully visible event
+and rental forms. Desktop car headings wrap within their cards; both vehicle previews
+render. Console error log was empty. Proof screenshots are in `docs/images/remarks-*`.

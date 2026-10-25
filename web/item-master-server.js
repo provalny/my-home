@@ -2,11 +2,13 @@ import https from 'node:https';
 import { lookup } from 'node:dns/promises';
 import { safeURL } from './src/item-master/model.js';
 import {SEARCH_URL,SEARCH_HEADERS,searchRequest,searchFailure} from './src/item-master/search-provider.js';
+import {createTavilyConnection} from './item-master-connection.js';
 
-export async function searchPublicProducts(input,domains=[]) {
+export async function searchPublicProducts(input,domains=[],apiKey='') {
   const body=JSON.stringify(searchRequest(input,domains));
-  const response=await fetch(SEARCH_URL,{method:'POST',headers:SEARCH_HEADERS,body,redirect:'error',signal:AbortSignal.timeout(35000)});
-  if(!response.ok){await response.body?.cancel();throw Error(searchFailure(response.status));}
+  const headers=apiKey?{'Content-Type':'application/json',Authorization:'Bearer '+apiKey}:SEARCH_HEADERS;
+  const response=await fetch(SEARCH_URL,{method:'POST',headers,body,redirect:'error',signal:AbortSignal.timeout(35000)});
+  if(!response.ok){await response.body?.cancel();throw Error(searchFailure(response.status,Boolean(apiKey)));}
   const chunks=[];let size=0;
   for await(const chunk of response.body){size+=chunk.length;if(size>2_000_000)throw Error('Ответ поиска слишком большой');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw Error('Не удалось прочитать ответ поиска');}
@@ -34,15 +36,23 @@ export async function fetchPublicPage(raw,redirects=0) {
   return result;
 }
 export function itemMasterSearch() {
+  const tavily=createTavilyConnection();
   let active=0;
   const install=server=>{server.middlewares.use(async(req,res,next)=>{
-    const path=req.url?.split('?')[0];if(!['/api/item-master/page','/api/item-master/search'].includes(path))return next();
+    const path=req.url?.split('?')[0];if(!['/api/item-master/page','/api/item-master/search','/api/item-master/connection'].includes(path))return next();
     const send=(status,value)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
     const origin=req.headers.origin;
     if(req.method!=='POST'||req.headers['x-life-assistant']!=='1'||origin!==`http://${req.headers.host}`&&origin!==`https://${req.headers.host}`)return send(403,{error:'Откройте поиск из приложения'});
     if(active>=3)return send(429,{error:'Дождитесь завершения текущего запроса'});
     active++;
-    try{let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>8192)throw Error('Слишком большой запрос');}const body=JSON.parse(raw);send(200,path.endsWith('/search')?await searchPublicProducts(body.input,body.domains):await fetchPublicPage(body.url));}
+    try{let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>8192)throw Error('Слишком большой запрос');}const body=JSON.parse(raw);
+      if(path.endsWith('/connection')){
+        const local=['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+        if(!local&&body.action!=='status')return send(403,{error:'Подключите ключ на компьютере, где запущено приложение'});
+        return send(200,{...await tavily.connection(body),canManage:local});
+      }
+      if(path.endsWith('/search'))searchRequest(body.input,body.domains);
+      send(200,path.endsWith('/search')?await searchPublicProducts(body.input,body.domains,await tavily.authorize()):await fetchPublicPage(body.url));}
     catch(e){send(502,{error:e.message||'Источник недоступен'});}finally{active--;}
   });};
   return {name:'item-master-free-search',configureServer:install,configurePreviewServer:install};

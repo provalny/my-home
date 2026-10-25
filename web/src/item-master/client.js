@@ -1,5 +1,6 @@
 import { call, isNative } from '../bridge.js';
 import { createLookup } from './lookup.js';
+import {isShowcase} from '../inventory/demo-runtime.js';
 
 async function request(action,payload,signal) {
   signal?.throwIfAborted();
@@ -9,7 +10,8 @@ async function request(action,payload,signal) {
       const abort=()=>finish(new DOMException('Остановлено','AbortError'));
       const finish=(error,value)=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);error?reject(error):resolve(value);};
       signal?.addEventListener('abort',abort,{once:true});timer=setTimeout(()=>finish(Error('Источник не ответил вовремя')),65000);
-      call(action==='search'?'inventoryItemMasterSearch':'inventoryItemMasterPage',payload).then(r=>finish(null,r),e=>finish(e));
+      const method={search:'inventoryItemMasterSearch',page:'inventoryItemMasterPage',connection:'inventoryItemMasterConnection'}[action];
+      call(method,payload).then(r=>finish(null,r),e=>finish(e));
     });
   }
   const controller=new AbortController(),abort=()=>controller.abort(),timer=setTimeout(abort,65000);signal?.addEventListener('abort',abort,{once:true});
@@ -23,4 +25,5 @@ async function request(action,payload,signal) {
 }
 export const fetchPage=(url,signal)=>request('page',{url},signal);
 export const searchProvider=(input,{domains=[],signal}={})=>request('search',{input,domains},signal);
+export const tavilyConnection=(payload={action:'status'})=>isShowcase?Promise.resolve({connected:false,canManage:false,storage:'demo'}):request('connection',payload);
 export const lookup=createLookup(fetchPage,{searchProvider});

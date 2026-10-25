@@ -115,6 +115,11 @@ export function createMonitoring({getDocument,change,modal,say,reducedMotion,the
     el.append(field('Услуга',svc),h('div.mn-form-grid',field('Дата счёта',date),field('Месяц начисления',period)),h('div.mn-form-grid',field('Начислено, ₽',amount),field('Перерасчёт (+/−), ₽',adjustment)),field('Оплатить до',due),field('Заметка',notes),attachments.el);
     return ()=>({...existing,serviceId:svc.value,date:date.value,period:period.value,dueDate:due.value||null,amountCents:M.cents(amount.value,{optional:false}),adjustmentCents:M.cents(adjustment.value,{signed:true,optional:false}),note:notes.value,attachments:attachments.read()});
   },v=>save(a=>M.put(a,'bills',v),'Сохранение счёта'),{wide:true});}
+  function rentalForm(){const a=apartment(),services=M.rentalServices(a);form('Аренда',el=>{
+    const total=moneyInput(null);total.required=true;
+    el.append(h('p.iv-muted',M.monthLabel(state.period)+' · коммунальные услуги арендуемой квартиры'),field('Сумма коммунальных услуг, ₽',total),h('p.iv-muted',`Сумма распределится поровну между ${services.length} услугами: ${services.map(s=>s.name).join(', ')}.`),h('p.iv-muted','Охрана, мобильная связь и интернет учитываются отдельно. Остаток в копейках сохраняется в общей сумме.'));
+    return ()=>M.cents(total.value,{optional:false});
+  },amount=>save(a=>M.addRentalCharges(a,amount,state.period),'Аренда: коммунальные услуги'));}
   function paymentForm(existing=null,billId=null){const a=apartment();if(!a.bills.length){billForm();return;}form(existing?'Изменить оплату':'Внести оплату',el=>{
     const bills=select(a.bills.slice().sort((x,y)=>y.period.localeCompare(x.period)).map(b=>[b.id,`${name(a,b.serviceId)} · ${M.monthLabel(b.period)} · ${M.money(M.billBalance(a,b))}`]),existing?.billId||billId||a.bills.at(-1).id),date=dateInput(existing?.date||M.today()),amount=moneyInput(existing?.amountCents??(billId?Math.max(0,M.billBalance(a,a.bills.find(b=>b.id===billId))):null)),notes=note(existing?.note);date.required=true;amount.required=true;
     el.append(field('Счёт',bills),field('Дата оплаты',date),field('Оплачено, ₽',amount),field('Заметка',notes));
@@ -188,10 +193,10 @@ export function createMonitoring({getDocument,change,modal,say,reducedMotion,the
     const header=h('div.mn-header',h('div',h('div.mn-eyebrow',icon('homeassistant',14),'ДОМАШНИЕ МЕТРИКИ'),h('h1','Мониторинг квартиры'),h('p','Коммунальные услуги, расходы и забота о доме')));
     if(!a){container.replaceChildren(header,empty('Начнём с квартиры','Выберите готовый план и ведите показания, счета и обслуживание вручную.',h('div.iv-actions',btn('Добавить квартиру',()=>apartmentForm(),'plus','primary'),btn('Демо-квартира',loadDemo,'sparkles'))));return;}
     state.apartmentId=a.id;const chooser=select(apartments().map(a=>[a.id,a.name]),a.id,{'aria-label':'Квартира мониторинга'}),period=monthInput(state.period);period.setAttribute('aria-label','Месяц мониторинга');chooser.onchange=()=>{state.apartmentId=chooser.value;state.serviceId=null;state.query='';localStorage.setItem('mn:apartment',chooser.value);redraw();};period.onchange=()=>{if(!period.value)return;state.period=period.value;redraw();};
-    header.append(h('div.mn-header-controls',chooser,btn('Ещё квартира',()=>apartmentForm(),'plus'),btn('Демо-квартира',loadDemo,'sparkles'),period));
-    body=h('div.mn-tab-body');searchControl=inp(state.query,{type:'search',placeholder:'Поиск в мониторинге','aria-label':'Поиск в мониторинге',oninput:()=>{state.query=searchControl.value;paint();}});
+    header.append(h('div.mn-header-controls',chooser,btn('Аренда',rentalForm,'home','primary'),btn('Ещё квартира',()=>apartmentForm(),'plus'),btn('Демо-квартира',loadDemo,'sparkles'),period));
+    state.query='';searchControl=null;body=h('div.mn-tab-body');
     const tabs=h('nav.mn-tabs',{'aria-label':'Вкладки мониторинга'},...TABS.map(([key,label,glyph])=>h('button',{type:'button',class:state.tab===key?'active':'','aria-current':state.tab===key?'page':null,onclick:()=>switchTab(key)},icon(glyph,16),label)));
-    container.replaceChildren(header,tabs,...(a.demo?.kind==='monitoring-example'?[h('div.mn-demo-notice',icon('sparkles',16),h('span','Демо-квартира · Все суммы, показания и реквизиты вымышлены. Можно редактировать и пробовать.'))]:[]),h('div.mn-search',icon('search',16),searchControl),body);paint();
+    container.replaceChildren(header,tabs,...(a.demo?.kind==='monitoring-example'?[h('div.mn-demo-notice',icon('sparkles',16),h('span','Демо-квартира · Все суммы, показания и реквизиты вымышлены. Можно редактировать и пробовать.'))]:[]),body);paint();
   }
   function paint(){dispose();body.replaceChildren();const a=apartment();if(!a)return;({overview,readings,bills,analytics,maintenance,settings}[state.tab]||overview)(a);}
   return {render,dispose,focusSearch(){searchControl?.focus();},setRunning(on){world?.setRunning(on);},get world(){return world;},openApartment(id){if(apartments().some(a=>a.id===id))state.apartmentId=id;state.tab='maintenance';}};

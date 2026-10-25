@@ -36,6 +36,14 @@ export function remove(a,key,id){
   if(key==='rules')a.completions=a.completions.filter(v=>v.ruleId!==id);
 }
 export const billCharge = b => b.amountCents+b.adjustmentCents;
+export function rentalServices(a){return a.services.filter(s=>!s.archived&&!/охран|интернет|internet|моб(?:ильн[а-яё]*|\.)?\s*связ|сотов[а-яё]*\s*связ/i.test(s.name));}
+export function addRentalCharges(a,amountCents,period,{date=today()}={}){
+  if(!Number.isSafeInteger(amountCents)||amountCents<=0||amountCents>1e12)throw Error('Укажите общую сумму коммунальных услуг больше нуля');
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(period))throw Error('Выберите месяц начисления');
+  const services=rentalServices(a);if(!services.length)throw Error('Нет активных услуг для распределения коммунальных платежей');
+  const base=Math.floor(amountCents/services.length),remainder=amountCents%services.length,group=randomID();
+  return services.map((s,i)=>put(a,'bills',{serviceId:s.id,date,period,amountCents:base+(i<remainder?1:0),adjustmentCents:0,dueDate:null,note:`Аренда · коммунальные услуги. Общая сумма ${money(amountCents)} распределена поровну между ${services.length} услугами.`,attachments:[],rentalGroupId:group}));
+}
 export function billPaid(a,bill,through='9999-12-31'){return a.payments.filter(p=>p.billId===bill.id&&p.date<=through).reduce((v,p)=>v+p.amountCents,0);}
 export const billBalance = (a,b,through) => billCharge(b)-billPaid(a,b,through);
 const sum = (rows,fn) => rows.length?rows.reduce((v,r)=>v+fn(r),0):null;

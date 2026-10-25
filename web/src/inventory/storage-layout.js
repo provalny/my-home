@@ -1,20 +1,21 @@
+import {canStore} from './storage-role.js';
 import { isKitchenType } from './ikea-storage.js';
 import { planForNode } from './spaces.js';
 // Layouts refer to live inventory IDs. Rendering never creates, moves or deletes inventory.
 import { automaticGrid, kitchenModules, KITCHEN_MODULE_TYPES } from './ikea-storage.js';
 import { fridgeChambers } from './fridge-layout.js';
 export const OPENABLE_TYPES=new Set(['woodShelfLow','kallaxShelf','ivarRack','wardrobe','slidingWardrobe','dresser','nightstand','sideboard','bookshelf','metalRack','wallShelf','shoeCabinet','hallUnit','wallUnit','kitchenBase','hoodCabinet','kitchen','island','vanity','fridge','stove','bookcaseTall','bookcaseMedium','printerCabinet']);
-OPENABLE_TYPES.add('trailSuv');
+OPENABLE_TYPES.add('trailSuv');OPENABLE_TYPES.add('vestaSwCross2019');
 export const LAYOUT_TEMPLATES=[['shelves','Полки'],['wardrobe','Шкаф: верхняя полка и две секции'],['grid','Равные секции'],['drawers','Выдвижные ящики']];
-export const storageChildren=(doc,id)=>doc.nodes.filter(n=>n.parentId===id&&!n.archived&&n.kind!=='item').sort((a,b)=>a.order-b.order);
+export const storageChildren=(doc,id)=>doc.nodes.filter(n=>n.parentId===id&&!n.archived&&canStore(n)).sort((a,b)=>a.order-b.order);
 function rawLayoutZones(doc,nodeId) {
-  const n=doc.nodes.find(n=>n.id===nodeId);if(!n)return [];
+  const n=doc.nodes.find(n=>n.id===nodeId);if(!canStore(n))return [];
   if(n.kitchenModule&&!KITCHEN_MODULE_TYPES[n.kitchenModuleType||'cabinet']?.storage)return [];
   if(n.carCompartment)return [{nodeId:n.id,name:n.name,kind:n.kind,carCompartment:n.carCompartment,rect:[0,0,1,1],fill:storageFill(doc,n.id)??Math.min(100,carItemCount(doc,n.id)*12.5)}];
   const children=storageChildren(doc,nodeId);
   if(!children.length)return [{nodeId:n.id,name:n.fridgeChamber?n.name:'Основное пространство',kind:'space',rect:[0,0,1,1]}];
   const shape=planForNode(doc,n).furniture.find(f=>f.id===n.furnitureId);
-  if(shape?.type==='trailSuv')return children.map((c,i)=>({nodeId:c.id,name:c.name,kind:c.kind,carCompartment:c.carCompartment||'cabin',rect:[i/children.length,0,1/children.length,1],fill:storageFill(doc,c.id)??Math.min(100,carItemCount(doc,c.id)*12.5)}));
+  if(['trailSuv','vestaSwCross2019'].includes(shape?.type))return children.map((c,i)=>({nodeId:c.id,name:c.name,kind:c.kind,carCompartment:c.carCompartment||'cabin',rect:[i/children.length,0,1/children.length,1],fill:storageFill(doc,c.id)??Math.min(100,carItemCount(doc,c.id)*12.5)}));
   if(shape?.type==='fridge')return fridgeChambers(shape).flatMap(c=>{const child=children.find(n=>n.fridgeChamber===c.key);return child?[{nodeId:child.id,name:child.name,kind:child.kind,fridgeChamber:c.key,rect:[0,0,1,1]}]:[];});
   if(isKitchenType(shape?.type))return kitchenModules(shape).modules.flatMap(m=>{const child=children.find(c=>c.kitchenModule===m.key);return child?[{nodeId:child.id,name:child.name,kind:child.kind,moduleKey:m.key,moduleType:m.type,rect:[0,0,1,1]}]:[];});
   if(!n.storageLayout&&(n.autoLayout||children.some(c=>c.autoSection))){
@@ -32,14 +33,14 @@ function rawLayoutZones(doc,nodeId) {
 }
 // A section may override its furniture's fill, including an explicit 0%.
 export function storageFill(doc,nodeId){
- const seen=new Set();let n=doc.nodes.find(n=>n.id===nodeId);
+ const seen=new Set();let n=doc.nodes.find(n=>n.id===nodeId);if(!canStore(n))return null;
  while(n&&n.kind!=='room'&&!seen.has(n.id)){seen.add(n.id);if(Number.isFinite(n.fill))return Math.max(0,Math.min(100,n.fill));n=doc.nodes.find(p=>p.id===n.parentId);}
  return null;
 }
 function carItemCount(doc,id,seen=new Set()){if(seen.has(id))return 0;seen.add(id);return doc.nodes.filter(n=>n.parentId===id&&!n.archived).reduce((count,n)=>count+(n.kind==='item'?1:carItemCount(doc,n.id,seen)),0);}
 export function layoutZones(doc,nodeId){return rawLayoutZones(doc,nodeId).map(zone=>({...zone,fill:storageFill(doc,zone.nodeId)??storageFill(doc,nodeId)??zone.fill??null}));}
 export function arrangeStorage(doc,nodeId,{template='shelves',columns=1,rows=3,replace=false}={}) {
-  const n=doc.nodes.find(n=>n.id===nodeId&&!n.archived&&n.kind!=='item'&&n.kind!=='room');if(!n)throw Error('Выберите место хранения');
+  const n=doc.nodes.find(n=>n.id===nodeId&&!n.archived&&canStore(n)&&n.kind!=='room');if(!n)throw Error('Выберите место хранения');
   columns=Number(columns);rows=Number(rows);
   if(!Number.isInteger(columns)||columns<1||columns>6||!Number.isInteger(rows)||rows<1||rows>12||!LAYOUT_TEMPLATES.some(([id])=>id===template))throw Error('Сетка: 1–6 столбцов и 1–12 рядов');
   const children=storageChildren(doc,nodeId),capacity=template==='wardrobe'?1+2*rows:columns*rows;

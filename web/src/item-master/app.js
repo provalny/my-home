@@ -2,6 +2,8 @@ import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import * as M from './model.js';
 import { lookup } from './client.js';
+import {createTavilySettings} from './connection-ui.js';
+import {createManualMaster} from './manual-app.js';
 import './style.css';
 
 const btn=(label,action,glyph,primary=false)=>h('button.iv-btn'+(primary?'.primary':''),{type:'button',onclick:action},glyph?icon(glyph,15):null,label);
@@ -12,10 +14,12 @@ const sourceLink=(url,label)=>h('a',{href:M.safeURL(url),target:'_blank',rel:'no
 const sourceKind=c=>c.sourceKind==='manufacturer'?'Производитель':c.sourceKind==='store'?'Страница товара':'Источник';
 
 export function createItemMaster({getDocument,change,modal,say,isActive=()=>true}) {
-  let host,filter='pending',query='',expanded=null,running=false,controller=null,progress='',lastMessage='',pageSize=60;
+  let host,mode='auto',filter='pending',query='',expanded=null,running=false,controller=null,progress='',lastMessage='',pageSize=60;
   const selected=new Set();
   const doc=()=>getDocument();
   const redraw=()=>{if(host&&isActive())render(host);};
+  const tavily=createTavilySettings({modal,onChange:()=>{if(mode==='auto')redraw();}});
+  const manual=createManualMaster({getDocument,change,onChange:()=>{if(mode==='manual')redraw();}});
   const mutate=(fn,action,undoable=true)=>change(fn,{action,undoable,retryable:false});
 
   async function search(ids,{repeat=false,url=null}={}) {
@@ -40,7 +44,7 @@ export function createItemMaster({getDocument,change,modal,say,isActive=()=>true
       lastMessage=`Проверено предметов: ${completed}. Результаты сохранены; характеристики ещё не изменены.`;
       if(completed)filter='checked';
     }catch(e){lastMessage=e.name==='AbortError'?`Поиск остановлен. Завершённых проверок: ${completed}.`:`Поиск остановлен: ${e.message}`;}
-    finally{running=false;controller=null;progress='';redraw();}
+    finally{running=false;controller=null;progress='';redraw();tavily.refresh();}
   }
 
   function addLink(n) {
@@ -106,12 +110,20 @@ export function createItemMaster({getDocument,change,modal,say,isActive=()=>true
 
   function render(container) {
     host=container;
+    function activate(next){if(running||next===mode)return;mode=next;redraw();host.querySelector('#im-mode-'+next)?.focus();}
+    const modeTabs=h('nav.im-mode-tabs',{role:'tablist','aria-label':'Режим мастера предметов'},...[['auto','Автоматический'],['manual','Ручной']].map(([key,label])=>h('button',{
+      type:'button',id:'im-mode-'+key,role:'tab','aria-selected':String(mode===key),'aria-controls':'im-panel-'+key,tabindex:mode===key?0:-1,disabled:running,onclick:()=>activate(key),
+      onkeydown:e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();e.stopPropagation();activate(e.key==='Home'?'auto':e.key==='End'?'manual':mode==='auto'?'manual':'auto');}}
+    },icon(key==='auto'?'sparkles':'sliders',15),label)));
+    const header=h('div.im-header',h('h1','Мастер предметов'),modeTabs);
+    const panel=h('section.im-mode-panel',{id:'im-panel-'+mode,role:'tabpanel','aria-labelledby':'im-mode-'+mode});
+    container.replaceChildren(header,panel);
+    if(mode==='manual'){manual.render(panel);return;}
     const all=M.items(doc()),unseen=all.filter(n=>!M.checked(n)),seen=all.filter(M.checked),ready=all.filter(n=>M.chosen(n));
     for(const id of selected)if(!all.some(n=>n.id===id))selected.delete(id);
     const selection=all.filter(n=>selected.has(n.id)),selectedPending=selection.filter(n=>!M.checked(n));
-    const header=h('div.im-header',h('div',h('div.im-eyebrow',icon('sparkles',14),'КАТАЛОГ БЕЗ ПРОПУСКОВ'),h('h1','Мастер предметов'),h('p','Находим названия и характеристики ваших вещей')),
-      disabled(btn('Найти для непроверенных',()=>search(unseen.map(n=>n.id)),'search',true),running||!unseen.length));
-    const stats=h('div.im-stats',...[['В разделе',all.length,'Вещи, мебель и хранилища'],['Не проверено',unseen.length,'Только они входят в общий поиск'],['Проверено',seen.length,'Повторно — только по вашей команде'],['Модель выбрана',ready.length,'Можно сравнить характеристики']].map(([label,count,note])=>h('div.im-stat',h('small',label),h('strong',String(count)),h('span',note))));
+    const findAll=disabled(btn('Найти для непроверенных',()=>search(unseen.map(n=>n.id)),'search',true),running||!unseen.length);
+    const stats=h('div.im-stats',...[['Всего',all.length,'Вещи, мебель и хранилища'],['Не проверено',unseen.length,'Только они входят в общий поиск'],['Проверено',seen.length,'Повторно — только по вашей команде'],['Модель выбрана',ready.length,'Можно сравнить характеристики']].map(([label,count,note])=>h('div.im-stat',{title:note},h('strong',String(count)),h('small',label))));
     const tabs=h('nav.im-tabs',{'aria-label':'Фильтры мастера предметов'},...[['pending','Не проверено'],['checked','Проверено'],['all','Все предметы']].map(([key,label])=>h('button',{type:'button',class:filter===key?'active':'','aria-pressed':String(filter===key),onclick:()=>{filter=key;pageSize=60;redraw();}},label)));
     const searchBox=h('input',{type:'search',value:query,placeholder:'Найти предмет…','aria-label':'Поиск в мастере предметов'});
     const list=h('div.im-list');
@@ -125,20 +137,20 @@ export function createItemMaster({getDocument,change,modal,say,isActive=()=>true
         const r=n.itemResearch,check=h('input',{type:'checkbox','aria-label':'Выбрать: '+n.name});check.checked=selected.has(n.id);check.onchange=()=>{check.checked?selected.add(n.id):selected.delete(n.id);redraw();};
         const status=n.itemResearchError?'Ошибка поиска':!r?'Не проверено':r.appliedAt&&r.appliedCandidateId===r.chosen?'Данные применены':r.status==='not_found'?'Не найдено':r.chosen?'Модель выбрана':'Выберите модель';
         const copy=btn(n.name,()=>{expanded=expanded===n.id?null:n.id;redraw();});copy.classList.add('im-item-name');copy.setAttribute('aria-expanded',String(expanded===n.id));
-        const row=h('div.im-item-row',check,h('div.im-item-copy',copy,h('small',r?`Проверено ${date(r.checkedAt)}`:'Название · артикул · вес · транспортный объём')),h('span.im-status',{class:'im-status '+(n.itemResearchError?'is-error':r?'is-done':'')},status),btn(expanded===n.id?'Скрыть':'Открыть',()=>{expanded=expanded===n.id?null:n.id;redraw();},expanded===n.id?'back':'next'));
+        const row=h('div.im-item-row',check,h('div.im-item-copy',copy,r?h('small',`Проверено ${date(r.checkedAt)}`):null),h('span.im-status',{class:'im-status '+(n.itemResearchError?'is-error':r?'is-done':''),title:n.itemResearchError||status},status),btn(expanded===n.id?'Скрыть':'Открыть',()=>{expanded=expanded===n.id?null:n.id;redraw();},expanded===n.id?'back':'next'));
         const card=h('article.im-item',{'data-research-id':n.id},row);
-        if(n.itemResearchError)card.append(h('p.im-error',n.itemResearchError));
+        if(n.itemResearchError&&expanded===n.id)card.append(h('p.im-error',n.itemResearchError));
         if(expanded===n.id)card.append(resultPanel(n));list.append(card);
       }
       if(!visible.length)list.append(h('div.iv-empty',icon('check',28),h('h3',filter==='pending'&&!query?'Все предметы уже проверены':'Предметов не найдено'),h('p',filter==='pending'&&!query?'Результаты доступны во вкладке «Проверено».':'Измените фильтр или поисковый запрос.')));
       if(visible.length>shown.length)list.append(btn('Показать ещё',()=>{pageSize+=60;paintList();},'next'));
     }
     searchBox.oninput=()=>{query=searchBox.value;pageSize=60;paintList();};
-    const notice=h('div.im-info',icon('bulb',16),h('p','Бесплатный поиск Tavily без регистрации. Сначала производитель, затем другие источники. Передаются только название, бренд и модель. При достижении бесплатного лимита поиск остановится; найденные результаты сохранятся.'));
-    container.replaceChildren(header,stats,notice);
-    if(running)container.append(h('div.im-progress',{role:'status'},h('span.im-pulse'),h('div',h('strong','Ищем характеристики'),h('small',progress)),btn('Остановить',()=>{controller?.abort();},'close')));
-    if(lastMessage)container.append(h('p.im-notice',{role:'status'},lastMessage));
-    container.append(h('div.im-filterbar',tabs,searchBox),controls,list);paintList();
+    const notice=h('details.im-help-details',h('summary','Как работает поиск'),h('p','Сначала производитель, затем другие источники. Передаются только название, бренд и модель. При достижении лимита поиск остановится; найденные результаты сохранятся. Уже проверенные вещи в общий поиск не входят.'));
+    panel.append(stats,h('div.im-auto-actions',findAll,tavily.panel(running)),notice);
+    if(running)panel.append(h('div.im-progress',{role:'status'},h('span.im-pulse'),h('div',h('strong','Ищем характеристики'),h('small',progress)),btn('Остановить',()=>{controller?.abort();},'close')));
+    if(lastMessage)panel.append(h('p.im-notice',{role:'status'},lastMessage));
+    panel.append(h('div.im-filterbar',tabs,searchBox),controls,list);paintList();
   }
   return {render,stop:()=>controller?.abort()};
 }

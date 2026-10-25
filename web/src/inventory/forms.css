@@ -98,3 +98,4 @@
   .if-form-footer>.if-inline-actions { justify-content:flex-end; }
   .if-form-scroll { padding:14px 16px 5px; }
 }
+.if-storage-role{display:flex;align-items:center;gap:8px;font-size:12px;min-height:32px}.if-storage-role input{flex:none}
