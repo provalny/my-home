@@ -196,6 +196,24 @@ final class InventoryLANServer: @unchecked Sendable {
             let cookies = (request.headers["cookie"] ?? "").split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
             let token = cookies.first(where: { $0.hasPrefix("la_session=") }).map { String($0.dropFirst(11)) } ?? ""
             guard sessions[token] != nil else { return .json(401, ["error": "Подключение завершено. Отсканируйте QR-код на Mac."]) }
+            if path == "/api/item-master/search", request.method == "POST" {
+                guard request.body.count < 8192,
+                      let body = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any],
+                      let input = body["input"] as? [String: Any], let domains = body["domains"] as? [String] else {
+                    return .json(400, ["error": "Некорректный запрос поиска"])
+                }
+                ItemMasterHTTP.search(input, domains: domains) { [weak self, weak connection] result in
+                    guard let self, let connection else { return }
+                    self.queue.async {
+                        guard self.listener != nil, self.sessions[token] != nil else { connection.cancel(); return }
+                        switch result {
+                        case .success(let value): self.respond(connection, .json(200, value))
+                        case .failure(let error): self.respond(connection, .json(502, ["error": error.localizedDescription]))
+                        }
+                    }
+                }
+                return nil
+            }
             if path == "/api/item-master/page", request.method == "POST" {
                 guard request.body.count < 8192,
                       let body = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any],

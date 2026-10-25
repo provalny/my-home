@@ -14,6 +14,14 @@ import Foundation
             }
             precondition(done.wait(timeout: .now() + 5) == .success)
         }
+        for input: [String: Any] in [["name": ""], ["name": 123]] {
+            let done = DispatchSemaphore(value: 0)
+            ItemMasterHTTP.search(input, domains: []) { result in
+                if case .success = result { preconditionFailure("Invalid search accepted") }
+                done.signal()
+            }
+            precondition(done.wait(timeout: .now() + 5) == .success)
+        }
         if CommandLine.arguments.contains("--live") {
             let done = DispatchSemaphore(value: 0)
             ItemMasterHTTP.fetch("https://www.ikea.com/us/en/p/kallax-shelf-unit-white-90637303/") { result in
@@ -26,6 +34,20 @@ import Foundation
                 done.signal()
             }
             precondition(done.wait(timeout: .now() + 65) == .success)
+        }
+        if CommandLine.arguments.contains("--live-search") {
+            let done = DispatchSemaphore(value: 0)
+            ItemMasterHTTP.search(["name": "Sony WH-1000XM5", "brand": "Sony", "model": "WH-1000XM5"], domains: ["sony.com"]) { result in
+                switch result {
+                case .success(let response):
+                    let results = response["results"] as? [[String: Any]] ?? []
+                    precondition(results.contains { ($0["url"] as? String)?.contains("sony.com") == true })
+                    print("Native free search returned official Sony pages")
+                case .failure(let error): preconditionFailure(error.localizedDescription)
+                }
+                done.signal()
+            }
+            precondition(done.wait(timeout: .now() + 50) == .success)
         }
         print("Item Master HTTP checks passed")
     }

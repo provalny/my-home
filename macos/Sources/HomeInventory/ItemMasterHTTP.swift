@@ -6,6 +6,46 @@ enum ItemMasterHTTP {
     private static let workers = DispatchQueue(label: "life-assistant.item-master", qos: .utility, attributes: .concurrent)
     private static let slots = DispatchSemaphore(value: 3)
 
+    static func search(_ input: [String: Any], domains: [String], completion: @escaping (Result<[String: Any], Error>) -> Void) {
+        var values: [String] = []
+        for (key, length) in [("name", 200), ("brand", 100), ("model", 100)] {
+            guard input[key] == nil || input[key] is String else { completion(.failure(failure("Некорректное название предмета"))); return }
+            values.append(String((input[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(length)))
+        }
+        guard !values[0].isEmpty, domains.count <= 10, domains.allSatisfy({ $0.count <= 100 && $0.range(of: "^[a-z0-9.-]+\\.[a-z]{2,}$", options: .regularExpression) != nil }) else {
+            completion(.failure(failure("Некорректный запрос поиска"))); return
+        }
+        let body: [String: Any] = ["query": (values.filter { !$0.isEmpty } + ["specifications weight manufacturer part number packed dimensions"]).joined(separator: " "),
+            "include_domains": domains, "search_depth": "basic", "max_results": 6, "topic": "general",
+            "include_answer": false, "include_raw_content": "markdown", "include_images": false, "auto_parameters": false]
+        workers.async {
+            guard slots.wait(timeout: .now()) == .success else { completion(.failure(failure("Дождитесь завершения текущего запроса"))); return }
+            var request = URLRequest(url: URL(string: "https://api.tavily.com/search")!)
+            request.httpMethod = "POST"; request.timeoutInterval = 35
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("keyless", forHTTPHeaderField: "X-Tavily-Access-Mode")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil; configuration.urlCache = nil
+            configuration.timeoutIntervalForResource = 40
+            let session = URLSession(configuration: configuration)
+            session.dataTask(with: request) { data, response, error in
+                defer { slots.signal(); session.finishTasksAndInvalidate() }
+                guard error == nil, let response = response as? HTTPURLResponse, response.url?.host == "api.tavily.com" else {
+                    completion(.failure(failure("Сервис поиска не ответил. Проверка не завершена."))); return
+                }
+                guard response.statusCode == 200 else {
+                    let limited = [402, 429, 432, 433].contains(response.statusCode)
+                    completion(.failure(failure(limited ? "Достигнут лимит бесплатного поиска. Попробуйте позже. Платный поиск не включён." : "Бесплатный поиск временно недоступен. Попробуйте позже или добавьте ссылку на товар."))); return
+                }
+                guard let data, data.count <= 2_000_000, let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    completion(.failure(failure("Не удалось прочитать ответ поиска"))); return
+                }
+                completion(.success(result))
+            }.resume()
+        }
+    }
+
     static func fetch(_ raw: String, completion: @escaping (Result<[String: Any], Error>) -> Void) {
         workers.async {
             guard slots.wait(timeout: .now()) == .success else {

@@ -5,18 +5,19 @@ const {chromium} = require('/Users/maksimefimov/.cache/codex-runtimes/codex-prim
  try{
   const context=await browser.newContext({viewport:{width:1480,height:1000}}),p=await context.newPage(),errors=[],requests=[];
   p.on('pageerror',e=>errors.push(e.stack));
-  await p.route('**/api/item-master/page',async route=>{
-   const body=route.request().postDataJSON();assert.deepEqual(Object.keys(body),['url']);requests.push(body.url);assert.ok(!body.url.includes('PRIVATE'));
-   let html;
-   if(body.url.includes('duckduckgo')){
-    const q=new URL(body.url).searchParams.get('q');
-    if(q.includes('E00'))return route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'Источник временно недоступен'})});
-    html=q.includes('A00')?'<div class="no-results">No results found</div>':'<a class="result__a" href="https://example.com/product-x20">Тестовый рюкзак X20</a>';
-   }else html='<script type="application/ld+json">'+JSON.stringify({'@type':'ProductGroup',hasVariant:['Red','Blue'].map((color,i)=>({'@type':'Product',name:'Тестовый рюкзак '+(body.url.includes('a00')?'A00':'X20')+' '+color,mpn:'EX-'+(body.url.includes('a00')?'A00':'X20')+'-'+color,weight:{value:650+i*50,unitCode:'GRM'},additionalProperty:[{name:'Packed dimensions',value:'20 x 10 x 5 cm'}]}))})+'</script>';
+  await p.route('**/api/item-master/*',async route=>{
+   const body=route.request().postDataJSON();requests.push(body);assert.ok(!JSON.stringify(body).includes('PRIVATE'));
+   if(route.request().url().endsWith('/search')){
+    assert.deepEqual(Object.keys(body).sort(),['domains','input']);assert.deepEqual(Object.keys(body.input).sort(),['brand','model','name']);
+    if(body.input.model==='E00')return route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'Достигнут лимит бесплатного поиска. Попробуйте позже.'})});
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({results:body.input.model==='A00'?[]:[{title:'Тестовый рюкзак X20',url:'https://example.com/product-x20',raw_content:null}]})});
+   }
+   assert.deepEqual(Object.keys(body),['url']);
+   const html='<script type="application/ld+json">'+JSON.stringify({'@type':'ProductGroup',hasVariant:['Red','Blue'].map((color,i)=>({'@type':'Product',name:'Тестовый рюкзак '+(body.url.includes('a00')?'A00':'X20')+' '+color,mpn:'EX-'+(body.url.includes('a00')?'A00':'X20')+'-'+color,weight:{value:650+i*50,unitCode:'GRM'},additionalProperty:[{name:'Packed dimensions',value:'20 x 10 x 5 cm'}]}))})+'</script>';
    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({url:body.url,text:html})});
   });
   const base=process.env.ITEM_MASTER_URL||'http://127.0.0.1:5234';
-  await p.goto(base+'/?section=item-master&demo=item-master');await p.waitForFunction(()=>window.__inventory);
+  await p.goto(base+'/?section=item-master&demo=item-master');await p.waitForFunction(()=>window.__inventory);await p.getByRole('button',{name:'Пропустить обзор',exact:true}).click();
   const ids=await p.evaluate(async()=>{
    const M=await import('/src/inventory/model.js'),d=window.__inventory.document;d.settings.motion='off';
    const added=['X20','A00','E00'].map(model=>M.newNode(d,{name:'Тестовый рюкзак '+model,parentId:M.UNPLACED_ID,fields:{'Бренд':'Example','Модель':model,'Вес, г':'700'},notes:'PRIVATE',quantity:2}));

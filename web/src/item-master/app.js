@@ -134,7 +134,7 @@ export function createItemMaster({getDocument,change,modal,say,isActive=()=>true
       if(visible.length>shown.length)list.append(btn('Показать ещё',()=>{pageSize+=60;paintList();},'next'));
     }
     searchBox.oninput=()=>{query=searchBox.value;pageSize=60;paintList();};
-    const notice=h('div.im-info',icon('bulb',16),h('p','Бесплатный поиск по открытым страницам. Сначала производитель, затем магазины. Передаются только название, бренд и модель. Результаты сохраняются отдельно от карточки.'));
+    const notice=h('div.im-info',icon('bulb',16),h('p','Бесплатный поиск Tavily без регистрации. Сначала производитель, затем другие источники. Передаются только название, бренд и модель. При достижении бесплатного лимита поиск остановится; найденные результаты сохранятся.'));
     container.replaceChildren(header,stats,notice);
     if(running)container.append(h('div.im-progress',{role:'status'},h('span.im-pulse'),h('div',h('strong','Ищем характеристики'),h('small',progress)),btn('Остановить',()=>{controller?.abort();},'close')));
     if(lastMessage)container.append(h('p.im-notice',{role:'status'},lastMessage));

@@ -1,4 +1,5 @@
 import { safeURL } from './model.js';
+import {searchResults} from './search-provider.js';
 
 const MAX_PAGE=2_000_000;
 const BRANDS=[[/\bsony\b|сони/i,['sony.com','sony.ru','sony.co.uk']],[/\bikea\b|ике[ая]/i,['ikea.com']],[/\bapple\b|эппл/i,['apple.com']],[/\bcanon\b|кэнон|кенон/i,['canon.com','canon-europe.com']],[/\bdji\b/i,['dji.com']],[/\bsamsung\b|самсунг/i,['samsung.com']],[/\blogitech\b/i,['logitech.com','logitechg.com']],[/\bdecathlon\b|декатлон/i,['decathlon.com','decathlon.co.uk']],[/\bnaturehike\b/i,['naturehike.com']],[/\bdeuter\b/i,['deuter.com']],[/\bosprey\b/i,['osprey.com']],[/\bbosch\b|бош/i,['bosch-home.com','bosch-professional.com']],[/\bmakita\b|макита/i,['makita.com','makitatools.com']],[/\bnintendo\b/i,['nintendo.com']],[/\bgarmin\b/i,['garmin.com']]];
@@ -10,17 +11,6 @@ const short = (s,n=200) => text(s).slice(0,n);
 const attr = (tag,key) => decode(tag.match(new RegExp(`\\b${key}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,'i'))?.slice(1).find(v=>v!==undefined)||'');
 export function brandDomains(input) {const q=Object.values(input).join(' ');return BRANDS.find(([re])=>re.test(q))?.[1]||[];}
 const onDomain=(url,domains)=>{const host=new URL(url).hostname;return domains.some(d=>host===d||host.endsWith('.'+d));};
-export function parseSearch(html) {
-  if(/anomaly\.js|anomaly-modal|challenge-form|g-recaptcha|unusual traffic/i.test(html))throw Error('Поиск запросил проверку браузера. Попробуйте позже или добавьте ссылку на товар.');
-  const links=[];
-  for(const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
-    if(!/\bresult__a\b/.test(attr(m[1],'class')))continue;
-    let raw=attr(m[1],'href');try{const u=new URL(raw,'https://duckduckgo.com');raw=u.searchParams.get('uddg')||u.href;}catch{continue;}
-    const url=safeURL(raw);if(url&&!links.some(x=>x.url===url))links.push({url,title:short(m[2],300)});
-  }
-  if(!links.length&&!/no-results|No results found|No more results/i.test(html))throw Error('Не удалось прочитать ответ бесплатного поиска. Добавьте ссылку на товар или попробуйте позже.');
-  return links.slice(0,8);
-}
 const units={weight:{g:1,grm:1,'г':1,gram:1,grams:1,kg:1000,kgm:1000,'кг':1000,kilogram:1000,kilograms:1000,lb:453.59237,lbr:453.59237,lbs:453.59237,oz:28.349523125,onz:28.349523125},length:{cm:1,cmt:1,'см':1,mm:.1,mmt:.1,'мм':.1,m:100,mtr:100,'м':100,in:2.54,inch:2.54,inches:2.54,inh:2.54},volume:{l:1,ltr:1,'л':1,liter:1,liters:1,litre:1,litres:1,ml:.001,mlt:.001,'мл':.001}};
 export function quantity(raw,kind,unit='') {
   if(raw&&typeof raw==='object'){unit=raw.unitCode||raw.unitText||unit;raw=raw.value;}
@@ -75,30 +65,64 @@ export function extractCandidates(html,url,{domains=[]}={}) {
 }
 function relevant(c,input) {
   const norm=s=>String(s).toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-  const value=norm(c.title+' '+(c.fields.mpn?.value||''));
+  const value=norm(c.title+' '+(c.fields?.mpn?.value||''));
   const tokens=(input.model||input.name).split(/\s+/).filter(t=>t.length>=3&&/\d/.test(t));
   if(tokens.length)return tokens.every(t=>value.includes(norm(t)));
   const words=input.name.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[];
   return words.some(w=>value.includes(norm(w)));
 }
-export function createLookup(fetchPage,{delay=1200}={}) {
+export function extractSearchText(result,{domains=[]}={}) {
+  if(!safeURL(result.url)||!result.text)return null;
+  const lines=result.text.replace(/!\[[^\]]*\]\([^\n]*?\)/g,'').replace(/\[([^\]]+)\]\([^\n]*?\)/g,'$1').split(/\r?\n/);
+  const clean=line=>text(line.replace(/^\s*(?:[#+>*-]+\s*)+/,'').replace(/\*\*|__/g,'')).trim();
+  const pairs=[];let packaging=false;
+  for(let i=0;i<lines.length;i++) {
+    const line=clean(lines[i]);
+    if(/^(?:packaging|shipping|package(?:\s+\d+)?|упаковка|доставка)$/i.test(line))packaging=true;
+    if(/^#{1,2}\s/.test(lines[i])&&!/packag|shipping|упаков|достав/i.test(line))packaging=false;
+    if(/^(?:reviews?|related products?|you may also like|отзывы|похожие товары)$/i.test(line))break;
+    const table=line.match(/^\|\s*([^|]+)\|\s*([^|]+)\|\s*$/);
+    let label,value;
+    if(table){label=table[1].trim();value=table[2].trim();}
+    else {
+      const inline=line.match(/^([^:]{1,90}):\s*(.+)$/);
+      if(inline){label=inline[1];value=inline[2];}
+      else {label=line;let j=i+1;while(j<lines.length&&!clean(lines[j]))j++;value=clean(lines[j]||'').replace(/^:\s*/,'');}
+    }
+    if(packaging&&/^(?:weight|вес)(?:\b|\s|,|$)/i.test(label))continue;
+    // Only explicit property labels are read; prose, AI answers and vague volume are ignored.
+    if(/^(?:weight|net weight|product weight|item weight|вес(?: нетто| предмета| изделия| товара)?)(?:\s*[,(/]\s*(?:г|кг|g|kg)\)?)?$/i.test(label)||/^(?:manufacturer part number|mpn|артикул производителя|код производителя)$/i.test(label)||/^(?:(?:packed|folded|package|packaging) (?:dimensions|size|volume|width|height|length|depth)|(?:размер|габариты|объём|объем|ширина|высота|длина|глубина)(?:ы)? (?:в сложенном виде|упаковки|в упаковке)|транспортный объём)(?:\s*[,(/]\s*(?:см|мм|cm|mm|л|l)\)?)?$/i.test(label))pairs.push({name:label,value});
+  }
+  const title=short(result.title,300),fields=facts({},result.url,pairs);
+  // A search-page title is a candidate label, not an official product name.
+  if(!Object.keys(fields).length)return null;
+  for(const fact of Object.values(fields))fact.basis=short('По тексту страницы через Tavily · '+fact.basis,500);
+  return {id:result.url+'#text',url:result.url,title,sourceKind:onDomain(result.url,domains)?'manufacturer':'other',fields};
+}
+export function createLookup(fetchPage,{delay=1200,searchProvider}={}) {
   let lastRequest=0;
   async function page(url,signal){signal?.throwIfAborted();const wait=Math.max(0,lastRequest+delay-Date.now());if(wait)await new Promise((resolve,reject)=>{const stop=()=>{clearTimeout(timer);reject(new DOMException('Остановлено','AbortError'));};const timer=setTimeout(()=>{signal?.removeEventListener('abort',stop);resolve();},wait);signal?.addEventListener('abort',stop,{once:true});});signal?.throwIfAborted();lastRequest=Date.now();const r=await fetchPage(url,signal);signal?.throwIfAborted();return r;}
   async function source(url,input,signal){const r=await page(url,signal);return extractCandidates(r.text,r.url||url,{domains:brandDomains(input)});}
   async function search(input,{signal}={}) {
     const clean={name:short(input.name),brand:short(input.brand,100),model:short(input.model,100)};
     if(!clean.name)throw Error('У предмета нет названия');
-    const base=[clean.name,clean.brand,clean.model].filter(Boolean).join(' '),domains=brandDomains(clean),found=[],visited=new Set();let failed=0,read=0,warning='';
+    if(!searchProvider)throw Error('Источник поиска не подключён');
+    const domains=brandDomains(clean),found=[],visited=new Set();let failed=0,read=0,warning='';
     for(const phase of ['manufacturer','store']) {
-      const query=base+(phase==='manufacturer'?(domains.length?' ('+domains.map(d=>'site:'+d).join(' OR ')+')':' official manufacturer specifications'):' характеристики specifications');
+      if(phase==='manufacturer'&&!domains.length)continue;
       let links;
-      try{const response=await page('https://html.duckduckgo.com/html/?q='+encodeURIComponent(query),signal);links=parseSearch(response.text).filter(x=>!visited.has(x.url)&&(/\.pdf(?:[?#]|$)/i.test(x.url)===false));}
+      try{signal?.throwIfAborted();const response=await searchProvider(clean,{domains:phase==='manufacturer'?domains:[],signal});signal?.throwIfAborted();links=searchResults(response).filter(x=>!visited.has(x.url)&&relevant({title:x.title+' '+new URL(x.url).pathname},clean)&&(/\.pdf(?:[?#]|$)/i.test(x.url)===false));}
       catch(e){if(e.name==='AbortError'||!found.length)throw e;warning='Дополнительный поиск недоступен. Сохранены уже найденные сведения.';break;}
       const ordered=phase==='manufacturer'?links.filter(x=>!domains.length||onDomain(x.url,domains)):links;
       for(const link of ordered.slice(0,4)) {
         visited.add(link.url);
-        try{const candidates=await source(link.url,clean,signal);read++;for(const c of candidates)if(relevant(c,clean)&&!found.some(x=>x.id===c.id))found.push(c);}
+        let candidates=[];const textCandidate=extractSearchText(link,{domains});
+        try{candidates=await source(link.url,clean,signal);read++;}
         catch(e){if(e.name==='AbortError')throw e;failed++;}
+        if(!candidates.length&&textCandidate){candidates=[textCandidate];read++;}
+        // A page with multiple variants never shares unscoped text properties between them.
+        else if(candidates.length===1&&textCandidate&&relevant(candidates[0],clean))candidates[0].fields={...textCandidate.fields,...candidates[0].fields};
+        for(const c of candidates)if(relevant(c,clean)&&!found.some(x=>x.id===c.id))found.push(c);
       }
       // Stop before stores only when the manufacturer has every requested fact.
       if(found.some(c=>c.sourceKind==='manufacturer'&&['officialName','mpn','weightGrams','transportLiters'].every(k=>c.fields[k])))break;
