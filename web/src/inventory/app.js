@@ -735,7 +735,7 @@ export async function bootInventory(root) {
   function configureCategories(){openCategoryWizard({getDoc:()=>doc,change,onSaved:({addedCategories,addedCollections})=>{go('categories');say(`Добавлено категорий: ${addedCategories}, подборок: ${addedCollections}`);}});}
   function categoryBadge(c,action){const a=categoryAppearance(doc,c.id);return h('button.iv-category-badge.iv-category-icon-button',{type:'button',onclick:action,'data-kind':a.kind,'data-glyph':a.glyph,'aria-label':'Изменить значок: '+index().categoryName(c.id),title:'Изменить значок категории'},icon(a.glyph,16));}
   function drawCategories(draft=null){
-    let deleting=Boolean(draft?.deleting),draggedCategoryId=null;let folded;try{folded=new Set(JSON.parse(localStorage.getItem('iv:category-folded')||'[]'));}catch{folded=new Set();}const foldButtons=new Map();function rememberFolds(){try{localStorage.setItem('iv:category-folded',JSON.stringify([...folded]));}catch{}}const selectedCategories=new Set(),checks=new Map(),editRows=new Map(),handles=new Map(),iconButtons=new Map();
+    let deleting=Boolean(draft?.deleting),draggedCategoryId=null;let folded;try{folded=new Set(JSON.parse(localStorage.getItem('iv:category-folded')||'[]'));}catch{folded=new Set();}const foldButtons=new Map(),addButtons=new Map();function rememberFolds(){try{localStorage.setItem('iv:category-folded',JSON.stringify([...folded]));}catch{}}const selectedCategories=new Set(),checks=new Map(),editRows=new Map(),handles=new Map(),iconButtons=new Map();
     const form=h('form.iv-category-editor'),list=h('div.iv-category-groups'),inputs=new Map(),branches=new Map(),parentLabels=new Map(),error=h('p.iv-form-error',{role:'alert'},draft?.error||''),needle=input(draft?.query||'',{type:'search',placeholder:'Найти категорию или подкатегорию…','aria-label':'Поиск категорий и подкатегорий'}),counter=h('span.iv-muted',{'aria-live':'polite'});
     const sorted=doc.categories.slice().sort((a,b)=>(a.order??Number.MAX_SAFE_INTEGER)-(b.order??Number.MAX_SAFE_INTEGER)||a.name.localeCompare(b.name,'ru'));
     function rows(parentId,depth=0){return sorted.filter(c=>(c.parentId||null)===parentId).map(c=>{
@@ -770,7 +770,8 @@ export async function bootInventory(root) {
       handle.addEventListener('dragstart',e=>{if(deleting||busy){e.preventDefault();return;}e.stopPropagation();draggedCategoryId=c.id;e.dataTransfer.setData('application/x-inventory-category',c.id);e.dataTransfer.effectAllowed='move';editRows.get(c.id).classList.add('iv-category-dragging');});
       handle.addEventListener('dragend',clearCategoryDrag);
       const badge=categoryBadge(c,()=>chooseCategoryIcon(c));iconButtons.set(c.id,badge);
-      const row=h('div.iv-category-edit-row',{'data-category-id':c.id,vars:{'--category-indent':depth*16+'px'}},check,handle,badge,name,parentLabel);editRows.set(c.id,row);categoryDropTarget(row,c.id);
+      const add=button('',()=>chooseSubcategory(c),'plus','iv-category-add-child');add.title='Добавить подкатегорию';add.setAttribute('aria-label','Добавить подкатегорию: '+index().categoryName(c.id));addButtons.set(c.id,add);
+      const row=h('div.iv-category-edit-row.has-category-add',{'data-category-id':c.id,vars:{'--category-indent':depth*16+'px'}},check,handle,badge,name,parentLabel,add);editRows.set(c.id,row);categoryDropTarget(row,c.id);
       row.addEventListener('click',e=>{if(deleting){if(e.target!==check&&!e.target.closest('button')){check.checked=!check.checked;toggle();}}else if(categoriesMode==='grid'&&e.target!==name&&!e.target.closest('button'))name.focus();});
       const branch=h('div.iv-category-branch',row,...rows(c.id,depth+1));branches.set(c.id,branch);if(sorted.some(x=>x.parentId===c.id)){const fold=button('',()=>{folded.has(c.id)?folded.delete(c.id):folded.add(c.id);rememberFolds();filter();},'down','iv-category-fold');foldButtons.set(c.id,fold);row.append(fold);row.classList.add('has-category-fold');}return branch;
     });}
@@ -785,16 +786,26 @@ export async function bootInventory(root) {
     }
     function paintMode(){list.classList.toggle('is-category-tiles',categoriesMode==='grid');for(const b of modes.querySelectorAll('button')){const active=b.dataset.mode===categoriesMode;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));}}
     paintMode();
-    const parentField=field('Родительская категория',parent),createFields=h('div.iv-category-add',{hidden:!draft?.createOpen},field('Название',name),parentField);parentField.hidden=Boolean(draft?.createOpen&&!draft?.sub);
-    const chooseCreation=sub=>{createFields.hidden=false;parentField.hidden=!sub;if(sub){if(!parent.value)parent.value=sorted.find(c=>!c.parentId)?.id||'';}else parent.value='';name.focus();};
+    const parentField=field('Родительская категория',parent),createFields=h('div.iv-category-add',{hidden:!draft?.createOpen},field('Название',name),parentField);parentField.hidden=true;parent.value='';
+    const chooseCreation=()=>{createFields.hidden=false;parent.value='';name.focus();};
     const foldAll=button('Свернуть / развернуть всё',()=>{const ids=[...foldButtons.keys()],collapse=ids.some(id=>!folded.has(id));ids.forEach(id=>collapse?folded.add(id):folded.delete(id));rememberFolds();filter();},'down');
-    const addRoot=button('Добавить категорию',()=>chooseCreation(false),'plus'),addSub=button('Добавить подкатегорию',()=>chooseCreation(true),'plus');
+    const addRoot=button('Добавить категорию',chooseCreation,'plus');
     const deleteMode=button('Удалить',()=>{deleting=true;paintSelection();},'trash','danger'),selectedCount=h('span',{'aria-live':'polite'}),removeSelected=button('Удалить выбранные',confirmRemoval,'trash','danger');
     const deleteBar=h('div.iv-category-delete-bar',selectedCount,removeSelected,button('Отмена',()=>{deleting=false;selectedCategories.clear();for(const el of checks.values())el.checked=false;paintSelection();},'close'));
     const saveBar=h('div.iv-category-save',save);
     const dragHint=h('p.iv-category-drag-hint',{'role':'status','aria-live':'polite'},'Перетащите категорию за точки в другую категорию. Нажмите на значок, чтобы изменить его.');
     const rootDrop=h('div.iv-category-root-drop',{'aria-label':'Основные категории: перенос на верхний уровень'},icon('folder',17),h('span','Основные категории — перетащите сюда для возврата на верхний уровень'));categoryDropTarget(rootDrop,null);
     function pendingCategoryDraft(){return {names:new Map([...inputs].map(([id,el])=>[id,el.value])),name:name.value,parentId:parent.value,query:needle.value,createOpen:!createFields.hidden,sub:!parentField.hidden};}
+    function chooseSubcategory(c){
+      if(deleting||busy)return;
+      const pending=pendingCategoryDraft(),parentName=inputs.get(c.id).value.trim()||c.name;
+      modal('Добавить подкатегорию',(body,close)=>{
+        const childName=input('',{required:true,autofocus:true,maxlength:200,placeholder:'Название подкатегории','aria-label':'Название подкатегории'}),failure=h('p.iv-form-error',{role:'alert'}),submit=h('button.iv-btn.primary',{type:'submit'},icon('plus',16),'Добавить');
+        const create=h('form',h('p.iv-muted','В категории «'+parentName+'»'),field('Название',childName),failure,h('div.iv-actions',button('Отмена',close,'close'),submit));
+        create.onsubmit=async e=>{e.preventDefault();const value=childName.value.trim();if(!value){failure.textContent='Введите название подкатегории';childName.focus();return;}submit.disabled=true;try{await change(d=>{d.categories.push({id:M.id(),name:value,parentId:c.id,kind:'default'});},{retryable:false,action:'Добавление подкатегории: '+value,actionSection:'categories'});folded.delete(c.id);rememberFolds();close();drawCategories(pending);say('Подкатегория добавлена');}catch(e){failure.textContent=e.message;submit.disabled=false;}};
+        body.append(create);childName.focus();
+      });
+    }
     function clearCategoryDrag(){draggedCategoryId=null;form.querySelectorAll('.iv-category-drop-target,.iv-category-dragging').forEach(el=>el.classList.remove('iv-category-drop-target','iv-category-dragging'));dragHint.textContent='Перетащите категорию за точки в другую категорию. Нажмите на значок, чтобы изменить его.';}
     function categoryDropTarget(el,parentId){
       el.addEventListener('dragover',e=>{
@@ -840,7 +851,7 @@ export async function bootInventory(root) {
     }
     function paintSelection(){
       deleteMode.hidden=deleting;deleteMode.disabled=!sorted.length;deleteBar.hidden=!deleting;saveBar.hidden=deleting;
-      addRoot.disabled=deleting;addSub.disabled=deleting||!sorted.length;name.disabled=parent.disabled=deleting;
+      addRoot.disabled=deleting;for(const b of addButtons.values())b.hidden=deleting;name.disabled=parent.disabled=deleting;
       selectedCount.textContent=`Выбрано: ${selectedCategories.size}`;removeSelected.disabled=!selectedCategories.size;
       rootDrop.hidden=dragHint.hidden=deleting;
       for(const [id,check]of checks){check.hidden=!deleting;inputs.get(id).readOnly=deleting;handles.get(id).hidden=deleting;handles.get(id).draggable=!deleting;iconButtons.get(id).disabled=deleting;editRows.get(id).classList.toggle('is-selecting',deleting);}
@@ -857,7 +868,7 @@ export async function bootInventory(root) {
         body.append(h('p',`Будут удалены категории: ${ids.length}. Их назначения исчезнут из карточек: ${removal.cleared}. Сами вещи сохранятся.`),h('ul.iv-category-delete-list',...ids.map(id=>h('li',inputs.get(id).value||index().categoryName(id)))),removal.parents.size?h('p.iv-muted','Невыбранные подкатегории сохранятся и перейдут к ближайшей оставшейся родительской категории или в основной список.'):h('p.iv-muted','Действие можно отменить кнопкой «Отменить».'),failure,h('div.iv-actions',button('Отмена',close,'close'),submit));
       });
     }
-    form.append(modes,h('div.iv-category-search',needle,counter),h('div.iv-actions',addRoot,addSub,foldAll,deleteMode),deleteBar,createFields,dragHint,rootDrop,list,noResults,error,saveBar);paintSelection();
+    form.append(modes,h('div.iv-category-search',needle,counter),h('div.iv-actions',addRoot,foldAll,deleteMode),deleteBar,createFields,dragHint,rootDrop,list,noResults,error,saveBar);paintSelection();
     form.onsubmit=async e=>{e.preventDefault();if(deleting){if(selectedCategories.size)confirmRemoval();return;}error.textContent='';save.disabled=true;try{const names=[...inputs].map(([id,el])=>[id,el.value.trim()]);if(names.some(([,value])=>!value))throw Error('Название категории не может быть пустым');await change(d=>{for(const [id,value]of names)d.categories.find(c=>c.id===id).name=value;if(name.value.trim())d.categories.push({id:M.id(),name:name.value.trim(),parentId:parent.value||null,kind:'default'});},{retryable:false});say('Категории сохранены');}catch(e){error.textContent=e.message;save.disabled=false;}};
     content.replaceChildren(h('div.iv-category-back',button('К вещам',()=>go('catalog'),'back')),title('Категории','Готовые наборы, категории и подборки по занятиям'),h('section.iv-category-tools',h('div',h('strong','Настройте каталог под себя'),h('p','Быт, работа и увлечения — выберите готовые наборы и проверьте категории перед добавлением.')),button('Настроить категории',()=>{if(name.value.trim()||[...inputs].some(([id,el])=>el.value!==doc.categories.find(c=>c.id===id).name)){say('Сначала сохраните изменения категорий.',true);return;}configureCategories();},'sparkles','primary')),form,collectionSection());filter();
   }

@@ -22,3 +22,19 @@
 .iv-category-icon-grid .icon{width:21px;height:21px;flex:none}
 
 .iv-category-edit-row{position:relative}.iv-category-fold{position:absolute;right:5px;top:3px;width:24px;min-height:24px;height:24px;padding:2px;z-index:1}.has-category-fold>input:not([type=checkbox]){padding-right:36px!important}.iv-category-fold[aria-expanded=false] .icon{transform:rotate(-90deg)}.iv-category-branch.is-collapsed>.iv-category-branch{display:none!important}.iv-storage-locate{position:absolute;right:8px;top:8px;min-height:28px;padding:5px}
+
+/* Category creation is available at the row, beside the branch toggle. */
+.mode-inventory .iv-categories-compact :is(.iv-category-add-child,.iv-category-fold){position:absolute;top:4px;width:24px;height:24px;min-height:24px;padding:2px;z-index:1}
+.mode-inventory .iv-categories-compact .iv-category-add-child{right:5px}
+.mode-inventory .iv-categories-compact .has-category-add>.iv-category-fold{right:33px}
+.mode-inventory .iv-categories-compact .has-category-add>input:not([type=checkbox]){padding-right:35px!important}
+.mode-inventory .iv-categories-compact .has-category-add.has-category-fold>input:not([type=checkbox]){padding-right:63px!important}
+.mode-inventory .iv-categories-compact .iv-category-editor>.iv-category-add{grid-template-columns:minmax(0,1fr)}
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row:not(.is-selecting){grid-template-columns:22px 26px minmax(0,1fr) 24px 24px}
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row:not(.is-selecting)>.iv-category-drag-handle{grid-column:1;grid-row:1}
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row:not(.is-selecting)>.iv-category-badge{grid-column:2;grid-row:1}
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row:not(.is-selecting)>input:not([type=checkbox]){grid-column:1/-1;grid-row:2;padding-right:7px!important}
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row:not(.is-selecting)>.iv-category-parent{grid-row:3}
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row:not(.is-selecting)>:is(.iv-category-add-child,.iv-category-fold){position:static;grid-row:1}
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row:not(.is-selecting)>.iv-category-add-child{grid-column:5}
+.mode-inventory .iv-categories-compact .is-category-tiles .iv-category-edit-row:not(.is-selecting)>.iv-category-fold{grid-column:4}
