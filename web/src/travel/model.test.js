@@ -5,6 +5,15 @@ import * as I from '../inventory/model.js';
 import * as T from './model.js';
 import {seedTravelDemo} from './demo.js';
 import {calculateRoutes,overpassFeatures} from './services.js';
+import {createActionHistory} from '../inventory/action-history.js';
+
+test('finishing a trip keeps its whole plan and possessions and supports common undo',()=>{
+ const d=demo(),t=T.trips(d)[0],nodes=structuredClone(d.nodes),plan=structuredClone(t),before=structuredClone(d),history=createActionHistory();
+ T.finishTrip(d,t.id);assert.equal(t.status,'completed');assert.deepEqual({...t,status:plan.status},plan);assert.deepEqual(d.nodes,nodes);I.validate(JSON.parse(JSON.stringify(d)));
+ history.record(before,{label:'Завершение похода',section:'travel'},d);history.applyTo(d);history.complete(false);assert.equal(T.getTrip(d,t.id).status,plan.status);
+ history.applyTo(d,true);history.complete(true);assert.equal(T.getTrip(d,t.id).status,'completed');assert.throws(()=>T.finishTrip(d,'missing'));
+ for(const type of ['hike','cycling','paddling','camping','museum']){T.saveEvent(d,t.id,{name:'План',type,date:t.startDate,time:'12:10',notes:'',attachments:[]});}I.validate(d);
+});
 const demo=()=>{const d=I.demo(JSON.parse(fs.readFileSync(new URL('../../public/plans/home.json',import.meta.url),'utf8')));I.migrate(d);seedTravelDemo(d);return d;};
 test('demo validates; real bags, shared car, original addresses',()=>{const d=demo();assert.equal(I.validate(d),d);assert.equal(d.travel.trips.length,1);assert.equal(d.travel.trips[0].bags.length,3);assert.ok(d.travel.trips[0].bags.some(b=>b.kind==='car'));});
 test('transfers preserve all source properties; allow overlapping trips; return removes only this trip',()=>{const d=demo(),t=T.trips(d)[0],n=d.nodes.find(n=>n.name==='Аптечка'),before=structuredClone(n);T.transferItems(d,t.id,t.bags[0].id,[n.id]);assert.deepEqual(n,before);const second=T.saveTrip(d,{name:'Поход 2',startDate:t.startDate,endDate:t.endDate});const b=T.saveBag(d,second,{nodeId:t.bags[0].nodeId});T.transferItems(d,second,b,[n.id]);assert.equal(T.memberships(d,n.id).length,2);T.transferItems(d,t.id,null,[n.id]);assert.equal(T.memberships(d,n.id).length,1);assert.deepEqual(n,before);I.validate(d);});

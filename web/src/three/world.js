@@ -16,7 +16,6 @@ export const STAGE_BG = '#0a0e1a';
 
 const rad = THREE.MathUtils.degToRad;
 const clamp = THREE.MathUtils.clamp;
-const ORBIT_AZ = 40;       // degrees of freedom either side of the plan's default view
 const EL_MIN = 26;
 const EL_MAX = 70;
 const ZOOM_MIN = 0.55;     // closest
@@ -318,7 +317,7 @@ export function createWorld(canvas, config, store, { onHover=()=>{}, onPick=()=>
       if (!drag.moved && Math.hypot(dx, dy) > 5) { drag.moved = true; setHover(null); canvas.style.cursor = 'grabbing'; }
       if (drag.moved) {
         const focusAz=storage?(storage.shape.rot||0)+12:baseAz;
-        rig.goal.az = clamp(drag.az - dx * 0.35, focusAz - (storage?25:ORBIT_AZ), focusAz + (storage?25:ORBIT_AZ));
+        rig.goal.az = storage?clamp(drag.az-dx*.35,focusAz-25,focusAz+25):drag.az-dx*.35;
         rig.goal.el = clamp(drag.el + dy * 0.3, storage?8:EL_MIN, storage?50:EL_MAX);
         frameGoal();
         wake();

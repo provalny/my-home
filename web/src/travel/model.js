@@ -3,7 +3,7 @@ import {vehicleModelType} from '../automobile/vehicle-model.js';
 import { randomID } from '../uuid.js';
 
 export const MODES = {car:'Авто',foot:'Пешком',bike:'Велосипед',train:'Поезд',plane:'Самолёт',manual:'Вручную'};
-export const EVENT_TYPES = {activity:'Событие',stay:'Жильё',ticket:'Билет',note:'Заметка'};
+export const EVENT_TYPES = {activity:'Событие',stay:'Жильё',ticket:'Билет',note:'Заметка',hike:'Пеший поход',cycling:'Велопрогулка',paddling:'Сплав',camping:'Кемпинг / ночёвка',excursion:'Экскурсия',museum:'Музей / выставка',beach:'Пляж / купание',fishing:'Рыбалка',skiing:'Лыжи / сноуборд',sport:'Спорт',meal:'Еда / ресторан',rest:'Отдых',transfer:'Переезд',shopping:'Покупки'};
 export const BAG_MODELS = {backpack20:'Рюкзак · 20 л',travelBag30:'Дорожная сумка · 30 л',duffel60:'Багажная сумка · 60 л'};
 export const BAG_CAPACITY = {backpack20:20,travelBag30:30,duffel60:60};
 const finite = n => typeof n === 'number' && Number.isFinite(n);
@@ -97,3 +97,5 @@ function checkStop(s){text(s.name,'название точки');if(!finite(s.la
 function checkEvent(e){text(e.name,'название события');if(!validDate(e.date)||e.time&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(e.time)||!Object.hasOwn(EVENT_TYPES,e.type)||typeof e.notes!=='string'||!Array.isArray(e.attachments)||e.attachments.length>8||e.attachments.some(a=>!a||typeof a.name!=='string'||typeof a.dataUrl!=='string'||a.dataUrl.length>4000000||!/^data:(application\/pdf|image\/(png|jpeg|webp));base64,[A-Za-z0-9+/=]+$/.test(a.dataUrl)))throw Error('Проверьте событие и вложения');}
 function checkTrip(t){text(t.name,'название поездки');if(!validDate(t.startDate)||!validDate(t.endDate)||t.startDate&&t.endDate&&t.endDate<t.startDate||!Number.isInteger(t.participants)||t.participants<1||t.participants>1000||!['planned','active','completed'].includes(t.status)||t.carId!=null&&typeof t.carId!=='string')throw Error('Проверьте даты и участников поездки');unique(t.stops,'точки');unique(t.events,'события');unique(t.bags,'сумки');t.stops.forEach(checkStop);t.events.forEach(checkEvent);t.bags.forEach(checkBag);const ids=t.bags.flatMap(b=>[b.nodeId,...b.items]);if(new Set(ids).size!==ids.length)throw Error('Одна вещь не может находиться в двух сумках одной поездки');}
 export function validateTravel(d){if(d.travel==null)return true;const s=d.travel;if(s.version!==1)throw Error('Неизвестная версия поездок');unique(s.trips,'поездки');unique(s.loadouts,'лодауты');s.trips.forEach(checkTrip);for(const l of s.loadouts){text(l.name,'название лодаута');unique(l.bags,'сумки лодаута');l.bags.forEach(checkBag);}return true;}
+
+export function finishTrip(d,id){const t=getTrip(d,id);if(!t)throw Error('Поездка не найдена');t.status='completed';return t;}

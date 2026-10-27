@@ -1,4 +1,5 @@
 import {h} from '../ui/dom.js';
+import {colorPicker} from '../inventory/colors.js';
 import {icon} from '../ui/icons.js';
 import {eligible} from './model.js';
 import {DEFAULT_COLUMNS,manualField,availableManualFields,manualValue,missingFields,manualItems,planManualChanges,applyManualChanges,rebaseManualDraft} from './manual-model.js';
@@ -28,7 +29,7 @@ export function createManualMaster({getDocument,change,onChange}) {
     finally{saving=false;redraw();onChange();}
   }
   function setColumns(next){
-    columns=[...new Set(next)];if(!columns.length)filter='all';else if(!['missing','empty','all'].includes(filter)&&!columns.includes(filter))filter='missing';
+    columns=[...new Set(next)];if(!columns.length)filter='all';else if(filter==='all')filter='missing';else if(!['missing','empty'].includes(filter)&&!columns.includes(filter))filter='missing';
     pageSize=60;try{localStorage.setItem(PREF,JSON.stringify(columns));}catch{}redraw();
   }
   function render(container){
@@ -68,7 +69,7 @@ export function createManualMaster({getDocument,change,onChange}) {
       const missing=missingFields(n,columns),check=h('input',{type:'checkbox','aria-label':'Выбрать для ручного ввода: '+n.name});check.checked=selected.has(n.id);check.disabled=saving;
       check.onchange=()=>{check.checked?selected.add(n.id):selected.delete(n.id);updateControls();clear.disabled=!selected.size;};
       function makeInput(key){
-        const f=manualField(key),draft=drafts.get(n.id),input=h('input',{type:'text',value:draft?.values[key]??manualValue(n,key),'aria-label':`${n.name} · ${f.label}`,placeholder:key==='name'?'Название':'—',...(f.numeric||f.money?{inputmode:'decimal'}:{maxlength:200})});input.disabled=saving;
+        const f=manualField(key),draft=drafts.get(n.id),input=key==='color'?colorPicker(draft?.values[key]??manualValue(n,key)):h('input',{type:'text',value:draft?.values[key]??manualValue(n,key),'aria-label':`${n.name} · ${f.label}`,placeholder:key==='name'?'Название':'—',...(f.numeric||f.money?{inputmode:'decimal'}:{maxlength:200})});input.disabled=saving;if(key==='color')input.setAttribute('aria-label',`${n.name} · ${f.label}`);
         input.oninput=()=>{
           let d=drafts.get(n.id);if(!d){d={base:structuredClone(n),values:{}};drafts.set(n.id,d);}
           if(input.value===manualValue(d.base,key))delete d.values[key];else d.values[key]=input.value;

@@ -8,6 +8,21 @@ import { vehicleModelType } from './vehicle-model.js';
 import * as T from '../travel/model.js';
 import {vehicleStatusCards} from './status-data.js';
 
+test('V1 task estimates and system survive backup and undo without becoming actual expenses',()=>{
+ const {d,c}=fixture(),before=structuredClone(d),history=createActionHistory(),total=A.metrics(c).total;
+ const id=A.saveTask(c,{name:'Масло',system:'Двигатель',estimatedCents:450099,dueOdometer:12000});
+ history.record(before,{label:'Планирование ТО',section:'automobile'},d);
+ assert.equal(A.metrics(c).total,total);const copy=JSON.parse(JSON.stringify(d));I.validate(copy);
+ assert.equal(A.car(copy,c.id).maintenance.find(t=>t.id===id).estimatedCents,450099);
+ for(const patch of [{estimatedCents:-1},{estimatedCents:1.5},{system:'Несуществующий узел'}])assert.throws(()=>A.saveTask(c,{name:'Ошибка',dueDate:'2026-12-01',...patch}));
+ history.applyTo(d);history.complete(false);assert.equal(A.car(d,c.id).maintenance.length,0);history.applyTo(d,true);history.complete(true);assert.equal(A.car(d,c.id).maintenance[0].system,'Двигатель');
+});
+test('V1 refuel price rounds only the unit price and normalizes previously used fuel spelling',()=>{
+ assert.equal(A.refuelPrice(300000,40),7500);assert.equal(A.refuelPrice(359912,49.97),Math.round(359912/49.97));
+ for(const args of [[null,20],[100,0],[100,NaN],[-1,4],[1.5,20]])assert.throws(()=>A.refuelPrice(...args));
+ assert.equal(A.fuelType('АИ-95'),'АИ95');assert.equal(A.fuelType('аи 95+'),'АИ95+');assert.equal(A.fuelType('ДТ'),'ДТ');assert.equal(A.fuelType('Газ'),'');
+});
+
 test('vehicle plaques use recorded readings, the requested default 90%, and no invented tire percentage',()=>{
  const {d,c}=fixture();let cards=vehicleStatusCards(c);
  assert.equal(cards.find(x=>x.id==='condition').percent,90);assert.equal(cards.find(x=>x.id==='tires').percent,null);assert.equal(cards.find(x=>x.id==='tires').value,'Не указано');

@@ -4,10 +4,13 @@ import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import * as M from './model.js';
 import { nodeThumbnail, rarityBadge } from './visuals.js';
+import {measurementChanges} from './form-values.js';
+import {rarityPicker} from './rarity-picker.js';
+import {manualValue} from '../item-master/manual-model.js';
 import { colorPicker } from './colors.js';
 import { EQUIPMENT_FIELDS } from './equipment.js';
 import { collectionPicker } from './category-wizard.js';
-import { RARITIES, hasRarity, itemRarity } from './rarity.js';
+import { hasRarity, itemRarity } from './rarity.js';
 
 const DRAFT_PREFIX = 'my-home-inventory:form-draft:v1:';
 const RECENT_KEY = 'my-home-inventory:recent-places:v1';
@@ -40,7 +43,7 @@ export function createLocationPicker({ getDoc, value = '', excludeIds = [], movi
   const recentList = h('div.if-location-recent');
   const tree = h('div.if-location-tree', { role: 'tree', 'aria-label': `${label}: места` });
   const panel = h('div.if-location-panel', search, recentList, tree);
-  const collapsed = new Set();
+  const collapsed = new Set(),expandedSpaces=new Set();let initialTree=true;
   details.append(summary, panel);
   const root = h('div.if-location-root', details);
   // The label helper can focus the summary through this wrapper as well.
@@ -64,7 +67,7 @@ export function createLocationPicker({ getDoc, value = '', excludeIds = [], movi
     const doc = getDoc();
     const el = h('button.if-location-option', { type: 'button', role: 'treeitem', 'aria-level': level + 1, 'aria-selected': String(n.id === current), onclick: () => choose(n) },
       nodeThumbnail(doc,n,15),
-      h('span', h('strong', n.kind==='room'&&!n.virtual?M.address(doc,n):n.name), full ? h('small', M.address(doc, n)) : null), n.id === current ? icon('check', 14) : null);
+      h('span', h('strong', n.name), full ? h('small', M.address(doc, n)) : null), n.id === current ? icon('check', 14) : null);
     el.style.setProperty('--depth', String(level));
     el.addEventListener('keydown', e => {
       const rows = Array.from(tree.querySelectorAll('.if-location-option')).filter(x => x.getClientRects().length);
@@ -85,11 +88,7 @@ export function createLocationPicker({ getDoc, value = '', excludeIds = [], movi
       if (!matches.length) tree.append(h('p.if-location-empty', 'Такого места нет. Попробуйте другое название.'));
       return;
     }
-    const recentIds = stored(RECENT_KEY, []);
-    const recent = (Array.isArray(recentIds) ? recentIds : []).map(id => list.find(n => n.id === id)).filter(Boolean);
-    if (recent.length) {
-      recentList.append(h('p.if-location-label', 'Недавние места'), ...recent.map(n => button(M.address(doc, n), () => choose(n), 'if-recent-place')));
-    }
+    if(initialTree){list.forEach(n=>collapsed.add(n.id));initialTree=false;}
     const byParent = new Map();
     for (const n of list) { const p = ids.has(n.parentId) ? n.parentId : null; if (!byParent.has(p)) byParent.set(p, []); byParent.get(p).push(n); }
     // Match the user's saved order within each storage unit, then sort equal positions by name.
@@ -112,7 +111,14 @@ export function createLocationPicker({ getDoc, value = '', excludeIds = [], movi
         if (children.length && expanded) branch(n.id, level + 1, host);
       }
     }
-    branch(null, 0, tree);
+    const roots=byParent.get(null)||[];
+    for(const space of M.listSpaces(doc)){
+      const rooms=roots.filter(n=>!n.virtual&&M.spaceForNode(doc,n)?.id===space.id);if(!rooms.length)continue;
+      const open=expandedSpaces.has(space.id),toggle=h('button.if-space-choice',{type:'button','aria-expanded':String(open),onclick:()=>{open?expandedSpaces.delete(space.id):expandedSpaces.add(space.id);render();}},icon('home',16),space.name,icon(open?'down':'next',14));tree.append(toggle);
+      if(open){const section=h('div.if-space-rooms');const original=byParent.get(null);byParent.set(null,rooms);branch(null,0,section);byParent.set(null,original);tree.append(section);}
+    }
+    const virtual=roots.filter(n=>n.virtual);if(virtual.length){const original=byParent.get(null);byParent.set(null,virtual);branch(null,0,tree);byParent.set(null,original);}
+
     if (!list.length) tree.append(h('p.if-location-empty', 'Нет доступных мест хранения.'));
   }
   search.addEventListener('input', render);
@@ -166,17 +172,14 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   const location = createLocationPicker({ getDoc, value: starting.parentId, movingId: existing?.id, required: true, label: 'Место хранения' });
   const categoryOptions = [['', 'Без категории'], ...doc.categories.slice().sort((a, b) => M.categoryName(doc, a.id).localeCompare(M.categoryName(doc, b.id), 'ru')).map(c => [c.id, M.categoryName(doc, c.id)])];
   const category = select(categoryOptions, starting.categoryId, { 'aria-label': 'Категория' });
-  const manualRarities=RARITIES.filter(r=>!['epic','legendary'].includes(r.id));
-  const previousHigh=existing&&['epic','legendary'].includes(starting.rarity)?RARITIES.find(r=>r.id===starting.rarity):null;
-  const rarity = select([['','Автоматически'],...manualRarities.map(r=>[r.id,r.name]),...(previousHigh?[[previousHigh.id,previousHigh.name+' · прежнее значение']]:[])],starting.rarity||'',{'aria-label':'Редкость'});
-  if(previousHigh)rarity.querySelector(`option[value="${previousHigh.id}"]`).disabled=true;
+  const rarity=rarityPicker(starting.rarity||'');
   const rarityHelp=h('p.if-rarity-help'),rarityPreview=h('div.if-rarity-preview',{'aria-live':'polite'}),rarityField=field('Редкость',rarity,'if-rarity-field');
   rarityField.append(rarityPreview,rarityHelp);
   function refreshRarity() {
     captureAttributes();
     const candidate={...starting,name:name.value,kind:kind.value,categoryId:category.value,fields:allFields,rarity:rarity.value||null};
     rarityPreview.replaceChildren(...[rarityBadge(getDoc(),candidate)].filter(Boolean));
-    rarityHelp.textContent='Эпический и легендарный уровни присваиваются только автоматически по названию. Остальные можно выбрать вручную.';
+    rarityHelp.textContent='Эпический и легендарный — автоматически по названию.';
     const effective=itemRarity(getDoc(),candidate);
     if(effective)rarityField.dataset.rarity=effective.id;else delete rarityField.dataset.rarity;
   }
@@ -195,7 +198,8 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   function refreshWear(){wear.disabled=wearMode.value!=='manual';usefulLife.disabled=wearMode.value!=='automatic';const value=itemWear({...starting,createdAt:starting.createdAt||new Date().toISOString(),wearMode:wearMode.value,wear:wear.value===''?null:Number(wear.value),purchasedAt:purchased.value,usefulLifeMonths:Number(usefulLife.value)});wearPreview.textContent=value==null?'Укажите дату покупки и срок службы.':'Износ: '+value+'%'+(wearMode.value==='standard'?' · от даты добавления за 36 месяцев':'');}
   for(const control of [wearMode,usefulLife,purchased,wear])control.addEventListener('input',refreshWear);
   refreshWear();
-  const fill = input(starting.fill, { type: 'number', min: 0, max: 100, 'aria-label': 'Заполненность места, %' });
+  const fill = input(starting.fill??0, { type:'range',min:0,max:100,step:1,'aria-label':'Заполненность места, %' }),fillKnown=input('',{type:'checkbox',checked:starting.fill!=null&&starting.fill!=='','aria-label':'Заполненность указана'}),fillValue=h('output');
+  function refreshFill(){fill.disabled=!fillKnown.checked;fillValue.textContent=fillKnown.checked?fill.value+'%':'Не указана';fill.style.setProperty('--fill-progress',fill.value+'%');fill.style.setProperty('--fill-color',`hsl(${120-Number(fill.value)*1.2} 70% 48%)`);}fill.oninput=()=>{fillKnown.checked=true;refreshFill();};fillKnown.onchange=refreshFill;refreshFill();
   const condition = select(M.CONDITIONS.map(v => [v, v]), starting.condition || 'Хорошее', { 'aria-label': 'Состояние' });
   const expiry = input(starting.expiry, { type: 'date', 'aria-label': 'Срок годности' });
   const warranty = input(starting.warranty, { type: 'date', 'aria-label': 'Гарантия до' });
@@ -208,7 +212,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   const storageBasics=h('div.iv-form-grid.if-storage-basics');
   let attrInputs = {};
   const extraGrid = h('div.iv-form-grid.if-extra-fields');
-  const extra = h('details.if-extra', h('summary', 'Дополнительно: стоимость, даты и заметки'), extraGrid, secondaryAttrs, field('Заметки', notes));
+  const extra = h('details.if-extra', h('summary', 'Дополнительно'), extraGrid, secondaryAttrs, field('Заметки', notes));
   const photo = h('div.if-photo');
   const photoFile = input('', { type: 'file', accept: 'image/png,image/jpeg,image/webp', 'aria-label': 'Фотография вещи (необязательно)', class: 'if-photo-file' });
   const photoPreview = h('div.if-photo-preview');
@@ -244,10 +248,17 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
   const submit = h('button.iv-btn.primary', { type: 'submit' }, existing ? 'Сохранить' : 'Создать');
   const more = h('button.iv-btn', { type: 'submit', 'data-more': '1' }, 'Создать ещё');
   const footer = h('div.if-form-footer', h('div.if-form-save-state', draftNote), h('div.if-inline-actions', button('Отмена', () => requestClose()), existing ? null : more, submit));
-  const categoryField=field('Категория',category),kindField=field('Тип места',kind),fillField=field('Заполненность, %',fill);
+  const rootCategory=select([],'' ,{'aria-label':'Основная категория'}),subCategory=select([], '',{'aria-label':'Подкатегория'});
+  const categoryField=field('Категория',rootCategory),subCategoryField=field('Подкатегория',subCategory),kindField=field('Тип места',kind),fillField=field('Заполненность',h('div.if-fill-control',h('label',fillKnown,'Указать',fillValue),fill));
+  function syncCategories(){const cats=getDoc().categories;let root=cats.find(c=>c.id===category.value);while(root?.parentId)root=cats.find(c=>c.id===root.parentId);rootCategory.replaceChildren(h('option',{value:''},'Без категории'),...cats.filter(c=>!c.parentId).map(c=>h('option',{value:c.id},c.name)));rootCategory.value=root?.id||'';const children=cats.filter(c=>c.id!==root?.id&&(()=>{let n=c;while(n?.parentId){if(n.parentId===root?.id)return true;n=cats.find(x=>x.id===n.parentId);}return false;})());subCategory.replaceChildren(h('option',{value:''},'Без подкатегории'),...children.map(c=>h('option',{value:c.id},M.categoryName(getDoc(),c.id).split(' / ').slice(1).join(' / '))));subCategory.value=category.value===root?.id?'':category.value;subCategory.disabled=!children.length;}
+  rootCategory.onchange=()=>{category.value=rootCategory.value;category.dispatchEvent(new Event('change',{bubbles:true}));};subCategory.onchange=()=>{category.value=subCategory.value||rootCategory.value;category.dispatchEvent(new Event('change',{bubbles:true}));};
+  const weight=input(manualValue(starting,'weightGrams'),{inputmode:'decimal','aria-label':'Вес, г'}),volume=input(manualValue(starting,'transportLiters'),{inputmode:'decimal','aria-label':'Объём, л'});
+  const weightField=field('Вес, г',weight),volumeField=field('Объём, л',volume);
+  const measurements=h('div.iv-form-grid.if-measurements',weightField,volumeField);
+
   const basic = h('div.if-form-basic', family==='storage'?h('p.if-storage-hint','Полка, ящик, коробка или мебель, внутри которых хранятся вещи'):null,
-    h('div.if-name-photo',field('Название *',name),photo),storageBasics,
-    h('div.iv-field',h('span',family==='item'?'Место хранения *':'Где находится *'),location),primaryGrid,attrs,collections);
+    h('div.if-name-photo',field('Название *',name),photo),storageBasics,primaryGrid,measurements,
+    h('div.iv-field',h('span',family==='item'?'Место хранения *':'Где находится *'),location));
   scroll.append(restoreNote,basic,extra,error);
   form.append(closePrompt, scroll, footer);
   dialog.append(h('div.iv-dialog-title', heading, closeButton), form);
@@ -260,24 +271,24 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     const batch = CONSUMABLES.has(categoryType) && kind.value === 'item';
     const equipment=EQUIPMENT_FIELDS[starting.modelType]||{};
     const baseKeys = structural && !category.value ? [] : M.CATEGORY_FIELDS[categoryType] || (kind.value === 'furniture' && !category.value ? M.CATEGORY_FIELDS.furniture : M.CATEGORY_FIELDS.default);
-    const keys=[...new Set([...baseKeys,...Object.keys(equipment),...Object.keys(allFields)])];
+    const keys=[...new Set([...baseKeys,...Object.keys(equipment),...Object.keys(allFields)])].filter(k=>!['Вес, г','Вес, кг','Объём, л','Транспортный объём, л'].includes(k));
     const priority=PRIMARY_FIELDS[categoryType]||keys,main=[],secondary=[];
     for(const key of keys.filter(key=>key!=='Цвет').concat(keys.includes('Цвет')?['Цвет']:[])){
       const el=key==='Цвет'?colorPicker(allFields[key]||''):input(allFields[key]||'',{'aria-label':key});attrInputs[key]=el;
       if(equipment[key]){const listId='spec-'+key.replace(/[^a-zа-я0-9]/gi,'')+'-'+dialog.id;el.setAttribute('list',listId);el.placeholder='Выберите или введите своё';main.push(h('datalist',{id:listId},equipment[key].map(value=>h('option',{value}))));}
       (priority.includes(key)||equipment[key]?main:secondary).push(field(key,el,key==='Цвет'?'if-color-field':''));
     }
-    attrs.replaceChildren(...main);secondaryAttrs.replaceChildren(...secondary);
+    attrs.replaceChildren(...main);secondaryAttrs.replaceChildren(...secondary);syncCategories();
     purchaseField.querySelector('label').textContent = batch ? 'Цена покупки партии, ₽' : 'Цена покупки, ₽';
     currentField.querySelector('label').textContent = batch ? 'Текущая оценка партии, ₽' : 'Текущая оценка, ₽';
-    const primary=[], extras=[purchaseField,currentField];
-    if(isStorage){fillField.hidden=kind.value==='furniture'&&notStorage.checked;storageBasics.replaceChildren(kindField,fillField,...(kind.value==='furniture'?[storageRole]:[]));extras.push(categoryField,field('Состояние',condition));}
-    else{storageBasics.replaceChildren(categoryField,field('Состояние',condition));}
+    const primary=[purchaseField,categoryField,subCategoryField],extras=[currentField,field('Состояние',condition),attrs];
+    if(isStorage){fillField.hidden=kind.value==='furniture'&&notStorage.checked;storageBasics.replaceChildren(kindField,fillField,...(kind.value==='furniture'?[storageRole]:[]));}
+    else storageBasics.replaceChildren();
     if(hasRarity({...starting,kind:kind.value}))storageBasics.append(rarityField);
     if(batch||Number(starting.quantity)>1)primary.push(field('Количество',quantity),field('Единица',unit));
-    if(EXPIRING.has(categoryType)||starting.expiry)primary.push(field('Срок годности',expiry));
-    if(['electronics','furniture','tools','sport'].includes(categoryType)||starting.warranty)primary.push(field('Гарантия до',warranty));
-    // Category attributes are immediately available; occasional accounting fields stay folded.
+    if(EXPIRING.has(categoryType)||starting.expiry)extras.push(field('Срок годности',expiry));
+    if(['electronics','furniture','tools','sport'].includes(categoryType)||starting.warranty)extras.push(field('Гарантия до',warranty));
+    // Less frequent category and accounting details stay in the folded section.
     if(!structural)extras.push(field('Режим износа',wearMode),field('Ручной износ, %',wear),field('Срок полезного использования, месяцев',usefulLife),wearPreview);
     if(isStorage){extras.push(field('Как появилось дома',acquisition));}
     else extras.push(field('Как вещь появилась дома',acquisition));
@@ -297,10 +308,10 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     captureAttributes();
     return {storageEnabled:!notStorage.checked, name: name.value, kind: kind.value, parentId: location.value, categoryId: category.value, rarity:rarity.value||null, collectionIds:collections.value, acquisition: acquisition.value,
       fields: { ...allFields }, photo: photoValue, purchaseText: purchase.value, currentText: current.value,
-      wearMode:wearMode.value,usefulLifeMonths:usefulLife.value,wear: wear.value, fill: fill.value, condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: quantity.value, unit: unit.value, notes: notes.value };
+      wearMode:wearMode.value,usefulLifeMonths:usefulLife.value,wear: wear.value, fill: fillKnown.checked?fill.value:'',weightText:weight.value,volumeText:volume.value, condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: quantity.value, unit: unit.value, notes: notes.value };
   }
   // Drafts keep raw money input so even incomplete typing such as "120," survives a restart.
-  if (savedDraft) { if (savedDraft.purchaseText != null) purchase.value = savedDraft.purchaseText; if (savedDraft.currentText != null) current.value = savedDraft.currentText; }
+  if (savedDraft) { if(savedDraft.weightText!=null)weight.value=savedDraft.weightText;if(savedDraft.volumeText!=null)volume.value=savedDraft.volumeText; if (savedDraft.purchaseText != null) purchase.value = savedDraft.purchaseText; if (savedDraft.currentText != null) current.value = savedDraft.currentText; }
   let cleanState = JSON.stringify(state()), restoredDirty = Boolean(savedDraft);
   let dirty = restoredDirty;
   function resetToBase() {
@@ -312,7 +323,7 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
     acquisition.value = base.acquisition || 'existing'; purchased.value = base.purchasedAt || ''; condition.value = base.condition || 'Хорошее';
     purchase.value = base.purchaseCents == null ? '' : (base.purchaseCents / 100).toFixed(2); current.value = base.currentCents == null ? '' : (base.currentCents / 100).toFixed(2);
     wearMode.value=resolvedWearMode(base);usefulLife.value=base.usefulLifeMonths??'';
-    wear.value = base.wear ?? ''; fill.value = base.fill ?? ''; expiry.value = base.expiry || ''; warranty.value = base.warranty || '';
+    wear.value = base.wear ?? ''; fill.value = base.fill ?? 0;fillKnown.checked=base.fill!=null;refreshFill();weight.value=manualValue(base,'weightGrams');volume.value=manualValue(base,'transportLiters'); expiry.value = base.expiry || ''; warranty.value = base.warranty || '';
     quantity.value = base.quantity || 1; unit.value = base.unit || 'шт.'; notes.value = base.notes || '';
     refreshWear();renderFields(); renderPhoto(); restoreNote.hidden = true; closePrompt.hidden = true; error.textContent = ''; draftNote.textContent = '';
     restoredDirty = false; dirty = false; cleanState = JSON.stringify(state()); removeDraft(); name.focus();
@@ -354,13 +365,15 @@ export function openItemForm({ getDoc, existing = null, defaults = {}, currentPl
       if (acquisition.value === 'purchase' && !purchased.value) { purchased.focus(); throw Error('Для новой покупки укажите дату покупки.'); }
       if (!form.reportValidity()) return;
       captureAttributes();
+      const grams=weight.value.trim(),liters=volume.value.trim();
+      const measurements=measurementChanges(starting,allFields,grams,liters),{weightChanged,volumeChanged}=measurements;allFields=measurements.fields;
       const props = {...(kind.value==='furniture'?{storageEnabled:!notStorage.checked}:{}), name: name.value.trim(), kind: kind.value, parentId: location.value, categoryId: category.value, rarity:hasRarity({...starting,kind:kind.value})?rarity.value||null:null, collectionIds:collections.value, acquisition: acquisition.value,
         fields: Object.fromEntries(Object.entries(allFields).map(([key, value]) => [key, String(value).trim()]).filter(([, value]) => value)), photo: photoValue,
-        purchaseCents: M.parseMoney(purchase.value), currentCents: M.parseMoney(current.value), wearMode:wearMode.value,usefulLifeMonths:usefulLife.value===''?null:Number(usefulLife.value), wear: wear.value === '' ? null : Number(wear.value), fill: fill.value === '' ? null : Number(fill.value),
+        purchaseCents: M.parseMoney(purchase.value), currentCents: M.parseMoney(current.value), wearMode:wearMode.value,usefulLifeMonths:usefulLife.value===''?null:Number(usefulLife.value), wear: wear.value === '' ? null : Number(wear.value), fill: fillKnown.checked?Number(fill.value):null,
         condition: condition.value, purchasedAt: purchased.value, expiry: expiry.value, warranty: warranty.value, quantity: Number(quantity.value), unit: unit.value, notes: notes.value.trim() };
       let nodeId = existing?.id;
       saving = true; setSavingState();
-      await change(d => { if (existing) M.updateNode(d, existing.id, props); else nodeId = M.newNode(d, props).id; });
+      await change(d => { if (existing) M.updateNode(d, existing.id, props); else nodeId = M.newNode(d, props).id;const saved=M.getNode(d,nodeId);if(weightChanged){delete saved.weightEstimate;delete saved.weightKg;}if(volumeChanged)delete saved.volumeLiters; });
       rememberPlace(props.parentId); removeDraft(); dirty = false;
       const result = { categoryId: props.categoryId, parentId: props.parentId, kind: props.kind, again: Boolean(e.submitter?.dataset.more), nodeId };
       finishClose(); onSaved?.(result);

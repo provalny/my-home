@@ -14,7 +14,7 @@ const sourceLink=(url,label)=>h('a',{href:M.safeURL(url),target:'_blank',rel:'no
 const sourceKind=c=>c.sourceKind==='manufacturer'?'Производитель':c.sourceKind==='store'?'Страница товара':'Источник';
 
 export function createItemMaster({getDocument,change,modal,say,isActive=()=>true}) {
-  let host,mode='auto',filter='pending',query='',expanded=null,running=false,controller=null,progress='',lastMessage='',pageSize=60;
+  let host,mode=localStorage.getItem('iv:item-master:default-mode')==='manual'?'manual':'auto',filter='pending',query='',expanded=null,running=false,controller=null,progress='',lastMessage='',pageSize=60;
   const selected=new Set();
   const doc=()=>getDocument();
   const redraw=()=>{if(host&&isActive())render(host);};
@@ -111,11 +111,12 @@ export function createItemMaster({getDocument,change,modal,say,isActive=()=>true
   function render(container) {
     host=container;
     function activate(next){if(running||next===mode)return;mode=next;redraw();host.querySelector('#im-mode-'+next)?.focus();}
-    const modeTabs=h('nav.im-mode-tabs',{role:'tablist','aria-label':'Режим мастера предметов'},...[['auto','Автоматический'],['manual','Ручной']].map(([key,label])=>h('button',{
+    const modeTabs=h('nav.im-mode-tabs',{role:'tablist','aria-label':'Режим мастера предметов'},...[['manual','Ручной'],['auto','Автоматический']].map(([key,label])=>h('button',{
       type:'button',id:'im-mode-'+key,role:'tab','aria-selected':String(mode===key),'aria-controls':'im-panel-'+key,tabindex:mode===key?0:-1,disabled:running,onclick:()=>activate(key),
-      onkeydown:e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();e.stopPropagation();activate(e.key==='Home'?'auto':e.key==='End'?'manual':mode==='auto'?'manual':'auto');}}
+      onkeydown:e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();e.stopPropagation();activate(e.key==='Home'?'manual':e.key==='End'?'auto':mode==='auto'?'manual':'auto');}}
     },icon(key==='auto'?'sparkles':'sliders',15),label)));
-    const header=h('div.im-header',h('h1','Мастер предметов'),modeTabs);
+    const defaultManual=h('button.iv-btn', {type:'button','aria-pressed':String(localStorage.getItem('iv:item-master:default-mode')==='manual'),onclick:()=>{const enabled=localStorage.getItem('iv:item-master:default-mode')!=='manual';localStorage.setItem('iv:item-master:default-mode',enabled?'manual':'auto');redraw();}},icon('check',14),'Ручной по умолчанию');
+    const header=h('div.im-header',h('h1','Мастер предметов'),h('div.iv-actions',modeTabs,defaultManual));
     const panel=h('section.im-mode-panel',{id:'im-panel-'+mode,role:'tabpanel','aria-labelledby':'im-mode-'+mode});
     container.replaceChildren(header,panel);
     if(mode==='manual'){manual.render(panel);return;}

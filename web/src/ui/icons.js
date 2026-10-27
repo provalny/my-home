@@ -1,5 +1,5 @@
 import {
-  Backpack, Briefcase,
+  Eye, Backpack, Briefcase,
   Search, WashingMachine, Microwave, CookingPot, Refrigerator, Bath, ShowerHead, Toilet, PanelsTopLeft, Archive, LibraryBig, Fence, CircleDot, Warehouse, Monitor, RectangleEllipsis, Baby, Gamepad2, Coffee, Flower2,
   createElement, Trophy, Power, Sun, Sofa, Film, Moon, DoorOpen, LampCeiling, LampFloor, LampDesk, Lightbulb,
   Snowflake, Flame, Droplets, Fan, Wind, Leaf, ChevronDown, ChevronLeft, Plus, Minus, Thermometer,
@@ -12,7 +12,7 @@ import {
 } from 'lucide';
 
 const ICONS = {
-  backpack:Backpack,bag:Briefcase,
+  eye:Eye,backpack:Backpack,bag:Briefcase,
   search:Search, washer:WashingMachine, microwave:Microwave, stove:CookingPot, fridge:Refrigerator, bath:Bath, shower:ShowerHead, toilet:Toilet, wardrobe:PanelsTopLeft, dresser:Archive, shelf:LibraryBig, rack:Fence, tire:CircleDot, warehouse:Warehouse, monitor:Monitor, desk:RectangleEllipsis, baby:Baby, games:Gamepad2, coffee:Coffee, flower:Flower2,
   trophy:Trophy,
   clothes:Shirt, dishes:Utensils, tools:Wrench, sport:Dumbbell, medicine:Pill, cleaning:SprayCan, documents:FileText, pets:PawPrint, outdoor:Tent, hobby:Paintbrush, food:ShoppingBasket, car:Car, shoes:Footprints, milk:Milk,

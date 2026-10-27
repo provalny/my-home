@@ -20,3 +20,5 @@
 .iv-category-icon-grid .iv-btn{display:flex;flex-direction:column;gap:6px;white-space:normal;font-size:10px;min-height:67px;padding:8px 5px;text-align:center;line-height:1.3}
 .iv-category-icon-grid .iv-btn[aria-pressed=true]{border-color:var(--accent);background:var(--iv-selected,var(--glass-hi));color:var(--text)}
 .iv-category-icon-grid .icon{width:21px;height:21px;flex:none}
+
+.iv-category-edit-row{position:relative}.iv-category-fold{position:absolute;right:5px;top:3px;width:24px;min-height:24px;height:24px;padding:2px;z-index:1}.has-category-fold>input:not([type=checkbox]){padding-right:36px!important}.iv-category-fold[aria-expanded=false] .icon{transform:rotate(-90deg)}.iv-category-branch.is-collapsed>.iv-category-branch{display:none!important}.iv-storage-locate{position:absolute;right:8px;top:8px;min-height:28px;padding:5px}
