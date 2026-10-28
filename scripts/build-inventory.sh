@@ -11,7 +11,7 @@ RELEASE_METADATA="$(node --input-type=module -e '
   const releases = JSON.parse(readFileSync(process.argv[1], "utf8"));
   if (!releases.length) throw Error("История изменений пуста");
   for (const [i, release] of releases.entries()) {
-    if (!/^\d+\.\d+\.\d+$/.test(release.version) || !Number.isSafeInteger(release.build) || release.build < 1 || !/^\d{4}-\d{2}-\d{2}$/.test(release.date) || !release.title || !release.changes?.length || release.changes.some(text => typeof text !== "string" || !text.trim())) throw Error("Некорректная запись истории изменений");
+    if (!/^\d+\.\d+(?:\.\d+)?$/.test(release.version) || !Number.isSafeInteger(release.build) || release.build < 1 || !/^\d{4}-\d{2}-\d{2}$/.test(release.date) || !release.title || !release.changes?.length || release.changes.some(text => typeof text !== "string" || !text.trim())) throw Error("Некорректная запись истории изменений");
     if (i && releases[i - 1].build <= release.build) throw Error("Новые версии должны идти первыми, номер сборки должен расти");
   }
   console.log(releases[0].version, releases[0].build);

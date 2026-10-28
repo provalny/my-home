@@ -1,0 +1,165 @@
+/* Application navigation and workspace presentation. Data and 3D controls stay in their existing modules. */
+.mode-inventory .iv-shell:not(.is-sidebar-collapsed){grid-template-columns:240px minmax(0,1fr)}
+.mode-inventory .iv-sidebar{padding:24px 14px 14px;overflow:auto}
+.mode-inventory .iv-sidebar-heading{margin-bottom:27px;gap:6px;flex:none}
+.mode-inventory .iv-brand{margin:0;gap:10px}
+.mode-inventory .iv-brand strong{font-size:18px;letter-spacing:-.6px}
+.mode-inventory .iv-brand small{font-size:10px;line-height:1.4;margin-top:5px;color:var(--faint)}
+.mode-inventory .iv-sidebar>.iv-nav-caption{font-size:9px;letter-spacing:1.5px;margin:0 10px 12px;flex:none}
+.mode-inventory .iv-sidebar>.iv-nav{flex:1 0 auto;overflow:visible}
+.mode-inventory .iv-main-sections{gap:7px}
+.mode-inventory .iv-main-section[data-section=inventory],.iv-section-heading[data-section=inventory]{--section-color:var(--iv-blue)}
+.mode-inventory .iv-main-section[data-section=automobile],.iv-section-heading[data-section=automobile]{--section-color:var(--warm)}
+.mode-inventory .iv-main-section[data-section=travel],.iv-section-heading[data-section=travel]{--section-color:#bf9773}
+.mode-inventory .iv-main-section[data-section=personal-metrics],.iv-section-heading[data-section=personal-metrics]{--section-color:#bd9cde}
+.mode-inventory .iv-main-section[data-section=monitoring],.iv-section-heading[data-section=monitoring]{--section-color:#75c8b1}
+.mode-inventory[data-inventory-theme=light] .iv-main-section[data-section=travel]{--section-color:#886342}
+.mode-inventory[data-inventory-theme=light] .iv-main-section[data-section=personal-metrics]{--section-color:#8654af}
+.mode-inventory[data-inventory-theme=light] .iv-main-section[data-section=monitoring]{--section-color:#25836b}
+.mode-inventory .iv-nav .iv-main-section{position:relative;min-height:65px;padding:13px 10px;gap:12px;border:1px solid transparent;border-radius:12px;color:var(--text);width:100%}
+.mode-inventory .iv-nav .iv-main-section:hover{background:var(--glass-hi)}
+.mode-inventory .iv-nav .iv-main-section.active{background:var(--iv-selected);border-color:var(--line);box-shadow:inset 0 1px #ffffff08;color:var(--text)}
+.mode-inventory .iv-main-section.active::before{content:"";position:absolute;left:-1px;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--section-color)}
+.iv-section-icon{color:var(--section-color);display:grid;place-items:center;flex:none;width:26px;height:29px}
+.iv-section-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+.iv-section-copy strong{font-size:12px;line-height:1.3;font-weight:650}
+.iv-section-copy small{font-size:10px;line-height:1.4;color:var(--muted);font-weight:400}
+.mode-inventory .iv-sidebar-bottom{padding:16px 5px 0;margin-top:20px;border-top:1px solid var(--line);gap:12px;flex:none}
+.mode-inventory .iv-secondary-nav{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:0;overflow:visible}
+.mode-inventory .iv-secondary-nav>.iv-btn{margin:0;min-height:34px;padding:7px;font-size:10px;gap:7px}
+.mode-inventory .iv-secondary-nav>.iv-btn>.icon{width:15px;height:15px}
+.mode-inventory .iv-sidebar-bottom .iv-whats-new{font-size:11px;padding:8px 10px;min-height:33px}
+.mode-inventory .iv-local-status{font-size:9px;line-height:1.5;opacity:.8}
+.mode-inventory .iv-sidebar-bottom .iv-version-number{font-size:9px;margin:0}
+.mode-inventory .iv-topbar{min-height:70px;padding:10px 24px;gap:15px;flex-wrap:nowrap}
+.iv-section-heading{display:flex;align-items:center;gap:9px;min-width:0;flex:none}
+.iv-section-heading>.icon{color:var(--section-color,var(--iv-blue));flex:none}
+.iv-section-heading>strong{font-size:18px;letter-spacing:-.6px;line-height:1.3;white-space:nowrap}
+.mode-inventory .iv-topbar .iv-search{margin-left:auto;flex:1 1 230px;max-width:480px;min-height:38px}
+.mode-inventory .iv-topbar .iv-history-controls{flex:0 0 auto;min-width:0;max-width:75px}
+.mode-inventory .iv-topbar .iv-history-buttons{flex-wrap:nowrap;gap:3px}
+.mode-inventory .iv-topbar .iv-history-buttons .iv-btn{font-size:0;padding:6px;min-height:30px;gap:0}
+.mode-inventory .iv-topbar .iv-history-buttons .icon{width:15px;height:15px}
+.mode-inventory .iv-history-next,.mode-inventory .iv-topbar>.iv-save{display:none}
+.mode-inventory .iv-topbar>.primary{min-height:37px;padding:8px 13px}
+.mode-inventory :is(.is-monitoring,.is-automobile,.is-personal-metrics) .iv-section-heading{margin-right:auto}
+.mode-inventory .iv-context-nav{display:flex;align-items:stretch;gap:5px;min-height:49px;padding:0 24px;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;flex:none;background:var(--glass)}
+.mode-inventory .iv-context-nav[hidden]{display:none}
+.mode-inventory[data-inventory-material] .iv-context-nav>.iv-btn{background:transparent;border:0;border-radius:0;box-shadow:none}
+.mode-inventory .iv-context-nav>.iv-btn{position:relative;flex:none;min-height:48px;gap:6px;padding:10px 10px;border:0;border-radius:0;background:transparent;color:var(--muted);font-size:11px;white-space:nowrap}
+.mode-inventory .iv-context-nav>.iv-btn>.icon{width:14px;height:14px}
+.mode-inventory .iv-context-nav>.iv-btn:hover{color:var(--text);background:var(--glass)}
+.mode-inventory .iv-context-nav>.iv-btn.active{color:var(--iv-blue)}
+.mode-inventory[data-inventory-material] .iv-context-nav>.iv-btn.active{box-shadow:inset 0 -3px var(--accent)}
+.mode-inventory .iv-context-nav>.iv-context-editor{margin-left:auto}
+.iv-nav-count{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:7px;background:var(--warm);color:var(--bg);font-size:10px;font-variant-numeric:tabular-nums}
+.mode-inventory .iv-content{padding:24px}
+.mode-inventory .iv-heading{margin-bottom:20px;align-items:center}
+.mode-inventory .iv-heading h1{font-size:27px;letter-spacing:-.8px}
+.mode-inventory .iv-heading p{font-size:12px;line-height:1.5;margin-top:6px}
+.mode-inventory .iv-overview-content .iv-heading{position:relative}
+.iv-overview-date{font-size:11px;color:var(--muted)}
+.mode-inventory .iv-overview-content .iv-metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.mode-inventory .iv-overview-content .iv-metric{min-height:85px;padding:16px;box-sizing:border-box;border-radius:13px}
+.mode-inventory .iv-overview-main{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(260px,1fr);gap:16px;align-items:start}
+.mode-inventory .iv-overview-main .iv-overview-fill{margin-top:0}
+.iv-card-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.mode-inventory .iv-card-heading h2{margin:0}
+.mode-inventory .iv-card-heading .iv-btn{font-size:10px;min-height:26px;padding:4px 6px;color:var(--iv-blue);background:none;border:0}
+.mode-inventory .iv-overview-main>.iv-card{padding:18px;border-radius:14px}
+.mode-inventory .iv-overview-main .iv-room-summary{grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:10px}
+.mode-inventory .iv-overview-main .iv-room-card{min-height:155px}
+.mode-inventory .iv-overview-main .iv-car-preview{min-height:100px}
+.mode-inventory .iv-overview-main>.iv-card:last-child>.iv-btn{display:flex;align-items:center;width:100%;margin:0 0 8px;padding:12px 10px;text-align:left;justify-content:flex-start;line-height:1.5}
+.mode-inventory .iv-overview-main>.iv-card:last-child>small{display:block;margin-top:12px;font-size:10px}
+.mode-inventory .iv-overview-content>.iv-overview-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:16px 0}
+.mode-inventory .iv-overview-content>.iv-card:last-child{margin-top:16px}
+.mode-inventory .iv-overview-content .iv-recent{padding:10px 0}
+.mode-inventory .iv-space-controls{flex:none;margin-bottom:14px;padding:12px 14px 0;background:var(--glass);border:1px solid var(--line);border-radius:12px;min-width:0}
+.iv-space-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;min-width:0;flex-wrap:wrap}
+.iv-space-picker{display:flex;align-items:center;gap:9px;min-width:0;flex:1 1 150px;max-width:300px;color:var(--iv-blue)}
+.mode-inventory .iv-space-picker select{width:100%;min-width:0;border:0;background:transparent;font-size:13px;font-weight:600;padding:7px 20px 7px 0}
+.mode-inventory .iv-space-toolbar .iv-actions{margin:0;gap:5px}
+.mode-inventory .iv-space-toolbar .iv-btn{font-size:10px;min-height:30px;padding:6px 8px}
+.mode-inventory .iv-space-controls .iv-room-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;padding:0 0 10px;margin:0;gap:6px}
+.mode-inventory .iv-space-controls .iv-room-tabs>.iv-btn{flex:none;min-height:31px;padding:6px 10px}
+.mode-inventory .iv-space-modes{gap:4px;background:var(--glass);padding:3px;border:1px solid var(--line);border-radius:10px}
+.mode-inventory .iv-space-modes:empty{display:none}
+.mode-inventory .iv-space-modes .iv-btn{font-size:10px;border-color:transparent;min-height:30px;padding:6px 9px;background:transparent}
+.mode-inventory .iv-space-modes .iv-btn.active{border-color:var(--iv-edge);background:var(--iv-selected)}
+.mode-inventory .iv-home-content>.iv-home-grid{min-height:350px;gap:14px}
+.mode-inventory .iv-home-grid:not(.iv-tree-mode){grid-template-columns:minmax(0,1.65fr) minmax(280px,1fr)}
+.mode-inventory .iv-home-grid>.iv-storage{padding:16px;border-radius:14px}
+.mode-inventory .iv-storage h2{font-size:18px}
+.mode-inventory .iv-home-grid>.iv-scene{border-radius:14px}
+.mode-inventory .iv-shell.is-sidebar-collapsed{grid-template-columns:76px minmax(0,1fr)}
+.mode-inventory .is-sidebar-collapsed .iv-sidebar{padding:18px 9px 12px}
+.mode-inventory .is-sidebar-collapsed .iv-sidebar-heading{gap:7px;margin-bottom:20px}
+.mode-inventory .is-sidebar-collapsed .iv-section-copy{display:none}
+.mode-inventory .is-sidebar-collapsed .iv-nav .iv-main-section{min-height:54px;padding:12px 8px;justify-content:center}
+.mode-inventory .is-sidebar-collapsed .iv-secondary-nav{grid-template-columns:1fr}
+.mode-inventory .is-sidebar-collapsed .iv-sidebar-bottom{padding:12px 0 0}
+.mode-inventory .iv-btn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.mode-inventory .iv-mobile-close{display:none}
+@media(min-width:701px) and (max-width:1150px){
+  .mode-inventory .iv-shell:not(.is-sidebar-collapsed){grid-template-columns:208px minmax(0,1fr)}
+  .mode-inventory .iv-sidebar{padding-left:9px;padding-right:9px}
+  .mode-inventory .iv-brand strong{font-size:16px}
+  .mode-inventory .iv-topbar{padding:10px 18px;gap:10px;flex-wrap:wrap}
+  .mode-inventory .iv-section-heading>strong{font-size:16px}
+  .mode-inventory .iv-section-copy small{font-size:9px}
+  .mode-inventory .iv-context-nav{padding:0 14px;gap:0}
+  .mode-inventory .iv-context-nav>.iv-btn{padding-left:8px;padding-right:8px}
+  .mode-inventory .iv-content{padding:18px}
+  .mode-inventory .iv-overview-main{grid-template-columns:minmax(0,1fr)}
+  .mode-inventory .iv-overview-content .iv-metric{padding:12px;gap:8px}
+  .mode-inventory .iv-overview-content .iv-metric strong{font-size:18px}
+  .mode-inventory .iv-overview-content>.iv-overview-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:850px){
+  .mode-inventory .iv-home-grid:not(.iv-tree-mode){grid-template-columns:minmax(0,1fr)}
+  .mode-inventory .iv-overview-content .iv-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:700px){
+  .mode-inventory .iv-shell:not(.is-sidebar-collapsed),.mode-inventory .iv-shell.is-sidebar-collapsed{grid-template-columns:minmax(0,1fr)}
+  .mode-inventory .iv-topbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;padding:calc(10px + env(safe-area-inset-top,0px)) 12px 10px;min-height:0}
+  .mode-inventory .iv-topbar .iv-mobile-menu{grid-column:1;grid-row:1;font-size:0;gap:0;min-height:36px;padding:8px}
+  .mode-inventory .iv-topbar .iv-section-heading{grid-column:2;grid-row:1;margin:0}
+  .mode-inventory .iv-topbar .iv-section-heading>strong{font-size:16px;white-space:normal}
+  .mode-inventory .iv-topbar .iv-section-heading>.icon{display:none}
+  .mode-inventory .iv-topbar .iv-theme-toggle{grid-column:3;grid-row:1;width:36px;min-width:36px;min-height:36px}
+  .mode-inventory .iv-topbar>.iv-search{grid-column:1/-1;grid-row:2;max-width:none;margin:0}
+  .mode-inventory .iv-topbar>.iv-history-controls{grid-column:1/3;grid-row:3;max-width:75px;width:auto;justify-self:start}
+  .mode-inventory .iv-topbar>.primary{grid-column:2/4;grid-row:3;width:auto;justify-self:end;min-height:34px;font-size:11px}
+  .mode-inventory .iv-history-buttons{width:auto}
+  .mode-inventory .iv-context-nav{padding:0 8px;min-height:45px;gap:1px}
+  .mode-inventory .iv-context-nav>.iv-btn{min-height:45px;padding:9px;font-size:11px}
+  .mode-inventory .iv-context-nav>.iv-btn>.icon{display:none}
+  .mode-inventory .iv-context-nav>.iv-context-editor{margin-left:10px}
+  .mode-inventory .iv-content{padding:16px 12px calc(20px + env(safe-area-inset-bottom,0px))}
+  .mode-inventory .iv-heading{margin-bottom:14px}
+  .mode-inventory .iv-heading h1{font-size:24px}
+  .mode-inventory .iv-heading p{font-size:11px}
+  .mode-inventory .iv-overview-date{display:none}
+  .mode-inventory .iv-overview-main,.mode-inventory .iv-overview-content>.iv-overview-grid{grid-template-columns:minmax(0,1fr);gap:12px}
+  .mode-inventory .iv-overview-content .iv-metric{min-height:76px;padding:10px;gap:8px}
+  .mode-inventory .iv-overview-content .iv-metric>.icon{width:18px;height:18px}
+  .mode-inventory .iv-overview-content .iv-metric strong{font-size:17px}
+  .mode-inventory .iv-overview-content .iv-metric small{font-size:10px}
+  .mode-inventory .iv-space-controls{padding:10px 10px 0}
+  .mode-inventory .iv-space-toolbar{gap:7px}
+  .mode-inventory .iv-space-toolbar>.iv-actions{width:100%}
+  .mode-inventory .iv-space-toolbar>.iv-actions .iv-btn{flex:1;min-height:36px;font-size:10px;padding:6px}
+  .mode-inventory .iv-space-controls .iv-room-tabs>.iv-btn{min-height:37px}
+  .mode-inventory .iv-space-modes{width:100%}
+  .mode-inventory .iv-space-modes>.iv-btn{flex:1;min-height:34px;font-size:10px}
+  .mode-inventory .is-mobile-menu-open .iv-sidebar{width:min(300px,86vw);padding:calc(22px + env(safe-area-inset-top,0px)) 14px 16px;overscroll-behavior:contain}
+  .mode-inventory .iv-mobile-close{display:inline-flex;min-height:32px;width:32px;padding:6px;flex:none;background:none;border:0;color:var(--muted)}
+  .mode-inventory .is-sidebar-collapsed .iv-section-copy{display:flex}
+  .mode-inventory .is-sidebar-collapsed .iv-nav .iv-main-section{justify-content:flex-start;gap:12px;min-height:65px;padding:13px 10px}
+  .mode-inventory .is-sidebar-collapsed .iv-secondary-nav{grid-template-columns:1fr 1fr}
+  .mode-inventory .is-sidebar-collapsed .iv-secondary-nav>.iv-btn{font-size:11px;gap:7px;justify-content:flex-start}
+  .mode-inventory .is-sidebar-collapsed .iv-sidebar-heading{margin-bottom:24px}
+  .mode-inventory .is-sidebar-collapsed .iv-nav-caption{display:block}
+  .mode-inventory .iv-secondary-nav>.iv-btn{min-height:42px}
+}

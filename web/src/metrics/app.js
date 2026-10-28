@@ -4,9 +4,11 @@ import * as M from './model.js';
 import * as I from './insights.js';
 import {listCalendars,eventsOn,minutesForEvents} from './calendar.js';
 import { parseAppleHealthXML } from './health-import.js';
+import {isNative,platform} from '../bridge.js';
+import {isShowcase} from '../inventory/demo-runtime.js';
 import './metrics.css';
 
-const TABS = [['overview','Обзор','home'],['history','История','clock'],['sources','Источники','link']];
+const TABS = [['overview','Обзор','home'],['observations','Наблюдения','activity'],['history','История','clock'],['sources','Источники','link']];
 const QUESTIONS = [
   {key:'mood',title:'Какое у вас сегодня настроение?',options:[['1','Очень тяжело'],['2','Не очень'],['3','Нейтрально'],['4','Хорошо'],['5','Отлично']]},
   {key:'energy',title:'Сколько у вас энергии?',options:[['1','Очень мало'],['2','Мало'],['3','Средне'],['4','Много'],['5','Очень много']]},
@@ -107,6 +109,17 @@ export function createPersonalMetrics({getDocument,change,say}) {
     })));
   }
 
+  function observations(body) {
+    if(isShowcase){body.append(h('section.pm-empty',h('h2','Хронология домашнего сборщика'),h('p','В подключённом приложении здесь доступны занятия, периоды сидения, разметка зон и редактор снимков.'),h('p','Демонстрация не подключается к личным камерам и данным.')));return;}
+    const localHost=(isNative&&platform==='macos')||['localhost','127.0.0.1',''].includes(location.hostname);
+    const url='http://127.0.0.1:11985/analysis';
+    body.append(h('section.pm-observations-heading',h('div',h('h2','Хронология и зоны'),h('p','Наблюдения камер и компьютеров, периоды сидения и ваши исправления. Расчёты и исходные данные хранятся на домашнем сборщике.')),
+      localHost?h('div.pm-observations-links',h('a.iv-btn',{href:url,target:'_blank',rel:'noopener noreferrer'},'Открыть отдельно'),h('a.iv-btn',{href:'http://127.0.0.1:11985/editor',target:'_blank',rel:'noopener noreferrer'},'Редактор снимков')):null));
+    if(!localHost){body.append(h('div.pm-empty','Откройте этот раздел на Mac с подключённым домашним сборщиком. Удалённое подключение к хронологии ещё не настроено.'));return;}
+    body.append(h('iframe.pm-observations-frame',{src:url,title:'Хронология дня и разметка зон',loading:'lazy',referrerpolicy:'no-referrer'}));
+    body.append(h('p.pm-provenance','Если панель не загрузилась, проверьте подключение домашнего сборщика через меню LA возле часов. Ручные отметки самочувствия сохраняются отдельно.'));
+  }
+
   function sources(body) {
     if(state.healthEditor)body.append(healthPanel());
     const records=M.data(doc()).health;
@@ -173,7 +186,7 @@ export function createPersonalMetrics({getDocument,change,say}) {
     const tabs=h('nav.pm-tabs',{'aria-label':'Вкладки личных метрик'},...TABS.map(([key,label,glyph])=>h('button',{type:'button',class:state.tab===key?'active':'','aria-current':state.tab===key?'page':null,onclick:()=>switchTab(key)},icon(glyph,13),label)));
     const body=h('div.pm-body');
     container.replaceChildren(header,tabs,body);
-    ({overview,history,sources}[state.tab]||overview)(body);
+    ({overview,observations,history,sources}[state.tab]||overview)(body);
   }
 
   function maybePrompt() {
